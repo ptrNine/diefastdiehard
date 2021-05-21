@@ -119,6 +119,7 @@ public:
 
         _collision_box->enable_gravity();
         _collision_box->allow_platform(true);
+        _collision_box->user_data(0xdeadf00d);
         _collision_box->user_any(this);
 
         sim.add_primitive(_collision_box);
@@ -154,30 +155,26 @@ public:
                 jump();
             else if (c == ks.down)
                 jump_down();
-            else if (c == ks.left)
-                move_left();
-            else if (c == ks.right)
-                move_right();
+            else if (c == ks.left) {
+                _cur_x_accel_l = -_x_accel;
+                _dir = dir_left;
+            }
+            else if (c == ks.right) {
+                _cur_x_accel_r = _x_accel;
+                _dir = dir_right;
+            }
             else if (c == ks.shot)
                 shot();
         }
         else if (evt.type == sf::Event::KeyReleased) {
             auto c = evt.key.code;
-            if (c == ks.left || c == ks.right)
-                stop();
+            if (c == ks.left)
+                _cur_x_accel_l = 0.f;
+            else if (c == ks.right)
+                _cur_x_accel_r = 0.f;
             else if (c == ks.shot)
                 relax();
         }
-    }
-
-    void ai_operate() {
-        std::cout << _collision_box->get_position() << std::endl;
-        if (_collision_box->get_position().x > 1300) {
-            move_left();
-        } else {
-            move_right();
-        }
-        jump();
     }
 
     void stop() {
@@ -207,6 +204,10 @@ public:
             _pistol.relax_trigger();
     }
 
+    static int player_group_getter(const physic_point* p) {
+        return std::any_cast<player*>(p->get_user_any())->get_group();
+    }
+
     void game_update(physic_simulation& sim, bullet_mgr& bm) {
         if (_pistol) {
             auto dir       = _on_left ? sf::Vector2f{-1.f, 0.f} : sf::Vector2f{1.f, 0.f};
@@ -214,7 +215,7 @@ public:
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
             pos += sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
 
-            if (auto recoil = _pistol.update(pos, dir, bm, sim))
+            if (auto recoil = _pistol.update(pos, dir, bm, sim, _group, player_group_getter))
                 _collision_box->apply_impulse(-dir * *recoil);
         }
     }
@@ -235,9 +236,9 @@ public:
         }
 
         if (vel.x < _max_speed)
-            accel += _cur_x_accel_r * _accel_f;
+            accel += _cur_x_accel_r * (_accel_left_reset ? _accel_f : 1.f);
         if (vel.x > -_max_speed)
-            accel += _cur_x_accel_l * _accel_f;
+            accel += _cur_x_accel_l * (!_accel_left_reset ? _accel_f : 1.f);
 
         bool moving = !is_float_zero(_cur_x_accel_r) || !is_float_zero(_cur_x_accel_r);
         float prev_v = vel.x;
@@ -307,8 +308,11 @@ public:
 
         if (_pistol) {
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
-            auto [lh, rh]  = _pistol.draw(
-                 pos + sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y), _on_left, wnd);
+            auto [lh, rh] =
+                _pistol.draw(pos + sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y),
+                             _on_left,
+                             wnd,
+                             _collision_box->get_velocity());
             _left_hand.setPosition(lh);
             _right_hand.setPosition(rh);
             wnd.draw(_left_hand);
@@ -348,6 +352,11 @@ public:
 
     void setup_pistol(const std::string& section) {
         _pistol = weapon_instance(section);
+    }
+
+    [[nodiscard]]
+    const weapon_instance* get_gun() const {
+        return &_pistol;
     }
 
 private:
@@ -423,6 +432,7 @@ private:
     sf::Vector2f _size;
     sf::Vector2f _txtr_adjust = {1.25f, 1.08f};
 
+    bool  _accel_left_reset = false;
     float _accel_f    = 1.f;
     float _max_speed  = 350.f;
     float _x_accel    = 2450.f;
@@ -437,6 +447,8 @@ private:
 
     u32  _id;
 
+    u32 _deaths = 0;
+
     weapon_instance _pistol;
 
     enum player_dir_t {
@@ -446,9 +458,45 @@ private:
     } _dir;
     bool _on_left = false;
 
+    int _group = 0;
+
 public:
-    void reset_accel_f() {
+    [[nodiscard]]
+    sf::Vector2f barrel_pos() const {
+        if (_pistol)
+            return _collision_box->get_position() +
+                   _pistol.shot_displacement(_on_left ? sf::Vector2f{-1.f, 0.f}
+                                                      : sf::Vector2f{1.f, 0.f});
+        else
+            return _collision_box->get_position();
+    }
+
+    void increase_deaths() {
+        ++_deaths;
+    }
+
+    [[nodiscard]]
+    u32 get_deaths() const {
+        return _deaths;
+    }
+
+    void group(int value) {
+        _group = value;
+    }
+
+    [[nodiscard]]
+    int get_group() const {
+        return _group;
+    }
+
+    [[nodiscard]]
+    bool get_on_left() const {
+        return _on_left;
+    }
+
+    void reset_accel_f(bool left_only) {
         _accel_f = 0.f;
+        _accel_left_reset = left_only;
     }
 
     [[nodiscard]]
@@ -460,8 +508,23 @@ public:
         _collision_box->position(value);
     }
 
+    [[nodiscard]]
+    const sf::Vector2f& get_position() const {
+        return _collision_box->get_position();
+    }
+
     void velocity(const sf::Vector2f& value) {
         _collision_box->velocity(value);
+    }
+
+    [[nodiscard]]
+    sf::Vector2f get_velocity() const {
+        return _collision_box->get_velocity();
+    }
+
+    [[nodiscard]]
+    const sf::Vector2f& get_size() const {
+        return _size;
     }
 
     [[nodiscard]]
@@ -471,6 +534,12 @@ public:
 
     void max_speed(float value) {
         _max_speed = value;
+    }
+
+    [[nodiscard]]
+    float calc_max_jump_y_dist(float gravity_y) const {
+        auto t = _jump_speed / gravity_y;
+        return (_jump_speed * t - gravity_y * t * t * 0.5f) * float(get_available_jumps());
     }
 
     [[nodiscard]]
@@ -508,14 +577,24 @@ public:
     void enable_double_jump() {
         jumps_left = max_jumps;
     }
+
+    void mass(float value) {
+        _collision_box->mass(value);
+    }
+
+    [[nodiscard]]
+    u32 get_available_jumps() const {
+        return _collision_box->is_lock_y() ? jumps_left + 1 : jumps_left;
+    }
 };
 
 inline void
 player_hit_callback(physic_point* bullet_pnt, physic_group* player_grp, collision_result) {
-    if (bullet_pnt->get_user_data() == 0xdeadbeef) {
+    if (bullet_pnt->get_user_data() == 0xdeadbeef && player_grp->get_user_data() == 0xdeadf00d &&
+        !bullet_pnt->ready_delete_later()) {
         player_grp->apply_impulse(bullet_pnt->impulse());
         bullet_pnt->delete_later();
-        std::any_cast<player*>(player_grp->get_user_any())->reset_accel_f();
+        std::any_cast<player*>(player_grp->get_user_any())->reset_accel_f(bullet_pnt->get_direction().x < 0.f);
     }
 }
 }

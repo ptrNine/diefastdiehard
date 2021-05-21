@@ -62,6 +62,18 @@ private:
     std::vector<element_t> _elements;
 
 public:
+    void user_data(u64 value) override {
+        physic_point::user_data(value);
+        for (auto& [e, _] : _elements)
+            e->user_data(value);
+    }
+
+    void user_any(std::any value) override {
+        physic_point::user_any(value);
+        for (auto& [e, _] : _elements)
+            e->user_any(value);
+    }
+
     void record_dir_and_velocity() override {
         physic_point::record_dir_and_velocity();
         for (auto& [e, displ] : _elements)

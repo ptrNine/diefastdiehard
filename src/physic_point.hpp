@@ -107,11 +107,17 @@ protected:
 
 
 public:
-    void user_any(std::any value) {
+    virtual void user_any(std::any value) {
         _user_any = std::move(value);
     }
 
+    [[nodiscard]]
     std::any& get_user_any() {
+        return _user_any;
+    }
+
+    [[nodiscard]]
+    const std::any& get_user_any() const {
         return _user_any;
     }
 
@@ -130,7 +136,7 @@ public:
         return _prev_scalar_velocity;
     }
 
-    void user_data(u64 value) {
+    virtual void user_data(u64 value) {
         _user_data = value;
     }
 

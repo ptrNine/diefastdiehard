@@ -38,6 +38,7 @@ endforeach()
 set(CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/3rd/lib/cmake")
 
 find_package(SFML 2.5.1 REQUIRED window system graphics)
+find_package(Threads REQUIRED)
 
 add_executable(diefastdiehard diefastdiehard.cpp)
-target_link_libraries(diefastdiehard sfml-system sfml-window sfml-graphics)
+target_link_libraries(diefastdiehard sfml-system sfml-window sfml-graphics Threads::Threads)

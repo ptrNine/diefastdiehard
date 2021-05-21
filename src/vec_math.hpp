@@ -166,4 +166,8 @@ inline float rand_float(float min, float max) {
     return std::uniform_real_distribution<float>(min, max)(rand_gen_singleton::instance().mt());
 }
 
+inline bool roll_the_dice(float probability) {
+    return rand_float(0.f, 1.f) < probability;
+}
+
 } // namespace dfdh

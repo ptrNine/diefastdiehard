@@ -9,7 +9,7 @@ namespace dfdh {
 
 class engine {
 public:
-    engine(): _wnd(sf::VideoMode(800, 600), "diefastdiehard") {}
+    engine(): _wnd(sf::VideoMode(1400, 1000), "diefastdiehard") {}
     virtual ~engine() = default;
 
     int run() {

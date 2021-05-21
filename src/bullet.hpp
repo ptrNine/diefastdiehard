@@ -38,6 +38,7 @@ private:
         _txtr.loadFromFile(std::filesystem::current_path() / "data/textures/bullet.png");
         _txtr.setSmooth(true);
         _sprite.setTexture(_txtr);
+        _sprite.setColor({255, 255, 0});
         auto sz = _txtr.getSize();
         _sprite.setOrigin(float(sz.x), float(sz.y) / 2.f);
 
@@ -65,7 +66,8 @@ public:
     bullet(physic_simulation&  sim,
            const sf::Vector2f& position,
            float               mass,
-           const sf::Vector2f& velocity) {
+           const sf::Vector2f& velocity,
+           int                 group) : _group(group) {
         _ph = physic_point::create(position, normalize(velocity), magnitude(velocity), mass);
         sim.add_primitive(_ph);
     }
@@ -80,8 +82,19 @@ public:
         return _ph;
     }
 
+    [[nodiscard]]
+    auto& physic() const {
+        return _ph;
+    }
+
+    [[nodiscard]]
+    int group() const {
+        return _group;
+    }
+
 private:
     std::shared_ptr<physic_point> _ph;
+    int _group;
 };
 
 class bullet_mgr {
@@ -91,10 +104,33 @@ public:
         sim.add_collide_callback(_name, std::move(hit_callback));
     }
 
-    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity) {
-        _bullets.emplace_back(sim, position, mass, velocity);
+    template <typename F>
+    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, int group, F player_group_getter) {
+        _bullets.emplace_back(sim, position, mass, velocity, group);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
+        if (group != -1)
+            blt.physic()->set_collide_allower([=](const physic_point* p) {
+                if (p->get_user_data() == 0xdeadf00d) {
+                    int grp = player_group_getter(p);
+                    return grp == -1 || grp != group;
+                }
+                return false;
+            });
+    }
+
+    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity) {
+        _bullets.emplace_back(sim, position, mass, velocity, -1);
+        auto& blt = _bullets.back();
+        blt.physic()->user_data(0xdeadbeef);
+        /*
+        if (group != -1)
+            blt.physic()->set_collide_allower([](const physic_point* p) {
+                if (p->get_user_data() == 0xdeadf00d) {
+                    auto plr = std::any_cast<player*>(player_grp->get_user_any());
+                }
+            });
+        */
     }
 
     void draw(sf::RenderWindow& wnd) {
@@ -104,7 +140,7 @@ public:
                 continue;
             }
 
-            if (i->physic()->get_distance() > 15000.f)
+            if (i->physic()->get_distance() > 5000.f)
                 i->physic()->delete_later();
 
             auto pos = i->physic()->get_position();
@@ -120,6 +156,11 @@ public:
 
             ++i;
         }
+    }
+
+    [[nodiscard]]
+    const std::list<bullet>& bullets() const {
+        return _bullets;
     }
 
 private:

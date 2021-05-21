@@ -86,6 +86,11 @@ public:
         }
     }
 
+    [[nodiscard]]
+    const auto& get_platforms() const {
+        return _platforms;
+    }
+
 private:
     sf::Sprite  _end_platform;
     sf::Sprite  _platform;

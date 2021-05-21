@@ -61,6 +61,16 @@ public:
         throw std::runtime_error("Invalid weapon class: " + str);
     }
 
+    static float tier_to_bullet_vel(u32 tier) {
+        switch (tier) {
+            case 0: return 1200.f;
+            case 1: return 1500.f;
+            case 2: return 1800.f;
+            case 3: return 2100.f;
+            default: return 1500.f;
+        }
+    }
+
     weapon(const std::string& section) {
         _hit_mass      = cfg().get_req<float>(section, "hit_mass");
         _dispersion    = cfg().get_req<float>(section, "dispersion");
@@ -79,6 +89,7 @@ public:
         _shot_flash    = cfg().get_default<bool>(section, "shot_flash", false);
         _eject_shell   = cfg().get_default<bool>(section, "eject_shell", false);
         _wpn_class     = weapon_class_from_str(cfg().get_req<std::string>(section, "class"));
+        _bullet_vel_tier = cfg().get_req<u32>(section, "bullet_velocity_tier");
 
         if (_eject_shell) {
             _shell_pos   = cfg().get_req<sf::Vector2f>(section, "shell_pos");
@@ -181,6 +192,7 @@ private:
     u32   _mag_size;
     u32   _arm_bone;
     u32   _arm2_bone;
+    u32   _bullet_vel_tier;
 
     float _xf, _yf;
 
@@ -212,6 +224,11 @@ public:
     [[nodiscard]]
     u32 mag_size() const {
         return _mag_size;
+    }
+
+    [[nodiscard]]
+    float get_dispersion() const {
+        return _dispersion;
     }
 };
 
@@ -301,10 +318,13 @@ public:
         _current_anim = anim_spec_t{name, {}};
     }
 
+    template <typename F = int>
     std::optional<float> update(const sf::Vector2f& position,
                                 const sf::Vector2f& direction,
                                 bullet_mgr&         bm,
-                                physic_simulation&  sim) {
+                                physic_simulation&  sim,
+                                int                 group               = -1,
+                                F                   player_group_getter = -1) {
         if (!_wpn)
             return {};
 
@@ -319,7 +339,10 @@ public:
 
         if (_on_shot && _ammo_elapsed &&
             _shot_timer.getElapsedTime().asSeconds() > 60.f / _wpn->_fire_rate) {
-            shot(position, direction, bm, sim);
+            if constexpr (std::is_same_v<F, int>)
+                shot(position, direction, bm, sim);
+            else
+                shot(position, direction, bm, sim, group, std::move(player_group_getter));
             _on_reload = false;
             _shot_timer.restart();
             return _wpn->_recoil;
@@ -340,8 +363,11 @@ public:
         _on_shot = false;
     }
 
-    std::array<sf::Vector2f, 2> draw(const sf::Vector2f& position, bool left_dir, sf::RenderWindow& wnd) {
-        float LF = left_dir ? -1.f : 1.f;
+    std::array<sf::Vector2f, 2> draw(const sf::Vector2f& position,
+                                     bool                left_dir,
+                                     sf::RenderWindow&   wnd,
+                                     const sf::Vector2f& shell_additional_vel = {0.f, 0.f}) {
+        float                 LF       = left_dir ? -1.f : 1.f;
         static constexpr auto leftyfix = [](const sf::Vector2f& v, float invert) {
             return sf::Vector2f(v.x * invert, v.y);
         };
@@ -428,7 +454,7 @@ public:
             auto dir = left_dir ? sf::Vector2f{-_wpn->_shell_dir.x, _wpn->_shell_dir.y} : _wpn->_shell_dir;
 
             _active_shells.push_back(shell_data{
-                vel * dir,
+                vel * dir + shell_additional_vel,
                 position + shell_displacement(left_dir),
                 rand_float(-40.f, 40.f),
                 rand_float(-360.f, 360.f),
@@ -487,6 +513,11 @@ public:
         return {layers[_wpn->_arm_bone].getPosition(), layers[_wpn->_arm2_bone].getPosition()};
     }
 
+    [[nodiscard]]
+    sf::Vector2f shot_displacement(const sf::Vector2f& direction) const {
+        return direction.x < 0.f ? sf::Vector2f(-_wpn->_barrel.x, _wpn->_barrel.y) : _wpn->_barrel;
+    }
+
 private:
     void draw_shells(sf::RenderWindow& wnd) {
         auto& sprite = _wpn->_shell_sprite;
@@ -512,28 +543,33 @@ private:
     }
 
     [[nodiscard]]
-    sf::Vector2f shot_displacement(const sf::Vector2f& direction) {
-        return direction.x < 0.f ? sf::Vector2f(-_wpn->_barrel.x, _wpn->_barrel.y) : _wpn->_barrel;
-    }
-    [[nodiscard]]
     sf::Vector2f shell_displacement(bool on_left) {
         return on_left ? sf::Vector2f(-_wpn->_shell_pos.x, _wpn->_shell_pos.y) : _wpn->_shell_pos;
     }
 
+    template <typename F = int>
     void shot(const sf::Vector2f& position,
               const sf::Vector2f& direction,
               bullet_mgr&         bm,
-              physic_simulation&  sim) {
+              physic_simulation&  sim,
+              int                 group = -1,
+              F                   player_group_getter = -1) {
         auto pos = position + shot_displacement(direction);
-        auto dir = randomize_dir(direction, _wpn->_dispersion);
+        auto dir = randomize_dir(direction, _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f);
 
+        auto bullet_vel = weapon::tier_to_bullet_vel(_wpn->_bullet_vel_tier);
         if (_wpn->_buckshot == 1) {
-            bm.shot(sim, pos, _wpn->_hit_mass, dir * 1500.f);
+            if constexpr (std::is_same_v<F, int>)
+                bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel);
+            else
+                bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel, group, std::move(player_group_getter));
         } else {
             for (u32 i = 0; i < _wpn->_buckshot; ++i) {
-                auto newdir = randomize_dir(dir, _wpn->_dispersion * 2.f);
-                auto f = 1.f / std::fabs(newdir.x);
-                bm.shot(sim, pos, _wpn->_hit_mass, newdir * 1500.f * f);
+                auto newdir = randomize_dir(dir, _wpn->_dispersion);
+                if constexpr (std::is_same_v<F, int>)
+                    bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel);
+                else
+                    bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel, group, std::move(player_group_getter));
             }
         }
 
@@ -575,6 +611,17 @@ private:
     bool                       _on_shot = false;
     bool                       _on_reload = false;
     sf::Clock                  _shot_timer;
+
+public:
+    [[nodiscard]]
+    const weapon* get_weapon() const {
+        return _wpn;
+    }
+
+    [[nodiscard]]
+    float get_bullet_vel() const {
+        return weapon::tier_to_bullet_vel(_wpn->_bullet_vel_tier);
+    }
 };
 
 } // namespace dfdh
