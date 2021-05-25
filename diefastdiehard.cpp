@@ -7,16 +7,72 @@
 #include "src/bullet.hpp"
 #include "src/weapon.hpp"
 #include "src/ai.hpp"
+#include "src/rand_pool.hpp"
+#include "src/networking.hpp"
 
 #include <SFML/Graphics/RectangleShape.hpp>
 
+auto wpns = std::array{
+    "wpn_glk17",
+    "wpn_brn10",
+    "wpn_de",
+    "wpn_1887",
+    "wpn_ak9",
+    "wpn_416",
+    "wpn_ss50"
+};
+
+size_t cur_wpn = 0;
+
 namespace dfdh {
+
+
+struct client_state {
+    client_state() {
+        send(a_cli_i_wanna_play{}, [this](bool ok) {
+            if (ok)
+                hello = true;
+            else
+                std::cerr << "Cannot connect to server " << serv_ip.toString() << ":" << serv_port << std::endl;
+        });
+    }
+
+    template <typename T, typename F = bool>
+    void send(const T& act, F transcontrol_handler = false) {
+        sock.send(serv_ip, serv_port, act, transcontrol_handler);
+    }
+
+    template <typename F>
+    void receiver(F overloaded) {
+        sock.receiver(overloaded);
+    }
+
+    bool hello = false;
+
+    player_states_t input_states{false, false, false, false, false};
+
+    sf::IpAddress serv_ip = "127.0.0.1";
+    u16 serv_port = SERVER_DEFAULT_PORT;
+    act_socket sock = act_socket(CLIENT_DEFAULT_PORT);
+};
+
 class diefastdiehard : public dfdh::engine {
 public:
     diefastdiehard(): _bm("bm1", sim, player_hit_callback) {}
 
-    void on_init() final {
-        //cfg();
+    void on_init(args_view args) final {
+        if (args.get("--client")) {
+            _client = std::make_shared<client_state>();
+            player_idx = 1;
+        }
+
+        window().setSize({800, 600});
+        if (!_client) {
+            server();
+            window().setPosition({0, 0});
+        } else {
+            window().setPosition({800, 0});
+        }
 
         levels.push_back(level::create("lvl_aes", sim));
 
@@ -28,18 +84,24 @@ public:
         players.push_back(pl);
         */
 
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 2; ++i) {
             auto pl2 = player::create(sim, {50.f, 90.f});
-            pl2->set_face("face1.png");
-            pl2->setup_pistol("wpn_ss50");
+            pl2->setup_pistol(wpns[cur_wpn]);
             pl2->position({600.f + float(i) * 50.f, 500});
             players.push_back(pl2);
-            if (i >= 2) {
+            if (i >= 1) {
+                pl2->set_face("face1.png");
                 pl2->group(0);
-                pl2->set_body("body.png", {0, 0, 0});
-            } else {
+                pl2->set_body("body.png", {132, 10, 153});
+                pl2->tracer_color({255, 170, 100});
+            } else if (i == 0) {
+                pl2->set_face("face3.png");
                 pl2->group(1);
-                pl2->set_body("body.png", {109, u8(i * 25), 26});
+                pl2->set_body("body.png", {247, 203, 72});
+            } else {
+                pl2->set_face("face0.png");
+                pl2->group(1);
+                pl2->set_body("body.png", {255, 255, 255});
             }
         }
 
@@ -54,21 +116,11 @@ public:
                     p->enable_double_jump();
         });
 
-        //apply_window_size(window().getSize().x, window().getSize().y);
+        //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
+        //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 1));
+        //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 2));
+        //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 3));
 
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 1));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_medium, 2));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_medium, 3));
-
-        /*
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_insane, 7));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_insane, 8));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_insane, 9));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_insane, 10));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_insane, 11));
-        ai_operators.push_back(ai_operator::create(ai_difficulty::ai_insane, 12));
-        */
 
         if (!ai_operators.empty()) {
             setup_ai();
@@ -81,19 +133,42 @@ public:
             ai_mgr().worker_stop();
     }
 
+    /* TODO: remove later */
+    player_states_t server_player_states{false, false, false, false, false};
+
     void handle_event(const sf::Event& evt) final {
+        if (!_on_game)
+            return;
+
         players[player_idx]->update_input(control_ks, evt, sim, _bm);
 
-        /*
-        if (players.size() > 1)
-            players.back()->update_input(control_ks2, evt, sim, _bm);
-            */
+        if (!_client) {
+            auto states = players[player_idx]->extract_client_input_state();
+            if (states != server_player_states) {
+                server_player_states = states;
+                server().send_to_all(a_srv_player_states{server_player_states, player_idx});
+            }
+        } else {
+            auto states = players[player_idx]->extract_client_input_state();
+            if (_client->input_states != states) {
+                _client->input_states = states;
+                _client->send(a_cli_player_states{states});
+            }
+        }
 
         if (evt.type == sf::Event::KeyPressed) {
             if (evt.key.code == sf::Keyboard::Space) {
+                ++cur_wpn;
+                if (cur_wpn == wpns.size())
+                    cur_wpn = 0;
+
+                for (auto& plr : players) plr->setup_pistol(wpns[cur_wpn]);
+
+                /*
                 ++player_idx;
                 if (player_idx == players.size())
                     player_idx = 0;
+                    */
             }
         }
     }
@@ -162,17 +237,111 @@ public:
         update_ai();
     }
 
+    struct client_player_update_overloaded {
+        void operator()(u32 player_id, const auto& act) {
+            it->client_player_update(player_id, act);
+        }
+
+        diefastdiehard* it;
+    };
+
+    struct act_from_server_overloaded {
+        void operator()(const sf::IpAddress&, u16, const auto& act) {
+            it->act_from_server(act);
+        }
+
+        diefastdiehard* it;
+    };
+
+    void act_from_server(const a_srv_player_states& player_states) {
+        players[player_states.player_id]->update_from_client(player_states.st);
+    }
+
+    void act_from_server(const a_srv_player_physic_sync& sync_state) {
+        auto& player = players[sync_state.player_id];
+
+        //player->update_from_client(sync_state.st);
+        player->position(sync_state.position);
+        player->velocity(sync_state.velocity);
+        //player->on_left(sync_state.on_left);
+
+        auto old_gun_name = player->get_gun() ? player->get_gun()->get_weapon()->section() : "";
+        if (!sync_state.cur_wpn_name.empty() && old_gun_name != sync_state.cur_wpn_name) {
+            player->setup_pistol(sync_state.cur_wpn_name);
+        }
+
+        if (player->get_gun())
+            player->get_gun()->ammo_elapsed(sync_state.ammo_elapsed);
+    }
+
+    void act_from_server(const a_srv_player_random_pool_init& act) {
+        auto& player = players[act.player_id];
+        std::cout << "Reset pool" << std::endl;
+        player->rand_pool(act.pool);
+    }
+
+    void act_from_server(const auto&) {} /* dummy */
+
+    void client_player_update(u32 player_id, const a_cli_i_wanna_play&) {
+        //std::this_thread::sleep_for(500ms);
+        //for (size_t i = 0; i < players.size(); ++i)
+        //    server().send(player_id, a_srv_player_random_pool_init{i, players[i]->rand_pool()}, true);
+
+        /* TODO: handle this */
+        _on_game = true;
+    }
+
+    void client_player_update(u32 player_id, const a_cli_player_params& params) {
+        players[player_id]->set_params_from_client(params);
+    }
+
+    void client_player_update(u32 player_id, const a_cli_player_states& states) {
+        players[player_id]->update_from_client(states.st);
+    }
+
     void game_update() final {
-        if (!ai_operators.empty())
-            ai_operators_consume();
+        if (_on_game) {
+            if (!ai_operators.empty())
+                ai_operators_consume();
 
-        sim.update();
-        update_cam();
+            if (_client)
+                _client->receiver(act_from_server_overloaded{this});
+            else {
+                server().work(client_player_update_overloaded{this});
 
-        for (auto& pl : players) {
-            pl->game_update(sim, _bm);
-            if (pl->collision_box()->get_position().y > 2100.f)
-                on_dead(pl.get());
+                if (_server_sync_timer.getElapsedTime().asSeconds() > _server_sync_step) {
+                    _server_sync_timer.restart();
+                    for (size_t i = 0; i < players.size(); ++i) {
+                        auto& player = players[i];
+                        auto  gun    = player->get_gun();
+                        server().send_to_all(
+                            a_srv_player_physic_sync{i,
+                                                     player->get_position(),
+                                                     player->get_velocity(),
+                                                     player->extract_client_input_state(),
+                                                     gun ? gun->get_weapon()->section() : "",
+                                                     gun ? gun->ammo_elapsed() : 0,
+                                                     player->get_on_left()});
+                    }
+                }
+            }
+
+            sim.update(60, 1.0f);
+            update_cam();
+
+            for (auto& pl : players) {
+                pl->game_update(sim, _bm);
+                if (pl->collision_box()->get_position().y > 2100.f)
+                    on_dead(pl.get());
+            }
+        } else {
+            if (_client) {
+                if (_client->hello)
+                    _on_game = true;
+                _client->receiver(act_from_server_overloaded{this});
+            } else {
+                server().work(client_player_update_overloaded{this});
+            }
         }
     }
 
@@ -230,12 +399,13 @@ public:
                 gun ? gun->get_weapon()->get_dispersion() : 0.01f,
                 pl->get_group(),
                 gun ? gun->get_bullet_vel() : 1500.f,
+                gun ? gun->get_weapon()->get_fire_rate() : 100.f,
                 pl->get_on_left(),
                 pl->collision_box()->is_lock_y()
             };
         });
 
-        ai_mgr().provide_physic_sim(sim.gravity());
+        ai_mgr().provide_physic_sim(sim.gravity(), sim.last_speed(), sim.last_rps());
     }
 
     void setup_ai() {
@@ -263,14 +433,14 @@ private:
     }
 
     void update_cam() {
-        float timestep = timer.getElapsedTime().asSeconds();
-        timer.restart();
+        float timestep = cam_timer.elapsed();
+        cam_timer.restart();
         if (!approx_equal(_cam_pos.x, _view.getCenter().x, 0.001f) ||
             !approx_equal(_cam_pos.y, _view.getCenter().y, 0.001f)) {
             auto diff = _cam_pos - _view.getCenter();
             auto dir  = normalize(diff);
             if (!std::isinf(dir.x) && !std::isinf(dir.y)) {
-                auto mov = dir * timestep * 400.f;
+                auto mov = dir * timestep * 600.f;
                 auto c   = _view.getCenter();
                 auto nc  = c + mov;
                 if ((c.x < _cam_pos.x && nc.x > _cam_pos.x) ||
@@ -289,14 +459,27 @@ private:
                                    std::numeric_limits<float>::max()};
         sf::Vector2f center_max = {std::numeric_limits<float>::lowest(),
                                    std::numeric_limits<float>::lowest()};
-        for (auto& pl : players) {
+        for (size_t i = 0; i < players.size(); ++i) {
+            auto& pl = players[i];
             auto pos = pl->collision_box()->get_position();
             center_min.x = std::min(center_min.x, pos.x);
-            center_min.y = std::min(center_min.y, pos.y);
             center_max.x = std::max(center_max.x, pos.x);
+
+            /* TODO: check all players that be controlled by this PC */
+            if (i != player_idx)
+                continue;
+
+            center_min.y = std::min(center_min.y, pos.y);
             center_max.y = std::max(center_max.y, pos.y);
         }
         auto center = (center_min + center_max) / 2.f;
+
+        auto pl_pos_x = players[player_idx]->get_position().x;
+        auto view_sz_x = _view.getSize().x * 0.46f;
+        if (center.x - pl_pos_x > view_sz_x)
+            center.x = pl_pos_x + view_sz_x;
+        if (pl_pos_x - center.x > view_sz_x)
+            center.x = pl_pos_x - view_sz_x;
 
         auto& level = levels[level_idx];
 
@@ -329,16 +512,21 @@ private:
     sf::RectangleShape point_shape;
     sf::RectangleShape line_shape;
 
-    sf::Clock timer;
+    timer cam_timer;
     sf::View _view;
     sf::Vector2f _cam_pos = {0.f, 0.f};
 
     u32 player_idx = 0;
     u32 level_idx = 0;
+
+    std::shared_ptr<client_state> _client;
+    sf::Clock _server_sync_timer;
+    float     _server_sync_step = 0.06f;
+    bool _on_game = false;
 };
 
 }
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
-    return dfdh::diefastdiehard().run();
+    return dfdh::diefastdiehard().run(dfdh::args_view(argc, argv));
 }
