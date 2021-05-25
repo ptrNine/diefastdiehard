@@ -6,6 +6,8 @@
 #include <SFML/Window/Event.hpp>
 #include <SFML/Graphics/CircleShape.hpp>
 
+#include "networking.hpp"
+#include "rand_pool.hpp"
 #include "bullet.hpp"
 #include "types.hpp"
 #include "physic_simulation.hpp"
@@ -126,15 +128,16 @@ public:
 
         _left_hand.setOutlineColor(sf::Color(0, 0, 0));
         _left_hand.setOutlineThickness(_size.x * 0.045f);
-        _left_hand.setRadius(size.x * 0.2f);
-        _left_hand.setOrigin(size.x * 0.2f, size.x * 0.2f);
+        _left_hand.setRadius(size.x * 0.14f);
+        _left_hand.setOrigin(size.x * 0.14f, size.x * 0.14f);
 
         _right_hand.setOutlineColor(sf::Color(0, 0, 0));
         _right_hand.setOutlineThickness(_size.x * 0.045f);
-        _right_hand.setRadius(size.x * 0.2f);
-        _right_hand.setOrigin(size.x * 0.2f, size.x * 0.2f);
+        _right_hand.setRadius(size.x * 0.14f);
+        _right_hand.setOrigin(size.x * 0.14f, size.x * 0.14f);
 
         _left_leg = _left_hand;
+        _left_leg.setRadius(size.x * 0.2f);
         _left_leg.setOrigin(size.x * 0.2f, size.x * 0.35f);
         _right_leg = _left_leg;
         _right_leg.setOrigin(size.x * 0.2f, size.x * 0.35f);
@@ -148,13 +151,65 @@ public:
         _collision_box->delete_later();
     }
 
+    void set_params_from_client(const a_cli_player_params& act) {
+        set_body(act.body_txtr, act.body_color);
+        set_face(act.face_txtr);
+    }
+
+    void update_from_client(const player_states_t& st) {
+        if (st.jump) {
+            if (!_jump_pressed) {
+                jump();
+                _jump_pressed = true;
+            }
+        }
+        else {
+            _jump_pressed = false;
+        }
+
+        if (st.jump_down) {
+            if (!_jump_down_pressed) {
+                jump_down();
+                _jump_down_pressed = true;
+            }
+        }
+        else {
+            _jump_down_pressed = false;
+        }
+
+        if (st.mov_left) {
+            _cur_x_accel_l = -_x_accel;
+            _dir           = dir_left;
+        }
+        else {
+            _cur_x_accel_l = 0.f;
+        }
+
+        if (st.mov_right) {
+            _cur_x_accel_r = _x_accel;
+            _dir           = dir_right;
+        }
+        else {
+            _cur_x_accel_r = 0.f;
+        }
+
+        if (st.on_shot)
+            shot();
+        else
+            relax();
+    }
+
     void update_input(const control_keys& ks, sf::Event evt, physic_simulation& sim, bullet_mgr& bm) {
         if (evt.type == sf::Event::KeyPressed) {
             auto c = evt.key.code;
-            if (c == ks.up)
+            if (c == ks.up && !_jump_pressed) {
                 jump();
-            else if (c == ks.down)
+                _jump_pressed = true;
+            }
+            else if (c == ks.down && !_jump_down_pressed) {
                 jump_down();
+                _jump_down_pressed = true;
+            }
             else if (c == ks.left) {
                 _cur_x_accel_l = -_x_accel;
                 _dir = dir_left;
@@ -163,17 +218,29 @@ public:
                 _cur_x_accel_r = _x_accel;
                 _dir = dir_right;
             }
-            else if (c == ks.shot)
+            else if (c == ks.shot) {
                 shot();
+                _shot_pressed = true;
+            }
         }
         else if (evt.type == sf::Event::KeyReleased) {
             auto c = evt.key.code;
-            if (c == ks.left)
+            if (c == ks.left) {
                 _cur_x_accel_l = 0.f;
-            else if (c == ks.right)
+            }
+            else if (c == ks.right) {
                 _cur_x_accel_r = 0.f;
-            else if (c == ks.shot)
+            }
+            else if (c == ks.shot) {
                 relax();
+                _shot_pressed = false;
+            }
+            else if (c == ks.up) {
+                _jump_pressed = false;
+            }
+            else if (c == ks.down) {
+                _jump_down_pressed = false;
+            }
         }
     }
 
@@ -196,7 +263,7 @@ public:
 
     void shot() {
         if (_pistol)
-            _pistol.pull_trigger();
+            _pistol.pull_trigger(_tracer_color);
     }
 
     void relax() {
@@ -215,7 +282,7 @@ public:
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
             pos += sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
 
-            if (auto recoil = _pistol.update(pos, dir, bm, sim, _group, player_group_getter))
+            if (auto recoil = _pistol.update(pos, dir, bm, sim, _group, player_group_getter, &_rand_pool))
                 _collision_box->apply_impulse(-dir * *recoil);
         }
     }
@@ -359,6 +426,31 @@ public:
         return &_pistol;
     }
 
+    [[nodiscard]]
+    weapon_instance* get_gun() {
+        return &_pistol;
+    }
+
+    [[nodiscard]]
+    sf::Color tracer_color() const {
+        return _tracer_color;
+    }
+
+    void tracer_color(sf::Color value) {
+        _tracer_color = value;
+    }
+
+    player_states_t extract_client_input_state() const {
+        //std::cout << "Movleft: " << (_cur_x_accel_l < 0.f) << " movright: " << (_cur_x_accel_r > 0.f) << std::endl;
+        return player_states_t{
+            _cur_x_accel_l < 0.f,
+            _cur_x_accel_r > 0.f,
+            _shot_pressed,
+            _jump_pressed,
+            _jump_down_pressed
+        };
+    }
+
 private:
     void leg_animation_update(float timestep, const sf::Vector2f& pos, const sf::Vector2f& vel) {
         auto vx = vel.x;
@@ -427,6 +519,10 @@ private:
     sf::CircleShape _left_leg;
     sf::CircleShape _right_leg;
 
+    rand_float_pool _rand_pool;
+
+    sf::Color _tracer_color = {255, 255, 0};
+
     float _leg_timer = 0.f;
 
     sf::Vector2f _size;
@@ -434,8 +530,8 @@ private:
 
     bool  _accel_left_reset = false;
     float _accel_f    = 1.f;
-    float _max_speed  = 350.f;
-    float _x_accel    = 2450.f;
+    float _max_speed  = 280.f;
+    float _x_accel    = 2250.f;
     float _x_slowdown = 700.f;
     float _jump_speed = 620.f;
 
@@ -457,6 +553,9 @@ private:
         dir_right
     } _dir;
     bool _on_left = false;
+    bool _jump_pressed = false;
+    bool _jump_down_pressed = false;
+    bool _shot_pressed = false;
 
     int _group = 0;
 
@@ -487,6 +586,10 @@ public:
     [[nodiscard]]
     int get_group() const {
         return _group;
+    }
+
+    void on_left(bool value) {
+        _on_left = value;
     }
 
     [[nodiscard]]
@@ -585,6 +688,19 @@ public:
     [[nodiscard]]
     u32 get_available_jumps() const {
         return _collision_box->is_lock_y() ? jumps_left + 1 : jumps_left;
+    }
+
+    [[nodiscard]]
+    const rand_float_pool& rand_pool() const {
+        return _rand_pool;
+    }
+
+    rand_float_pool& rand_pool() {
+        return _rand_pool;
+    }
+
+    void rand_pool(rand_float_pool pool) {
+        _rand_pool = std::move(pool);
     }
 };
 

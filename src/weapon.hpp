@@ -2,6 +2,8 @@
 
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Graphics/Sprite.hpp>
+
+#include "rand_pool.hpp"
 #include "bullet.hpp"
 #include "config.hpp"
 #include "texture_mgr.hpp"
@@ -71,7 +73,7 @@ public:
         }
     }
 
-    weapon(const std::string& section) {
+    weapon(const std::string& section): _section(section) {
         _hit_mass      = cfg().get_req<float>(section, "hit_mass");
         _dispersion    = cfg().get_req<float>(section, "dispersion");
         _fire_rate     = cfg().get_req<float>(section, "fire_rate");
@@ -184,6 +186,8 @@ private:
     }
 
 private:
+    std::string _section;
+
     float _hit_mass;
     float _dispersion;
     float _fire_rate;
@@ -230,6 +234,16 @@ public:
     float get_dispersion() const {
         return _dispersion;
     }
+
+    [[nodiscard]]
+    float get_fire_rate() const {
+        return _fire_rate;
+    }
+
+    [[nodiscard]]
+    const std::string& section() const {
+        return _section;
+    }
 };
 
 
@@ -267,7 +281,7 @@ class weapon_instance {
 public:
     struct anim_spec_t {
         std::string _name;
-        sf::Clock   _timer = {};
+        timer   _timer = {};
         bool        _stop_at_end = true;
     };
 
@@ -278,6 +292,7 @@ public:
             _shot_flash.setTexture(txtr);
             _shot_flash.setOrigin({float(txtr.getSize().x) * 0.5f, float(txtr.getSize().y) * 0.5f});
             _shot_flash.setScale(0.55f, 0.55f);
+            _shot_flash.setColor({255, 255, 255, 0});
         }
     }
 
@@ -324,7 +339,8 @@ public:
                                 bullet_mgr&         bm,
                                 physic_simulation&  sim,
                                 int                 group               = -1,
-                                F                   player_group_getter = -1) {
+                                F                   player_group_getter = -1,
+                                rand_float_pool*    rand_pool           = nullptr) {
         if (!_wpn)
             return {};
 
@@ -338,11 +354,11 @@ public:
         }
 
         if (_on_shot && _ammo_elapsed &&
-            _shot_timer.getElapsedTime().asSeconds() > 60.f / _wpn->_fire_rate) {
+            _shot_timer.elapsed(sim.last_speed()) > 60.f / _wpn->_fire_rate) {
             if constexpr (std::is_same_v<F, int>)
-                shot(position, direction, bm, sim);
+                shot(position, direction, bm, sim, _last_tracer_color, -1, -1, rand_pool);
             else
-                shot(position, direction, bm, sim, group, std::move(player_group_getter));
+                shot(position, direction, bm, sim, _last_tracer_color, group, std::move(player_group_getter), rand_pool);
             _on_reload = false;
             _shot_timer.restart();
             return _wpn->_recoil;
@@ -355,7 +371,9 @@ public:
         return {};
     }
 
-    void pull_trigger() {
+    void pull_trigger(std::optional<sf::Color> tracer_color = std::nullopt) {
+        if (tracer_color)
+            _last_tracer_color = *tracer_color;
         _on_shot = true;
     }
 
@@ -409,7 +427,7 @@ public:
             }
 
             auto  dur      = anim->_duration;
-            float time     = _current_anim->_timer.getElapsedTime().asSeconds();
+            float time     = _current_anim->_timer.elapsed(_last_time_speed);
             max_frame      = frames->back()._time;
             cur_frame_time = max_frame / dur * time;
 
@@ -522,7 +540,7 @@ private:
     void draw_shells(sf::RenderWindow& wnd) {
         auto& sprite = _wpn->_shell_sprite;
         for (auto i = _active_shells.begin(); i != _active_shells.end();) {
-            auto elapsed_t = i->_timer.getElapsedTime().asSeconds();
+            auto elapsed_t = i->_timer.elapsed(_last_time_speed);
             if (elapsed_t > 5.f) {
                 _active_shells.erase(i++);
                 continue;
@@ -552,24 +570,49 @@ private:
               const sf::Vector2f& direction,
               bullet_mgr&         bm,
               physic_simulation&  sim,
+              sf::Color           tracer_color,
               int                 group = -1,
-              F                   player_group_getter = -1) {
-        auto pos = position + shot_displacement(direction);
-        auto dir = randomize_dir(direction, _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f);
+              F                   player_group_getter = -1,
+              rand_float_pool*    rand_pool = nullptr) {
+        auto pos  = position + shot_displacement(direction);
+        auto angl = _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f;
+
+        auto dir = rand_pool ?
+            randomize_dir(direction, angl) :
+            randomize_dir(direction, angl, [rand_pool](float min, float max) { return rand_pool->gen(min, max); });
 
         auto bullet_vel = weapon::tier_to_bullet_vel(_wpn->_bullet_vel_tier);
         if (_wpn->_buckshot == 1) {
             if constexpr (std::is_same_v<F, int>)
-                bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel);
+                bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel, tracer_color);
             else
-                bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel, group, std::move(player_group_getter));
-        } else {
+                bm.shot(sim,
+                        pos,
+                        _wpn->_hit_mass,
+                        dir * bullet_vel,
+                        tracer_color,
+                        group,
+                        std::move(player_group_getter));
+        }
+        else {
             for (u32 i = 0; i < _wpn->_buckshot; ++i) {
-                auto newdir = randomize_dir(dir, _wpn->_dispersion);
+                auto newdir =
+                    rand_pool
+                        ? randomize_dir(dir, _wpn->_dispersion)
+                        : randomize_dir(dir, _wpn->_dispersion, [rand_pool](float min, float max) {
+                              return rand_pool->gen(min, max);
+                          });
+
                 if constexpr (std::is_same_v<F, int>)
-                    bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel);
+                    bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel, tracer_color);
                 else
-                    bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel, group, std::move(player_group_getter));
+                    bm.shot(sim,
+                            pos,
+                            _wpn->_hit_mass,
+                            newdir * bullet_vel,
+                            tracer_color,
+                            group,
+                            std::move(player_group_getter));
             }
         }
 
@@ -581,7 +624,8 @@ private:
             _shot_flash.setPosition(pos);
         }
 
-        _last_gravity = sim.gravity();
+        _last_gravity    = sim.gravity();
+        _last_time_speed = sim.last_speed();
         _shell_ejected = false;
 
         --_ammo_elapsed;
@@ -594,7 +638,7 @@ private:
         float        _angle_vel;
         bool         _left;
         float        _last_time = 0.f;
-        sf::Clock    _timer = {};
+        timer        _timer     = {};
     };
 
 private:
@@ -602,15 +646,18 @@ private:
     weapon*                    _wpn          = nullptr;
     std::optional<anim_spec_t> _current_anim;
 
+    sf::Color                  _last_tracer_color = {255, 255, 255};
+
     sf::Sprite                 _shot_flash;
 
     std::list<shell_data>      _active_shells;
     bool                       _shell_ejected = false;
     sf::Vector2f               _last_gravity = {0.f, 0.f};
+    float                      _last_time_speed = 1.f;
 
     bool                       _on_shot = false;
     bool                       _on_reload = false;
-    sf::Clock                  _shot_timer;
+    timer                      _shot_timer;
 
 public:
     [[nodiscard]]
@@ -621,6 +668,15 @@ public:
     [[nodiscard]]
     float get_bullet_vel() const {
         return weapon::tier_to_bullet_vel(_wpn->_bullet_vel_tier);
+    }
+
+    [[nodiscard]]
+    u32 ammo_elapsed() const {
+        return _ammo_elapsed;
+    }
+
+    void ammo_elapsed(u32 value) {
+        _ammo_elapsed = value;
     }
 };
 

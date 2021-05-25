@@ -1,5 +1,6 @@
 #pragma once
 
+#include <SFML/System/Clock.hpp>
 #include <cmath>
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics/Rect.hpp>
@@ -148,8 +149,15 @@ private:
 
 inline sf::Vector2f randomize_dir(const sf::Vector2f& dir, float angle) {
     auto angl = std::atan2(dir.y, dir.x);
-    auto urd = std::uniform_real_distribution<float>(-angle/2.f, angle/2.f);
+    auto urd = std::uniform_real_distribution<float>(-angle * 0.5f, angle * 0.5f);
     auto new_angl = angl + urd(rand_gen_singleton::instance().mt());
+    return {std::cos(new_angl), std::sin(new_angl)};
+}
+
+template <typename F>
+inline sf::Vector2f randomize_dir(const sf::Vector2f& dir, float angle, F&& rand_gen) {
+    auto angl = std::atan2(dir.y, dir.x);
+    auto new_angl = angl + rand_gen(-angle * 0.5f, angle * 0.5f);
     return {std::cos(new_angl), std::sin(new_angl)};
 }
 
@@ -169,5 +177,20 @@ inline float rand_float(float min, float max) {
 inline bool roll_the_dice(float probability) {
     return rand_float(0.f, 1.f) < probability;
 }
+
+class timer {
+public:
+    void restart() {
+        _clock.restart();
+    }
+
+    [[nodiscard]]
+    float elapsed(float speed = 1.f) const {
+        return _clock.getElapsedTime().asSeconds() * speed;
+    }
+
+private:
+    sf::Clock _clock;
+};
 
 } // namespace dfdh

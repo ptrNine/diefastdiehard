@@ -41,4 +41,16 @@ struct is_std_vector<std::vector<T>> : std::true_type {};
 template <typename T>
 concept StdVector = is_std_vector<T>::value;
 
+template <typename T>
+concept Integral = std::is_integral_v<T>;
+
+template <typename T>
+concept Unsigned = std::is_unsigned_v<T>;
+
+template <typename T>
+concept Number = Integral<T> || std::is_floating_point_v<T>;
+
+template<typename T, typename... ArgsT>
+concept AnyOfType = (std::is_same_v<T, ArgsT> || ...);
+
 } // namespace dfdh

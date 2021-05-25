@@ -72,10 +72,12 @@ public:
     };
 
     void update(uint rps = 60, float speed = 1.f) {
-        float timestep = speed / float(rps);
-        if (_timer.getElapsedTime().asSeconds() > timestep) {
+        float min_timestep = 1.f / float(rps);
+        _last_speed = speed;
+        _last_rps   = rps;
+        if (_timer.getElapsedTime().asSeconds() > min_timestep) {
             _timer.restart();
-            update_immediate(timestep);
+            update_immediate(min_timestep * speed);
         }
     }
 
@@ -369,6 +371,16 @@ public:
         return _last_timestep;
     }
 
+    [[nodiscard]]
+    u32 last_rps() const {
+        return _last_rps;
+    }
+
+    [[nodiscard]]
+    float last_speed() const {
+        return _last_speed;
+    }
+
 private:
     template <CollideCallbackArg T1, CollideCallbackArg T2>
     void add_collide_callback_internal(const std::string&                            name,
@@ -400,7 +412,9 @@ private:
     float _collide_dist = 0.001f;
     sf::Vector2f _gravity = {0.f, 9.8f};
     sf::Clock _timer;
-    float     _last_timestep = 0.f;
+    float     _last_timestep = 1.f/60.f;
+    u32       _last_rps      = 60;
+    float     _last_speed    = 1.f;
 
     using collide_callback_arg_generic_t =
         std::variant<physic_line*, physic_point*, physic_group*>;

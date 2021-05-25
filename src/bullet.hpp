@@ -24,8 +24,20 @@ public:
     bullet_sprite_cache(const bullet_sprite_cache&) = delete;
     bullet_sprite_cache& operator=(const bullet_sprite_cache&) = delete;
 
-    sf::Sprite& sprite() {
-        return _sprite;
+    sf::Sprite& sprite(const sf::Color& color) {
+        auto found = _sprites.find(color);
+        if (found != _sprites.end())
+            return found->second;
+        else {
+            sf::Sprite sprite;
+            sprite.setTexture(_txtr);
+            sprite.setColor(color);
+            auto sz = _txtr.getSize();
+            sprite.setOrigin(float(sz.x), float(sz.y) / 2.f);
+            sprite.setScale(_xf, _yf);
+
+            return _sprites.emplace(color, std::move(sprite)).first->second;
+        }
     }
 
     [[nodiscard]]
@@ -37,20 +49,21 @@ private:
     bullet_sprite_cache() {
         _txtr.loadFromFile(std::filesystem::current_path() / "data/textures/bullet.png");
         _txtr.setSmooth(true);
-        _sprite.setTexture(_txtr);
-        _sprite.setColor({255, 255, 0});
         auto sz = _txtr.getSize();
-        _sprite.setOrigin(float(sz.x), float(sz.y) / 2.f);
-
         _xf = bullet_x / float(sz.x);
         _yf = bullet_y / float(sz.y);
-        _sprite.setScale(_xf, _yf);
     }
 
     ~bullet_sprite_cache() = default;
 
 private:
-    sf::Sprite _sprite;
+    struct comparator_t {
+        bool operator()(const sf::Color& l, const sf::Color& r) const {
+            return l.toInteger() < r.toInteger();
+        }
+    };
+
+    std::map<sf::Color, sf::Sprite, comparator_t> _sprites;
     sf::Texture _txtr;
     float       _xf;
     float       _yf;
@@ -67,7 +80,8 @@ public:
            const sf::Vector2f& position,
            float               mass,
            const sf::Vector2f& velocity,
-           int                 group) : _group(group) {
+           sf::Color           color,
+           int                 group) : _color(color), _group(group) {
         _ph = physic_point::create(position, normalize(velocity), magnitude(velocity), mass);
         sim.add_primitive(_ph);
     }
@@ -92,8 +106,14 @@ public:
         return _group;
     }
 
+    [[nodiscard]]
+    sf::Color color() const {
+        return _color;
+    }
+
 private:
     std::shared_ptr<physic_point> _ph;
+    sf::Color _color;
     int _group;
 };
 
@@ -105,8 +125,8 @@ public:
     }
 
     template <typename F>
-    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, int group, F player_group_getter) {
-        _bullets.emplace_back(sim, position, mass, velocity, group);
+    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color, int group, F player_group_getter) {
+        _bullets.emplace_back(sim, position, mass, velocity, color, group);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
         if (group != -1)
@@ -119,8 +139,8 @@ public:
             });
     }
 
-    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity) {
-        _bullets.emplace_back(sim, position, mass, velocity, -1);
+    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color) {
+        _bullets.emplace_back(sim, position, mass, velocity, color, -1);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
         /*
@@ -149,10 +169,12 @@ public:
 
             auto x_sz = std::min(i->physic()->get_distance(), bullet_sprite_cache::bullet_x);
             auto xf = (x_sz / bullet_sprite_cache::bullet_x) * bullet_sprite().scale_f().x;
-            bullet_sprite().sprite().setScale(xf, bullet_sprite().scale_f().y);
-            bullet_sprite().sprite().setPosition(pos);
-            bullet_sprite().sprite().setRotation(angle * 180.f / M_PIf32);
-            wnd.draw(bullet_sprite().sprite());
+
+            auto& blt_sprite = bullet_sprite().sprite(i->color());
+            blt_sprite.setScale(xf, bullet_sprite().scale_f().y);
+            blt_sprite.setPosition(pos);
+            blt_sprite.setRotation(angle * 180.f / M_PIf32);
+            wnd.draw(blt_sprite);
 
             ++i;
         }

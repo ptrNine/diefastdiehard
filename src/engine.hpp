@@ -3,7 +3,7 @@
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Window/Event.hpp>
 
-#include "types.hpp"
+#include "args_view.hpp"
 
 namespace dfdh {
 
@@ -12,8 +12,9 @@ public:
     engine(): _wnd(sf::VideoMode(1400, 1000), "diefastdiehard") {}
     virtual ~engine() = default;
 
-    int run() {
-        on_init();
+    int run(args_view args) {
+        on_init(std::move(args));
+
         _wnd.setVerticalSyncEnabled(true);
         _wnd.setFramerateLimit(60);
 
@@ -44,7 +45,7 @@ public:
         return _wnd;
     }
 
-    virtual void on_init() = 0;
+    virtual void on_init(args_view args) = 0;
     virtual void on_destroy() = 0;
     virtual void handle_event(const sf::Event& event) = 0;
     virtual void render_update(sf::RenderWindow& wnd) = 0;

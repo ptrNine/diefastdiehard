@@ -52,10 +52,12 @@ public:
             players[i] = get_adapter(static_cast<u32>(i), c[i]);
     }
 
-    void provide_physic_sim(const sf::Vector2f& gravity) {
+    void provide_physic_sim(const sf::Vector2f& gravity, float time_speed, u32 last_rps) {
         std::lock_guard lock{mtx};
 
         physic_sim.gravity = gravity;
+        physic_sim.time_speed = time_speed;
+        physic_sim.last_rps = last_rps;
     }
 
     void provide_level(const sf::Vector2f& level_size) {
@@ -101,8 +103,8 @@ public:
 
     static void worker(ai_mgr_singleton* ai) {
         while (ai->_work) {
-            float step = ai->_step;
-            if (ai->_timer.getElapsedTime().asSeconds() > step) {
+            float step = 1.f / static_cast<float>(ai->physic_sim.last_rps);
+            if (ai->_timer.elapsed() > step) {
                 ai->_timer.restart();
 
                 std::lock_guard lock{ai->mtx};
@@ -155,12 +157,15 @@ public:
         float         gun_dispersion;
         int           group;
         float         gun_bullet_vel;
+        float         gun_fire_rate;
         bool          on_left;
         bool          is_y_locked;
     };
 
     struct physic_sim_t {
         sf::Vector2f gravity;
+        float        time_speed;
+        u32          last_rps;
     };
 
     struct level_t {
@@ -196,8 +201,7 @@ public:
     std::map<u32, class ai_operator*> _operators;
     std::atomic<bool>                 _work;
     std::atomic<bool>                 _stopped;
-    std::atomic<float>                _step = 1.f/60.f;
-    sf::Clock                         _timer;
+    timer                             _timer;
     std::thread                       _thread;
 
 private:
@@ -375,13 +379,14 @@ public:
         }
     }
 
-    void update_shot_next_frame() {
+    void update_shot_next_frame(const ai_mgr_singleton::physic_sim_t& sim) {
         _jump_was = false;
 
-        if (_delayed_jump_delay > 0.001f && _start_delayed_jump.getElapsedTime().asSeconds() > _delayed_jump_delay)
+        if (_delayed_jump_delay > 0.001f &&
+            _start_delayed_jump.elapsed(sim.time_speed) > _delayed_jump_delay)
             jump();
 
-        if (_shot_next_frame && _start_shot_timer.getElapsedTime().asSeconds() > _shot_delay) {
+        if (_shot_next_frame && _start_shot_timer.elapsed(sim.time_speed) > _shot_delay) {
             shot();
             _shot_next_frame = false;
         }
@@ -420,15 +425,15 @@ private:
     std::queue<task_t> _tasks;
 
     float _shot_delay = 0.f;
-    sf::Clock _start_shot_timer;
+    timer _start_shot_timer;
     float _delayed_jump_delay = 0.f;
-    sf::Clock _start_delayed_jump;
+    timer _start_delayed_jump;
     float _last_plat_path_delay = 0.f;
-    sf::Clock _start_plat_path;
+    timer _start_plat_path;
 
     mutable std::mutex mtx;
 
-    sf::Clock                           _timer;
+    timer                               _timer;
     u32                                 _target_id          = no_target;
     u32                                 _last_target_id     = no_target;
     float                               _jump_x_max         = 0.f;
@@ -673,7 +678,8 @@ inline void dodge_ai(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
 
     if (oper.difficulty() == ai_medium) {
         /* 8% chance */
-        if (rand_float(0.f, 1.f) > 0.08f)
+        bool ok = static_cast<u32>(std::fabs(player.pos.x)) % 12 != 0;
+        if (ok)
             return;
 
         for (auto& bl : bullets) {
@@ -985,7 +991,7 @@ inline void ai_mgr_singleton::worker_op() {
         auto plat    = oper._operated_platforms;
         ai_move_spec move_spec;
 
-        oper.update_shot_next_frame();
+        oper.update_shot_next_frame(physic_sim);
 
         if (oper._target_id == ai_operator::no_target) {
             if (auto id = easy_ai_find_nearest(player, players, level, oper))
@@ -1019,9 +1025,9 @@ inline void ai_mgr_singleton::worker_op() {
             if (!oper._shot) {
                 float delay = 0.f;
                 if (oper.difficulty() == ai_easy)
-                    delay = rand_float(0.15f, 0.4f);
+                    delay = 0.35f; //rand_float(0.15f, 0.4f);
                 else if (oper.difficulty() == ai_medium)
-                    delay = rand_float(0.05f, 0.15f);
+                    delay = 0.15f; //rand_float(0.05f, 0.15f);
                 oper.shot_next_frame(delay);
             }
 
@@ -1033,7 +1039,7 @@ inline void ai_mgr_singleton::worker_op() {
             if (oper.difficulty() != ai_hard) {
                 dists[0] = std::fabs(player.barrel_pos.x - player.pos.x) * 1.3f;
                 dists[1] = dists[0] * 0.8f;
-                dists[2] = 300.f;
+                dists[2] = 500.f;
             } else {
                 dists[0] = std::fabs(player.barrel_pos.x - player.pos.x);
                 dists[1] = dists[0];
@@ -1067,8 +1073,11 @@ inline void ai_mgr_singleton::worker_op() {
             }
 
             if (oper.difficulty() == ai_hard && trg.vel.y < -trg.jump_speed * 0.99f &&
-                player.vel.y > -0.001f && roll_the_dice(0.5f))
-                oper.delayed_jump(rand_float(0.05f, 0.25f));
+                player.vel.y > -0.001f/* && roll_the_dice(0.5f)*/) {
+                /* For 50% chance */
+                if (static_cast<int>(std::fabs(player.pos.x)) % 2 == 0)
+                    oper.delayed_jump(0.15f/*rand_float(0.05f, 0.25f)*/);
+            }
         } else {
             if (oper._last_target_id != ai_operator::no_target) {
                 auto& trg = players[oper._last_target_id];
@@ -1080,21 +1089,22 @@ inline void ai_mgr_singleton::worker_op() {
                     player.pos.y > -0.001f) {
                     oper.jump();
                 }
-                else
-                move_to_target(platforms,
-                               platform_map,
-                               player,
-                               oper,
-                               move_spec,
-                               players[oper._last_target_id],
-                               target_plat,
-                               platforms_bound_start_x,
-                               platforms_bound_end_x);
+                else if (!oper._shot) {
+                    move_to_target(platforms,
+                                   platform_map,
+                                   player,
+                                   oper,
+                                   move_spec,
+                                   players[oper._last_target_id],
+                                   target_plat,
+                                   platforms_bound_start_x,
+                                   platforms_bound_end_x);
+                }
             }
 
             /* Relax with delay */
-            constexpr float easy_ai_relax_delay = 0.22f;
-            if (oper._shot && oper._timer.getElapsedTime().asSeconds() > easy_ai_relax_delay) {
+            float relax_delay = player.gun_fire_rate * 0.001f;
+            if (oper._shot && oper._timer.elapsed(physic_sim.time_speed) > relax_delay) {
                 if (oper._shot)
                     oper.relax();
             }
