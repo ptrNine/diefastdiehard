@@ -35,10 +35,15 @@ foreach(_flag ${_cxx_flags})
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${_flag}>)
 endforeach()
 
+option(ENABLE_ASAN "Enable address sanitizer" OFF)
+if(ENABLE_ASAN)
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+endif()
+
 set(CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/3rd/lib/cmake")
 
 find_package(SFML 2.5.1 REQUIRED window system graphics)
 find_package(Threads REQUIRED)
 
 add_executable(diefastdiehard diefastdiehard.cpp)
-target_link_libraries(diefastdiehard sfml-system sfml-window sfml-graphics Threads::Threads)
+target_link_libraries(diefastdiehard sfml-system sfml-window sfml-graphics sfml-network Threads::Threads)
