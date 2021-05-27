@@ -4,6 +4,7 @@
 #include <map>
 #include <iostream>
 #include <chrono>
+#include <list>
 
 #include <SFML/Network/UdpSocket.hpp>
 #include <SFML/Graphics/Color.hpp>
@@ -12,6 +13,7 @@
 #include "vec_math.hpp"
 #include "fixed_string.hpp"
 #include "rand_pool.hpp"
+#include "avg_counter.hpp"
 
 namespace dfdh {
 
@@ -77,6 +79,28 @@ private:
     std::vector<u8> _data;
 };
 
+struct delayed_send_t {
+    std::chrono::steady_clock::time_point tp;
+    sf::IpAddress                         ip;
+    u16                                   port;
+    packet_t                              packet;
+};
+
+static std::list<delayed_send_t> _packets;
+void send_delayed(const sf::IpAddress& ip, u16 port, const packet_t& packet) {
+    _packets.push_back({std::chrono::steady_clock::now(), ip, port, packet});
+}
+
+void update_delayed_send(sf::UdpSocket& sock) {
+    auto now = std::chrono::steady_clock::now();
+    for (auto i = _packets.begin(); i != _packets.end();) {
+        if (now - i->tp > 200ms) {
+            sock.send(i->packet.data(), i->packet.size(), i->ip, i->port);
+            _packets.erase(i++);
+        } else
+            break;
+    }
+}
 
 inline constexpr auto CLI_HELLO_MAGICK = 0xdeadbeeffeedf00d;
 inline constexpr u16  SERVER_DEFAULT_PORT = 27015;
@@ -91,6 +115,7 @@ enum net_act : u32 {
     act_cli_player_params,
     act_cli_player_states,
 
+    act_srv_ping,
     act_srv_player_states,
     act_srv_player_physic_sync,
     act_srv_player_random_pool_init,
@@ -126,6 +151,12 @@ struct a_transcontrol_corrupted {
     net_act _act    = act_transcontrol_corrupted;
 };
 
+struct a_srv_ping {
+    u16     _ping_id;
+    u16     _ping_ms;
+    net_act _act = act_srv_ping;
+};
+
 struct player_states_t {
     auto operator<=>(const player_states_t&) const = default;
 
@@ -140,6 +171,7 @@ struct player_states_t {
 
 struct a_cli_player_states {
     player_states_t st;
+    u64             evt_counter;
 
     u32     _dummy0 = 0;
     net_act _act    = act_cli_player_states;
@@ -148,6 +180,7 @@ struct a_cli_player_states {
 struct a_srv_player_states {
     player_states_t st;
     u64             player_id;
+    u64             evt_counter;
 
     u32     _dummy0 = 0;
     net_act _act    = act_srv_player_states;
@@ -159,11 +192,15 @@ struct a_srv_player_physic_sync {
     sf::Vector2f    velocity;
     player_states_t st;
     fixed_str<23>   cur_wpn_name;
+    u64             random_pool_pos;
+    u64             evt_counter;
     u32             ammo_elapsed;
     bool            on_left;
 
     u8      _dummy0[3] = {0};
     u32     _dummy1    = 0;
+
+
     net_act _act       = act_srv_player_physic_sync;
 };
 
@@ -290,13 +327,12 @@ T action_cast(const packet_t& packet) {
 
 template <>
 a_srv_player_random_pool_init action_cast(const packet_t& packet) {
-    u64 player_id;
-    u64 size;
-    std::memcpy(&player_id, packet.data(), sizeof(player_id));
-    std::memcpy(&size, packet.data() + sizeof(player_id), sizeof(size));
-
     a_srv_player_random_pool_init act;
-    act.pool.data(packet.data() + sizeof(size) + sizeof(player_id), size);
+    u64 size;
+    std::memcpy(&act.player_id, packet.data(), sizeof(act.player_id));
+    std::memcpy(&size, packet.data() + sizeof(act.player_id), sizeof(size));
+
+    act.pool.data(packet.data() + sizeof(size) + sizeof(act.player_id), size);
 
     return act;
 }
@@ -313,6 +349,7 @@ void action_dispatch(const sf::IpAddress& ip, u16 port, net_act act, const packe
         overload(cli_i_wanna_play);
         overload(cli_player_params);
         overload(cli_player_states);
+        overload(srv_ping);
         overload(srv_player_states);
         overload(srv_player_physic_sync);
         overload(srv_player_random_pool_init);
@@ -365,7 +402,8 @@ public:
                                         resend_interval,
                                         std::move(handler)})
                       .first->second.packet;
-        sock.send(p.data(), p.size(), ip, port);
+        send_delayed(ip, port, p);
+        //sock.send(p.data(), p.size(), ip, port);
     }
 
     void update_resend(sf::UdpSocket& sock) {
@@ -389,7 +427,9 @@ public:
             //std::cout << "Resend packet " << info.id << ", retry: " << params.retries_left << std::endl;
             params.send_tp = now;
             --params.retries_left;
-            sock.send(params.packet.data(), params.packet.size(), sf::IpAddress(info.ip), info.port);
+
+            send_delayed(sf::IpAddress(info.ip), info.port, params.packet);
+            //sock.send(params.packet.data(), params.packet.size(), sf::IpAddress(info.ip), info.port);
 
             ++i;
         }
@@ -398,7 +438,8 @@ public:
     void receive_response(const sf::IpAddress& ip, u16 port, const a_transcontrol_ok& ok) {
         auto found = _active.find(uniq_packet_info{ip.toInteger(), port, ok.id, ok.hash});
         if (found == _active.end()) {
-            std::cerr << "packet dropped: unexpected transcontrol_ok packet" << std::endl;
+            std::cerr << "packet dropped: unexpected transcontrol_ok packet with id=" << ok.id
+                      << " hash=" << ok.hash << std::endl;
             return;
         }
 
@@ -445,7 +486,8 @@ public:
                        const packet_spec_t& spec) {
         if (!validate_packet_hash(packet, spec.hash) || !validate_spec_act(spec)) {
             auto resp = create_packet(a_transcontrol_corrupted{spec.id, spec.hash});
-            sock.send(resp.data(), resp.size(), ip, port);
+            send_delayed(ip, port, resp);
+            //sock.send(resp.data(), resp.size(), ip, port);
             return false;
         }
 
@@ -455,13 +497,14 @@ public:
             _already_received.emplace(uniq_packet_info{ip.toInteger(), port, spec.id, spec.hash},
                                       std::chrono::steady_clock::now());
         if (!insert_was) {
-            sock.send(resp.data(), resp.size(), ip, port);
+            send_delayed(ip, port, resp);
+            //sock.send(resp.data(), resp.size(), ip, port);
             std::cerr << "packet dropped: already received" << std::endl;
             i->second = std::chrono::steady_clock::now();
             return false;
         }
-
-        sock.send(resp.data(), resp.size(), ip, port);
+        send_delayed(ip, port, resp);
+        //sock.send(resp.data(), resp.size(), ip, port);
 
         return true;
     }
@@ -506,11 +549,14 @@ public:
 
         auto packet = create_packet(act, trc_enabled, &id);
 
+        //std::cout << "Send packet with id=" << id << std::endl;
         if constexpr (std::is_same_v<F, bool>) {
             if (transcontrol_handler)
                 trc_send.send(socket, packet, ip, port);
-            else
-                socket.send(packet.data(), packet.size(), ip, port);
+            else {
+                send_delayed(ip, port, packet);
+                //socket.send(packet.data(), packet.size(), ip, port);
+            }
         } else {
             trc_send.send(socket, packet, ip, port, std::function{transcontrol_handler});
         }
@@ -576,6 +622,8 @@ public:
 
         trc_recv.update_cleanup();
         trc_send.update_resend(socket);
+
+        update_delayed_send(socket);
     }
 
 private:
@@ -620,10 +668,27 @@ public:
         /* TODO: create player slot */
         u32 player_id = 1;
 
-        _clients.emplace(ip.toInteger(), client_t{player_id, port});
-        _player_id_to_ip.emplace(player_id, client_t_ip{ip, port});
+        _clients.insert_or_assign(ip.toInteger(), client_t{player_id, port});
+        _player_id_to_ip.insert_or_assign(player_id, client_t_ip{ip, port});
 
         player_update_callback(player_id, act);
+    }
+
+    u16 get_ping_packet_id() {
+        return _ping_id++;
+    }
+
+    template <typename F>
+    void act(const sf::IpAddress& ip, u16, const a_srv_ping& act, F&&) {
+        auto found = _clients.find(ip.toInteger());
+        if (found != _clients.end() && found->second._last_ping_id == act._ping_id) {
+            auto& client = found->second;
+            client._last_ping_id = 0;
+            auto now = std::chrono::steady_clock::now();
+            auto time = std::chrono::duration_cast<std::chrono::milliseconds>(now - client._last_send).count();
+            client.ping.update(time);
+            std::cout << "Ping: " << client.ping.value() << "ms" << std::endl;
+        }
     }
 
     template <typename F>
@@ -642,6 +707,10 @@ public:
     struct client_t {
         u32 player_id;
         u16 port;
+        u16 _last_ping_id = 0;
+        avg_counter<long> ping{5, 0, 0};
+
+        std::chrono::steady_clock::time_point _last_send = std::chrono::steady_clock::now();
     };
 
     struct client_t_ip {
@@ -664,6 +733,16 @@ public:
         sock.receiver([&, this](const sf::IpAddress& ip, u16 port, auto&& act) {
             this->act(ip, port, act, player_update_callback);
         });
+
+        for (auto& [_, client] : _clients) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - client._last_send > 100ms && client._last_ping_id == 0) {
+                client._last_send = now;
+                client._last_ping_id = get_ping_packet_id();
+                send(client.player_id,
+                     a_srv_ping{client._last_ping_id, static_cast<u16>(client.ping.value())});
+            }
+        }
     }
 
 private:
@@ -678,6 +757,8 @@ private:
 
     std::map<u32, client_t>    _clients;
     std::map<u64, client_t_ip> _player_id_to_ip;
+
+    u16 _ping_id = 0;
 };
 
 

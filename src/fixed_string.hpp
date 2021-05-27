@@ -19,9 +19,9 @@ public:
     fixed_str_t(): _len(0) {}
 
     template <size_t SS>
-    fixed_str_t(const C(&str)[SS]): _len(std::min(SS, max_size_w_nt - 1)) {
-        std::memcpy(_data.data(), str, _len);
-        _data[_len] = C('\0');
+    fixed_str_t(const C(&str)[SS]): _len(std::min(SS - 1, max_size_w_nt - 1)) {
+        std::memcpy(_data.data(), str, _len - 1);
+        _data[_len - 1] = C('\0');
     }
 
     fixed_str_t(const char* str, size_t size): _len(std::min(size, max_size_w_nt - 1)) {
@@ -55,7 +55,20 @@ public:
         return _data[idx];
     }
 
-    auto operator<=>(const fixed_str_t&) const = default;
+    [[nodiscard]]
+    bool operator==(const fixed_str_t& str) const {
+        return _len == str._len && std::memcmp(_data.data(), str._data, _len) == 0;
+    }
+
+    [[nodiscard]]
+    bool operator==(std::string_view str) const {
+        return _len == str.size() && std::memcmp(_data.data(), str.data(), _len) == 0;
+    }
+
+    [[nodiscard]]
+    friend bool operator==(std::string_view rhs, const fixed_str_t& lhs) {
+        return lhs == rhs;
+    }
 
     [[nodiscard]]
     constexpr size_t size() const {

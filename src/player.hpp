@@ -13,14 +13,15 @@
 #include "physic_simulation.hpp"
 #include "config.hpp"
 #include "weapon.hpp"
+#include "avg_counter.hpp"
 
 namespace dfdh {
 
 namespace details {
-    class player_id_geter {
+    class player_id_getter {
     public:
-        static player_id_geter& instance() {
-            static player_id_geter inst;
+        static player_id_getter& instance() {
+            static player_id_getter inst;
             return inst;
         }
 
@@ -33,8 +34,8 @@ namespace details {
         u32 counter = 0;
     };
 
-    player_id_geter& player_id() {
-        return player_id_geter::instance();
+    player_id_getter& player_id() {
+        return player_id_getter::instance();
     }
 }
 
@@ -195,8 +196,11 @@ public:
 
         if (st.on_shot)
             shot();
-        else
+        else {
+            if (_id == 0)
+                std::cout << "RELAX SUKA" << std::endl;
             relax();
+        }
     }
 
     void update_input(const control_keys& ks, sf::Event evt, physic_simulation& sim, bullet_mgr& bm) {
@@ -220,7 +224,6 @@ public:
             }
             else if (c == ks.shot) {
                 shot();
-                _shot_pressed = true;
             }
         }
         else if (evt.type == sf::Event::KeyReleased) {
@@ -233,7 +236,6 @@ public:
             }
             else if (c == ks.shot) {
                 relax();
-                _shot_pressed = false;
             }
             else if (c == ks.up) {
                 _jump_pressed = false;
@@ -422,13 +424,13 @@ public:
     }
 
     [[nodiscard]]
-    const weapon_instance* get_gun() const {
-        return &_pistol;
+    const weapon_instance& get_gun() const {
+        return _pistol;
     }
 
     [[nodiscard]]
-    weapon_instance* get_gun() {
-        return &_pistol;
+    weapon_instance& get_gun() {
+        return _pistol;
     }
 
     [[nodiscard]]
@@ -445,7 +447,7 @@ public:
         return player_states_t{
             _cur_x_accel_l < 0.f,
             _cur_x_accel_r > 0.f,
-            _shot_pressed,
+            _pistol ? _pistol.on_shot() : false,
             _jump_pressed,
             _jump_down_pressed
         };
@@ -544,6 +546,7 @@ private:
     u32  _id;
 
     u32 _deaths = 0;
+    u64 _evt_counter = 0;
 
     weapon_instance _pistol;
 
@@ -555,7 +558,6 @@ private:
     bool _on_left = false;
     bool _jump_pressed = false;
     bool _jump_down_pressed = false;
-    bool _shot_pressed = false;
 
     int _group = 0;
 
@@ -701,6 +703,19 @@ public:
 
     void rand_pool(rand_float_pool pool) {
         _rand_pool = std::move(pool);
+    }
+
+    void increment_evt_counter() {
+        ++_evt_counter;
+    }
+
+    void evt_counter(u64 value) {
+        _evt_counter = value;
+    }
+
+    [[nodiscard]]
+    u64 evt_counter() const {
+        return _evt_counter;
     }
 };
 

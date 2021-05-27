@@ -26,6 +26,7 @@ size_t cur_wpn = 0;
 
 namespace dfdh {
 
+using st_clock = std::chrono::steady_clock;
 
 struct client_state {
     client_state() {
@@ -54,6 +55,53 @@ struct client_state {
     sf::IpAddress serv_ip = "127.0.0.1";
     u16 serv_port = SERVER_DEFAULT_PORT;
     act_socket sock = act_socket(CLIENT_DEFAULT_PORT);
+
+    struct evt_cache {
+        sf::Vector2f pos;
+        sf::Vector2f vel;
+        st_clock::time_point last_update = st_clock::now();
+    };
+
+    std::deque<evt_cache> previous_states;
+    static constexpr size_t max_states = 128;
+    sf::Clock states_update_timer;
+
+    void push_state(const sf::Vector2f& position, const sf::Vector2f& velocity) {
+        if (previous_states.size() == max_states)
+            previous_states.pop_front();
+        previous_states.push_back({position, velocity, st_clock::now()});
+    }
+
+    std::optional<evt_cache> find_previous(float ping_s) {
+        auto now = st_clock::now();
+
+        auto time_dur = [](auto now, auto last) {
+            return std::chrono::duration_cast<std::chrono::duration<float>>(now - last).count();
+        };
+
+        auto pos = previous_states.begin();
+        for (; pos != previous_states.end(); ++pos)
+            if (time_dur(now, pos->last_update) < ping_s)
+                break;
+
+        if (pos == previous_states.end())
+            return {};
+
+        if (pos != previous_states.begin()) {
+            auto before = pos - 1;
+            auto dist_before = std::fabs(time_dur(now, before->last_update));
+            auto dist = std::fabs(time_dur(now, pos->last_update));
+            auto f = dist_before / (dist + dist_before);
+
+            return evt_cache{
+                lerp(before->pos, pos->pos, dist_before / f),
+                lerp(before->vel, pos->vel, dist_before / f)
+            };
+
+        }
+
+        return *pos;
+    }
 };
 
 class diefastdiehard : public dfdh::engine {
@@ -116,7 +164,8 @@ public:
                     p->enable_double_jump();
         });
 
-        //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
+        //if (!_client)
+        //    ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 1));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 2));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 3));
@@ -140,19 +189,23 @@ public:
         if (!_on_game)
             return;
 
-        players[player_idx]->update_input(control_ks, evt, sim, _bm);
+        auto& player = players[player_idx];
+        player->update_input(control_ks, evt, sim, _bm);
 
         if (!_client) {
-            auto states = players[player_idx]->extract_client_input_state();
+            auto states = player->extract_client_input_state();
             if (states != server_player_states) {
+                player->increment_evt_counter();
                 server_player_states = states;
-                server().send_to_all(a_srv_player_states{server_player_states, player_idx});
+                server().send_to_all(a_srv_player_states{
+                    server_player_states, player_idx, player->evt_counter()});
             }
         } else {
-            auto states = players[player_idx]->extract_client_input_state();
+            auto states = player->extract_client_input_state();
             if (_client->input_states != states) {
+                player->increment_evt_counter();
                 _client->input_states = states;
-                _client->send(a_cli_player_states{states});
+                _client->send(a_cli_player_states{states, player->evt_counter()});
             }
         }
 
@@ -253,39 +306,91 @@ public:
         diefastdiehard* it;
     };
 
+    void act_from_server(const a_srv_ping& act) {
+        _self_ping = static_cast<float>(act._ping_ms) * 0.001f;
+        _client->send(act);
+    }
+
     void act_from_server(const a_srv_player_states& player_states) {
         players[player_states.player_id]->update_from_client(player_states.st);
+        players[player_states.player_id]->evt_counter(player_states.evt_counter);
     }
 
     void act_from_server(const a_srv_player_physic_sync& sync_state) {
         auto& player = players[sync_state.player_id];
 
+        struct physic_adjust {
+            sf::Vector2f pos, vel;
+        };
+        std::optional<physic_adjust> adjust;
+
+        if (player_idx == sync_state.player_id) {
+            if (player->evt_counter() > sync_state.evt_counter)
+                return;
+
+            if (auto prev_state = _client->find_previous(_self_ping)) {
+                adjust = physic_adjust{prev_state->pos - sync_state.position, prev_state->vel - sync_state.velocity};
+                std::cout << "Adjust: " << adjust->pos << std::endl;
+            }
+            //std::cout << "UPD: " << time_dist << std::endl;
+
+            /*
+            auto now              = std::chrono::steady_clock::now();
+            auto last_packet_time = std::chrono::duration_cast<std::chrono::duration<float>>(
+                                        now - _client->_evt_cache.last_update)
+                                        .count();
+            bool drop_by_low_time = false;
+            if (last_packet_time < _self_ping * 0.95f) {
+                if (drop)
+                    drop_by_low_time = true;
+            }
+
+            if (!drop_by_low_time)
+                _client->_evt_cache.last_update = now;
+            if (drop || drop_by_low_time)
+                return;
+
+            std::cout << "ping: " << last_packet_time << "  pos dist " << _client->_evt_cache.pos - sync_state.position << "  vel: " <<
+                _client->_evt_cache.vel - sync_state.velocity << std::endl;
+            */
+
+        }
+
         //player->update_from_client(sync_state.st);
-        player->position(sync_state.position);
-        player->velocity(sync_state.velocity);
+        if (player_idx != sync_state.player_id) {
+            player->position(sync_state.position);
+            player->velocity(sync_state.velocity);
+        }
+        else if (adjust) {
+            auto pos_magn = magnitude2(adjust->pos);
+            std::cout << "magn: " << pos_magn << std::endl;
+            if (pos_magn > 100.f) {
+                player->position(sync_state.position + adjust->pos * _self_ping);
+            }
+        }
         //player->on_left(sync_state.on_left);
 
-        auto old_gun_name = player->get_gun() ? player->get_gun()->get_weapon()->section() : "";
-        if (!sync_state.cur_wpn_name.empty() && old_gun_name != sync_state.cur_wpn_name) {
+        auto old_gun_name = player->get_gun() ? player->get_gun().get_weapon()->section() : "";
+        if (old_gun_name != sync_state.cur_wpn_name) {
             player->setup_pistol(sync_state.cur_wpn_name);
         }
 
         if (player->get_gun())
-            player->get_gun()->ammo_elapsed(sync_state.ammo_elapsed);
+            player->get_gun().ammo_elapsed(sync_state.ammo_elapsed);
+
+        player->rand_pool().position(sync_state.random_pool_pos);
     }
 
     void act_from_server(const a_srv_player_random_pool_init& act) {
         auto& player = players[act.player_id];
-        std::cout << "Reset pool" << std::endl;
         player->rand_pool(act.pool);
     }
 
     void act_from_server(const auto&) {} /* dummy */
 
     void client_player_update(u32 player_id, const a_cli_i_wanna_play&) {
-        //std::this_thread::sleep_for(500ms);
-        //for (size_t i = 0; i < players.size(); ++i)
-        //    server().send(player_id, a_srv_player_random_pool_init{i, players[i]->rand_pool()}, true);
+        for (size_t i = 0; i < players.size(); ++i)
+            server().send(player_id, a_srv_player_random_pool_init{i, players[i]->rand_pool()}, true);
 
         /* TODO: handle this */
         _on_game = true;
@@ -297,6 +402,7 @@ public:
 
     void client_player_update(u32 player_id, const a_cli_player_states& states) {
         players[player_id]->update_from_client(states.st);
+        players[player_id]->evt_counter(states.evt_counter);
     }
 
     void game_update() final {
@@ -313,14 +419,16 @@ public:
                     _server_sync_timer.restart();
                     for (size_t i = 0; i < players.size(); ++i) {
                         auto& player = players[i];
-                        auto  gun    = player->get_gun();
+                        auto& gun    = player->get_gun();
                         server().send_to_all(
                             a_srv_player_physic_sync{i,
                                                      player->get_position(),
                                                      player->get_velocity(),
                                                      player->extract_client_input_state(),
-                                                     gun ? gun->get_weapon()->section() : "",
-                                                     gun ? gun->ammo_elapsed() : 0,
+                                                     gun ? gun.get_weapon()->section() : "",
+                                                     player->rand_pool().position(),
+                                                     player->evt_counter(),
+                                                     gun ? gun.ammo_elapsed() : 0,
                                                      player->get_on_left()});
                     }
                 }
@@ -333,6 +441,11 @@ public:
                 pl->game_update(sim, _bm);
                 if (pl->collision_box()->get_position().y > 2100.f)
                     on_dead(pl.get());
+            }
+
+            if (_client && _client->states_update_timer.getElapsedTime().asMilliseconds() > 10) {
+                _client->states_update_timer.restart();
+                _client->push_state(players[player_idx]->get_position(), players[player_idx]->get_velocity());
             }
         } else {
             if (_client) {
@@ -381,7 +494,7 @@ public:
         });
 
         ai_mgr().provide_players(players, [gy = sim.gravity().y](u32 id, const std::shared_ptr<player>& pl) {
-            auto gun = pl->get_gun();
+            auto& gun = pl->get_gun();
 
             return ai_mgr_singleton::player_t{
                 pl->get_position(),
@@ -396,10 +509,10 @@ public:
                 pl->get_jump_speed(),
                 pl->calc_max_jump_y_dist(gy),
                 pl->get_max_speed(),
-                gun ? gun->get_weapon()->get_dispersion() : 0.01f,
+                gun ? gun.get_weapon()->get_dispersion() : 0.01f,
                 pl->get_group(),
-                gun ? gun->get_bullet_vel() : 1500.f,
-                gun ? gun->get_weapon()->get_fire_rate() : 100.f,
+                gun ? gun.get_bullet_vel() : 1500.f,
+                gun ? gun.get_weapon()->get_fire_rate() : 100.f,
                 pl->get_on_left(),
                 pl->collision_box()->is_lock_y()
             };
@@ -523,6 +636,8 @@ private:
     sf::Clock _server_sync_timer;
     float     _server_sync_step = 0.06f;
     bool _on_game = false;
+
+    float _self_ping = 0.f;
 };
 
 }

@@ -16,7 +16,7 @@ public:
         on_init(std::move(args));
 
         _wnd.setVerticalSyncEnabled(true);
-        _wnd.setFramerateLimit(60);
+        _wnd.setFramerateLimit(240);
 
         while (_wnd.isOpen()) {
             game_update();

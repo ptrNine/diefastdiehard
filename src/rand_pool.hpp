@@ -31,7 +31,7 @@ public:
             auto div = static_cast<float>(std::numeric_limits<gen_t>::max());
             auto res = num / div * (max - min) + min;
 
-            if (res < max)
+            if (res <= max)
                 return res;
         }
     }

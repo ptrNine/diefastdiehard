@@ -577,7 +577,7 @@ private:
         auto pos  = position + shot_displacement(direction);
         auto angl = _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f;
 
-        auto dir = rand_pool ?
+        auto dir = !rand_pool ?
             randomize_dir(direction, angl) :
             randomize_dir(direction, angl, [rand_pool](float min, float max) { return rand_pool->gen(min, max); });
 
@@ -597,7 +597,7 @@ private:
         else {
             for (u32 i = 0; i < _wpn->_buckshot; ++i) {
                 auto newdir =
-                    rand_pool
+                    !rand_pool
                         ? randomize_dir(dir, _wpn->_dispersion)
                         : randomize_dir(dir, _wpn->_dispersion, [rand_pool](float min, float max) {
                               return rand_pool->gen(min, max);
@@ -660,6 +660,11 @@ private:
     timer                      _shot_timer;
 
 public:
+    [[nodiscard]]
+    bool on_shot() const {
+        return _on_shot;
+    }
+
     [[nodiscard]]
     const weapon* get_weapon() const {
         return _wpn;
