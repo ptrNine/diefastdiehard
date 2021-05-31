@@ -1,0 +1,129 @@
+#!/bin/bash
+
+colored() {
+    if [ -t 1 ]; then
+        local black='0;30' red='0;31'     green='0;32'  orange='0;33' \
+              blue='0;34'  purple='0;35'  cyan='0;36'   lgray='0;37' \
+              dgray='1;30' lred='1;31'    lgreen='1;32' yellow='1;33' \
+              lblue='1;34' lpurple='1;35' lcyan='1;36'  white='1;37'
+        echo -e "\e[${!1}m$2\e[0m"
+    else
+        echo "$2"
+    fi
+}
+
+fail() {
+    colored red "$1" 1>&2
+    exit 1
+}
+
+progress() {
+    while kill -0 "$1" &>/dev/null; do
+        local tm="$(date +%S)"
+        case $((tm%3)) in
+            0)
+                colored "$2" "$3 .  " ret
+                ;;
+            1)
+                colored "$2" "$3 .. " ret
+                ;;
+            2)
+                colored "$2" "$3 ..." ret
+                ;;
+        esac
+        sleep 1
+    done
+    printf '\n'
+}
+
+_build() {
+    local CXX_COMPILER="${CXX_COMPILER:=/usr/bin/g++}"
+    local C_COMPILER="${C_COMPILER:=/usr/bin/gcc}"
+    local builddir='./easybuild'
+    local rebuild_submodules=false
+
+    local hardening_flags="
+-fstrict-aliasing
+-Wall
+-Wextra
+-Wpedantic
+-Wcast-align
+-Wconversion
+-Wctor-dtor-privacy
+-Wextra-semi
+-Wfloat-equal
+-Wnon-virtual-dtor
+-Wold-style-cast
+-Woverloaded-virtual
+-Wredundant-decls
+-Wsign-conversion
+-Wsign-promo
+-Werror=unused-result
+-Wno-unused-function
+-Wno-missing-braces
+"
+
+    for arg in "$@"; do
+        case "$arg" in
+        --builddir=*)
+            builddir="${arg#*=}"
+            ;;
+        --rebuild-subs)
+            rebuild_submodules=true
+            ;;
+        --run=*)
+            LD_LIBRARY_PATH="$builddir/3rd/lib:$builddir/3rd/lib64" "$builddir/${arg#*=}"
+            exit 0
+            ;;
+        esac
+    done
+
+    mkdir -p "$builddir/3rd"
+    mkdir -p "$builddir/submodules/SFML"
+
+    if [ ! -f "$builddir/submodules/SFML/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
+        git submodule init || fail ""
+        git submodule update || fail ""
+        rm -f "$builddir/.easybuild-list"
+        rm -f "$builddir/submodules/SFML/.easybuild_done"
+        cmake submodules/SFML/ -B "$builddir/submodules/SFML" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="$C_COMPILER" \
+            -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+            -DCMAKE_INSTALL_PREFIX="$builddir/3rd" \
+            || fail "SFML submodule cmake run failed"
+
+        make -j "$(nproc)" -C "$builddir/submodules/SFML" install \
+            || fail "SFML submodule build failed"
+
+        touch "$builddir/submodules/SFML/.easybuild_done"
+    fi
+
+    rm -f "$builddir/.new-easybuild-list"
+    for f in 'diefastdiehard.cpp' $(ls -w1 src/*); do
+        stat --printf="%Y:%n\n" "$f" >> "$builddir/.new-easybuild-list"
+    done
+
+    if [ ! -f "$builddir/.easybuild-list" ] || \
+        ! cmp --silent "$builddir/.easybuild-list" "$builddir/.new-easybuild-list"; then
+        rm -f "$builddir/.easybuild-list"
+
+        colored yellow "Building $builddir/dfdh"
+        "$CXX_COMPILER" -std=c++20 \
+            -O2 -march=native \
+            $hardening_flags \
+            -L "$builddir/3rd/lib" \
+            -L "$builddir/3rd/lib64" \
+            -I "$builddir/3rd/include" 'diefastdiehard.cpp' \
+            -o "$builddir/dfdh" \
+            -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread || fail "Build failed"
+
+        mv -f "$builddir/.new-easybuild-list" "$builddir/.easybuild-list"
+
+        colored lgreen "Build done"
+    else
+        colored yellow "Already built in $builddir/dfdh"
+    fi
+}
+
+_build "$@"
