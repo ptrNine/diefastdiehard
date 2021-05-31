@@ -52,7 +52,9 @@ public:
         if (_elements.empty())
             return;
 
-        _position += get_velocity() * timestep;
+        auto mov = get_velocity() * timestep;
+        _position += mov;
+        _distance += magnitude(mov);
         for (auto& [e, displ] : _elements)
             e->position(_position + displ);
     }

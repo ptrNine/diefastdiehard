@@ -4,6 +4,7 @@
 #include <set>
 #include <vector>
 #include <variant>
+#include <chrono>
 
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/System/Clock.hpp>
@@ -82,6 +83,7 @@ public:
     }
 
     void update_immediate(float timestep) {
+        _current_update_time = std::chrono::steady_clock::now();
         _last_timestep = timestep;
 
         constexpr auto update_move =
@@ -193,7 +195,7 @@ public:
 
 
         for (auto& [_, c] : _update_callbacks)
-            c(timestep);
+            c(*this, timestep);
     }
 
     static float distance(const sf::Vector3f& line, const sf::Vector2f& point) {
@@ -381,6 +383,11 @@ public:
         return _last_speed;
     }
 
+    [[nodiscard]]
+    auto current_update_time() const {
+        return _current_update_time;
+    }
+
 private:
     template <CollideCallbackArg T1, CollideCallbackArg T2>
     void add_collide_callback_internal(const std::string&                            name,
@@ -416,13 +423,15 @@ private:
     u32       _last_rps      = 60;
     float     _last_speed    = 1.f;
 
+    std::chrono::steady_clock::time_point _current_update_time = std::chrono::steady_clock::now();
+
     using collide_callback_arg_generic_t =
         std::variant<physic_line*, physic_point*, physic_group*>;
     using collide_callback_generic_t =
         std::function<void(collide_callback_arg_generic_t, collide_callback_arg_generic_t, collision_result)>;
 
     std::map<std::string, collide_callback_generic_t> _collide_callbacks;
-    std::map<std::string, std::function<void(float)>> _update_callbacks;
+    std::map<std::string, std::function<void(const physic_simulation&, float)>> _update_callbacks;
     std::map<std::string, std::function<void(physic_point*)>> _platforms_callbacks;
 };
 

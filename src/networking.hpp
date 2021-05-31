@@ -94,7 +94,7 @@ void send_delayed(const sf::IpAddress& ip, u16 port, const packet_t& packet) {
 void update_delayed_send(sf::UdpSocket& sock) {
     auto now = std::chrono::steady_clock::now();
     for (auto i = _packets.begin(); i != _packets.end();) {
-        if (now - i->tp > 200ms) {
+        if (now - i->tp > 100ms) {
             sock.send(i->packet.data(), i->packet.size(), i->ip, i->port);
             _packets.erase(i++);
         } else
@@ -113,12 +113,14 @@ enum net_act : u32 {
     act_transcontrol_corrupted,
     act_cli_i_wanna_play,
     act_cli_player_params,
-    act_cli_player_states,
+    act_cli_player_sync,
 
     act_srv_ping,
     act_srv_player_states,
     act_srv_player_physic_sync,
     act_srv_player_random_pool_init,
+
+    act_spawn_bullet,
 
     NET_ACT_COUNT
 };
@@ -169,12 +171,14 @@ struct player_states_t {
     u8 _dummy0 = 0;
 };
 
-struct a_cli_player_states {
+struct a_cli_player_sync {
     player_states_t st;
     u64             evt_counter;
+    sf::Vector2f    position;
+    sf::Vector2f    velocity;
 
     u32     _dummy0 = 0;
-    net_act _act    = act_cli_player_states;
+    net_act _act    = act_cli_player_sync;
 };
 
 struct a_srv_player_states {
@@ -200,7 +204,6 @@ struct a_srv_player_physic_sync {
     u8      _dummy0[3] = {0};
     u32     _dummy1    = 0;
 
-
     net_act _act       = act_srv_player_physic_sync;
 };
 
@@ -208,6 +211,18 @@ struct a_srv_player_random_pool_init {
     u64             player_id;
     rand_float_pool pool;
     net_act _act = act_srv_player_random_pool_init;
+};
+
+struct a_spawn_bullet {
+    struct bullet_data_t {
+        sf::Vector2f _position;
+        sf::Vector2f _velocity;
+    };
+    u64                        player_id;
+    float                      mass;
+    std::vector<bullet_data_t> bullets;
+
+    net_act _act    = act_spawn_bullet;
 };
 
 inline uint64_t fnv1a64(const u8* ptr, size_t size) {
@@ -267,6 +282,25 @@ packet_t create_packet(const a_srv_player_random_pool_init& act, u32 transcontro
     return packet;
 }
 
+packet_t create_packet(const a_spawn_bullet& act, u32 transcontrol = 0, u64* id = nullptr) {
+    packet_t packet;
+    u64 packet_id = next_packet_id();
+
+    u64 sz = act.bullets.size();
+    packet.append(act.player_id, act.mass);
+    packet.append(sz);
+    packet.append_raw(reinterpret_cast<const u8*>(act.bullets.data()), // NOLINT
+                      sizeof(act.bullets[0]) * act.bullets.size());
+    packet.append(act._act, transcontrol, packet_id);
+
+    auto hash = fnv1a64(packet.data(), packet.size());
+    packet.append(hash);
+
+    if (id != nullptr)
+        *id = packet_id;
+
+    return packet;
+}
 
 inline bool validate_packet_size(const packet_t& packet) {
     if (packet.size() < sizeof(packet_spec_t)) {
@@ -337,6 +371,24 @@ a_srv_player_random_pool_init action_cast(const packet_t& packet) {
     return act;
 }
 
+template <>
+a_spawn_bullet action_cast(const packet_t& packet) {
+    a_spawn_bullet act;
+    size_t offset = 0;
+    std::memcpy(&act.player_id, packet.data() + offset, sizeof(act.player_id));
+    offset += sizeof(act.player_id);
+    std::memcpy(&act.mass, packet.data() + offset, sizeof(act.mass));
+    offset += sizeof(act.mass);
+
+    u64 size;
+    std::memcpy(&size, packet.data() + offset, sizeof(size));
+    offset += sizeof(size);
+    act.bullets.resize(size);
+
+    std::memcpy(act.bullets.data(), packet.data() + offset, size * sizeof(act.bullets[0]));
+    return act;
+}
+
 #define overload(NAME) \
     case act_##NAME: \
         overloaded(ip, port, action_cast<a_##NAME>(packet)); \
@@ -348,11 +400,12 @@ void action_dispatch(const sf::IpAddress& ip, u16 port, net_act act, const packe
     switch (act) {
         overload(cli_i_wanna_play);
         overload(cli_player_params);
-        overload(cli_player_states);
+        overload(cli_player_sync);
         overload(srv_ping);
         overload(srv_player_states);
         overload(srv_player_physic_sync);
         overload(srv_player_random_pool_init);
+        overload(spawn_bullet);
     default: break;
     }
 }
@@ -633,7 +686,7 @@ private:
 };
 
 template <typename T>
-concept PlayerActs = AnyOfType<T, a_cli_player_params, a_cli_player_states>;
+concept PlayerActs = AnyOfType<T, a_cli_player_params, a_cli_player_sync, a_spawn_bullet>;
 
 class server_singleton {
 public:
@@ -743,6 +796,10 @@ public:
                      a_srv_ping{client._last_ping_id, static_cast<u16>(client.ping.value())});
             }
         }
+    }
+
+    auto get_ping(u32 player_id) {
+        return _clients.at(_player_id_to_ip.at(player_id).ip.toInteger()).ping.value();
     }
 
 private:

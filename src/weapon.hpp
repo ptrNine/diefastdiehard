@@ -7,6 +7,7 @@
 #include "bullet.hpp"
 #include "config.hpp"
 #include "texture_mgr.hpp"
+#include "instant_kick.hpp"
 
 namespace dfdh
 {
@@ -279,6 +280,11 @@ inline weapon_storage_singleton& weapon_storage() {
 
 class weapon_instance {
 public:
+    struct remote_shot_params_t {
+        instant_kick_mgr* kick_mgr;
+        float             lastency;
+    };
+
     struct anim_spec_t {
         std::string _name;
         timer   _timer = {};
@@ -333,11 +339,13 @@ public:
         _current_anim = anim_spec_t{name, {}};
     }
 
-    template <typename F = int>
+    template <typename F = int, typename F2 = void(*)(const sf::Vector2f&, const sf::Vector2f&, float)>
     std::optional<float> update(const sf::Vector2f& position,
                                 const sf::Vector2f& direction,
                                 bullet_mgr&         bm,
                                 physic_simulation&  sim,
+                                bool                spawn_bullet = true,
+                                F2&&                bullet_spawn_callback = nullptr,
                                 int                 group               = -1,
                                 F                   player_group_getter = -1,
                                 rand_float_pool*    rand_pool           = nullptr) {
@@ -356,9 +364,27 @@ public:
         if (_on_shot && _ammo_elapsed &&
             _shot_timer.elapsed(sim.last_speed()) > 60.f / _wpn->_fire_rate) {
             if constexpr (std::is_same_v<F, int>)
-                shot(position, direction, bm, sim, _last_tracer_color, -1, -1, rand_pool);
+                shot(position,
+                     direction,
+                     bm,
+                     sim,
+                     _last_tracer_color,
+                     spawn_bullet,
+                     std::forward<F2>(bullet_spawn_callback),
+                     -1,
+                     -1,
+                     rand_pool);
             else
-                shot(position, direction, bm, sim, _last_tracer_color, group, std::move(player_group_getter), rand_pool);
+                shot(position,
+                     direction,
+                     bm,
+                     sim,
+                     _last_tracer_color,
+                     spawn_bullet,
+                     std::forward<F2>(bullet_spawn_callback),
+                     group,
+                     std::move(player_group_getter),
+                     rand_pool);
             _on_reload = false;
             _shot_timer.restart();
             return _wpn->_recoil;
@@ -368,6 +394,7 @@ public:
             _ammo_elapsed = _wpn->mag_size();
             _on_reload = false;
         }
+
         return {};
     }
 
@@ -565,34 +592,42 @@ private:
         return on_left ? sf::Vector2f(-_wpn->_shell_pos.x, _wpn->_shell_pos.y) : _wpn->_shell_pos;
     }
 
-    template <typename F = int>
+    template <typename F = int, typename F2 = void(*)(const sf::Vector2f&, const sf::Vector2f&, float)>
     void shot(const sf::Vector2f& position,
               const sf::Vector2f& direction,
               bullet_mgr&         bm,
               physic_simulation&  sim,
               sf::Color           tracer_color,
+              bool                spawn_bullet = true,
+              F2&&                bullet_spawn_callback = nullptr,
               int                 group = -1,
               F                   player_group_getter = -1,
               rand_float_pool*    rand_pool = nullptr) {
         auto pos  = position + shot_displacement(direction);
         auto angl = _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f;
 
-        auto dir = !rand_pool ?
-            randomize_dir(direction, angl) :
-            randomize_dir(direction, angl, [rand_pool](float min, float max) { return rand_pool->gen(min, max); });
+        auto dir = !rand_pool ? randomize_dir(direction, angl)
+                              : randomize_dir(direction, angl, [rand_pool](float min, float max) {
+                                    return rand_pool->gen(min, max);
+                                });
 
         auto bullet_vel = weapon::tier_to_bullet_vel(_wpn->_bullet_vel_tier);
         if (_wpn->_buckshot == 1) {
-            if constexpr (std::is_same_v<F, int>)
-                bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel, tracer_color);
-            else
-                bm.shot(sim,
-                        pos,
-                        _wpn->_hit_mass,
-                        dir * bullet_vel,
-                        tracer_color,
-                        group,
-                        std::move(player_group_getter));
+            if (bullet_spawn_callback)
+                bullet_spawn_callback(pos, dir * bullet_vel, _wpn->_hit_mass);
+
+            if (spawn_bullet) {
+                if constexpr (std::is_same_v<F, int>)
+                    bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel, tracer_color);
+                else
+                    bm.shot(sim,
+                            pos,
+                            _wpn->_hit_mass,
+                            dir * bullet_vel,
+                            tracer_color,
+                            group,
+                            std::move(player_group_getter));
+            }
         }
         else {
             for (u32 i = 0; i < _wpn->_buckshot; ++i) {
@@ -603,16 +638,21 @@ private:
                               return rand_pool->gen(min, max);
                           });
 
-                if constexpr (std::is_same_v<F, int>)
-                    bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel, tracer_color);
-                else
-                    bm.shot(sim,
-                            pos,
-                            _wpn->_hit_mass,
-                            newdir * bullet_vel,
-                            tracer_color,
-                            group,
-                            std::move(player_group_getter));
+                if (bullet_spawn_callback)
+                    bullet_spawn_callback(pos, newdir * bullet_vel, _wpn->_hit_mass);
+
+                if (spawn_bullet) {
+                    if constexpr (std::is_same_v<F, int>)
+                        bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel, tracer_color);
+                    else
+                        bm.shot(sim,
+                                pos,
+                                _wpn->_hit_mass,
+                                newdir * bullet_vel,
+                                tracer_color,
+                                group,
+                                std::move(player_group_getter));
+                }
             }
         }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <deque>
+
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Texture.hpp>
@@ -277,19 +279,28 @@ public:
         return std::any_cast<player*>(p->get_user_any())->get_group();
     }
 
-    void game_update(physic_simulation& sim, bullet_mgr& bm) {
+    template <typename F = void(*)(const sf::Vector2f&, const sf::Vector2f&, float)>
+    void game_update(physic_simulation& sim, bullet_mgr& bm, bool spawn_bullet = true, F&& bullet_spawn_callback = nullptr) {
         if (_pistol) {
             auto dir       = _on_left ? sf::Vector2f{-1.f, 0.f} : sf::Vector2f{1.f, 0.f};
             auto pos       = collision_box()->get_position();
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
             pos += sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
 
-            if (auto recoil = _pistol.update(pos, dir, bm, sim, _group, player_group_getter, &_rand_pool))
+            if (auto recoil = _pistol.update(pos,
+                                             dir,
+                                             bm,
+                                             sim,
+                                             spawn_bullet,
+                                             std::forward<F>(bullet_spawn_callback),
+                                             _group,
+                                             player_group_getter,
+                                             &_rand_pool))
                 _collision_box->apply_impulse(-dir * *recoil);
         }
     }
 
-    void physic_update(float timestep) {
+    void physic_update(const physic_simulation& sim, float timestep) {
         _accel_f += timestep * 2.f;
         if (_accel_f > 1.f)
             _accel_f = 1.f;
@@ -318,6 +329,10 @@ public:
         _collision_box->velocity(vel);
 
         leg_animation_update(timestep, _collision_box->get_position(), vel);
+
+        if (_position_trace.size() > 300)
+            _position_trace.pop_front();
+        _position_trace.emplace_back(sim.current_update_time(), get_position());
     }
 
     void jump() {
@@ -453,6 +468,32 @@ public:
         };
     }
 
+    [[nodiscard]]
+    std::optional<sf::Vector2f> position_trace_lookup(std::chrono::steady_clock::time_point now, float latency_offset) const {
+        auto time_dur = [](auto now, auto last) {
+            return std::chrono::duration_cast<std::chrono::duration<float>>(now - last).count();
+        };
+
+        auto pos = _position_trace.begin();
+        for (; pos != _position_trace.end(); ++pos)
+            if (time_dur(now, pos->first) < latency_offset)
+                break;
+
+        if (pos == _position_trace.end())
+            return {};
+
+        if (pos != _position_trace.begin()) {
+            auto before = pos - 1;
+            auto dist_before = std::fabs(time_dur(now, before->first));
+            auto dist = std::fabs(time_dur(now, pos->first));
+            auto f = dist_before / (dist + dist_before);
+
+            return lerp(before->second, pos->second, dist_before / f);
+        }
+
+        return pos->second;
+    }
+
 private:
     void leg_animation_update(float timestep, const sf::Vector2f& pos, const sf::Vector2f& vel) {
         auto vx = vel.x;
@@ -521,6 +562,8 @@ private:
     sf::CircleShape _left_leg;
     sf::CircleShape _right_leg;
 
+    std::deque<std::pair<std::chrono::steady_clock::time_point, sf::Vector2f>> _position_trace;
+
     rand_float_pool _rand_pool;
 
     sf::Color _tracer_color = {255, 255, 0};
@@ -561,13 +604,18 @@ private:
 
     int _group = 0;
 
+    bool _on_hit_event = false;
+
 public:
     [[nodiscard]]
     sf::Vector2f barrel_pos() const {
-        if (_pistol)
-            return _collision_box->get_position() +
-                   _pistol.shot_displacement(_on_left ? sf::Vector2f{-1.f, 0.f}
-                                                      : sf::Vector2f{1.f, 0.f});
+        if (_pistol) {
+            auto pos       = collision_box()->get_position();
+            auto arm_pos_f = _pistol.arm_position_factors(_on_left);
+            pos += sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
+            return pos + _pistol.shot_displacement(_on_left ? sf::Vector2f{-1.f, 0.f}
+                                                            : sf::Vector2f{1.f, 0.f});
+        }
         else
             return _collision_box->get_position();
     }
@@ -679,6 +727,11 @@ public:
         return _collision_box.get();
     }
 
+    [[nodiscard]]
+    physic_group* collision_box() {
+        return _collision_box.get();
+    }
+
     void enable_double_jump() {
         jumps_left = max_jumps;
     }
@@ -717,6 +770,16 @@ public:
     u64 evt_counter() const {
         return _evt_counter;
     }
+
+    void set_on_hit_event() {
+        _on_hit_event = true;
+    }
+
+    bool pop_on_hit_event() {
+        auto res = _on_hit_event;
+        _on_hit_event = false;
+        return res;
+    }
 };
 
 inline void
@@ -725,7 +788,9 @@ player_hit_callback(physic_point* bullet_pnt, physic_group* player_grp, collisio
         !bullet_pnt->ready_delete_later()) {
         player_grp->apply_impulse(bullet_pnt->impulse());
         bullet_pnt->delete_later();
-        std::any_cast<player*>(player_grp->get_user_any())->reset_accel_f(bullet_pnt->get_direction().x < 0.f);
+        auto pl = std::any_cast<player*>(player_grp->get_user_any());
+        pl->reset_accel_f(bullet_pnt->get_direction().x < 0.f);
+        pl->set_on_hit_event();
     }
 }
 }
