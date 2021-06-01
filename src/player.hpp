@@ -205,7 +205,7 @@ public:
         }
     }
 
-    void update_input(const control_keys& ks, sf::Event evt, physic_simulation& sim, bullet_mgr& bm) {
+    void update_input(const control_keys& ks, sf::Event evt) {
         if (evt.type == sf::Event::KeyPressed) {
             auto c = evt.key.code;
             if (c == ks.up && !_jump_pressed) {

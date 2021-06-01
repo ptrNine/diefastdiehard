@@ -801,8 +801,7 @@ inline void hard_shooter(const std::vector<ai_mgr_singleton::player_t>& players,
 inline auto pathfinder(const std::vector<ai_mgr_singleton::platform_t>& platforms,
                        const ai_mgr_singleton::ai_plat_map_t&           plat_map,
                        const platform_res_t&                            start_plat,
-                       const platform_res_t&                            target_plat,
-                       const sf::Vector2f&                              max_plat_dist) {
+                       const platform_res_t&                            target_plat) {
     std::vector<const ai_mgr_singleton::platform_t*> res;
     auto src_plat = start_plat.stand_on;
     auto trg_plat = target_plat.stand_on ? target_plat.stand_on : target_plat.nearest;
@@ -876,7 +875,7 @@ inline void move_to_target(const std::vector<ai_mgr_singleton::platform_t>& plat
     if (!operated_plats.stand_on)
         operated_plats.stand_on = oper.last_stand_on_plat();
 
-    auto path = pathfinder(platforms, plat_map, operated_plats, target_plat, {228.f, 228.f});
+    auto path = pathfinder(platforms, plat_map, operated_plats, target_plat);
 
     if (path.empty())
         return;

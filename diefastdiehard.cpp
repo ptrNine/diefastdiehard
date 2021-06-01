@@ -192,7 +192,7 @@ public:
             return;
 
         auto& player = players[player_idx];
-        player->update_input(control_ks, evt, sim, _bm);
+        player->update_input(control_ks, evt);
 
         if (!_client) {
             auto states = player->extract_client_input_state();

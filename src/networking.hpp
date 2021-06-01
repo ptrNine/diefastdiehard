@@ -435,7 +435,7 @@ public:
         std::function<void(bool)> _handler;
     };
 
-    void send(sf::UdpSocket&            sock,
+    void send(sf::UdpSocket&            /*sock*/,
               packet_t                  packet,
               const sf::IpAddress&      ip,
               u16                       port,
@@ -459,7 +459,7 @@ public:
         //sock.send(p.data(), p.size(), ip, port);
     }
 
-    void update_resend(sf::UdpSocket& sock) {
+    void update_resend(sf::UdpSocket&/* sock*/) {
         for (auto i = _active.begin(); i != _active.end();) {
             auto& [info, params] = *i;
 
@@ -532,7 +532,7 @@ public:
     using time_point_t =
         std::chrono::steady_clock::time_point;
 
-    bool validate_spec(sf::UdpSocket&       sock,
+    bool validate_spec(sf::UdpSocket&       /*sock*/,
                        const sf::IpAddress& ip,
                        u16                  port,
                        const packet_t&      packet,
