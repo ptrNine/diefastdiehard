@@ -300,6 +300,10 @@ public:
         return _lock_y;
     }
 
+    void lock_y() {
+        _lock_y = true;
+    }
+
     void unlock_y() {
         _lock_y = false;
     }

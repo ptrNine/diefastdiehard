@@ -9,7 +9,7 @@
 #include <SFML/Graphics/CircleShape.hpp>
 
 #include "networking.hpp"
-#include "rand_pool.hpp"
+//#include "rand_pool.hpp"
 #include "bullet.hpp"
 #include "types.hpp"
 #include "physic_simulation.hpp"
@@ -199,10 +199,13 @@ public:
         if (st.on_shot)
             shot();
         else {
-            if (_id == 0)
-                std::cout << "RELAX SUKA" << std::endl;
             relax();
         }
+
+        if (st.lock_y)
+            _collision_box->lock_y();
+        else
+            _collision_box->unlock_y();
     }
 
     void update_input(const control_keys& ks, sf::Event evt) {
@@ -294,8 +297,7 @@ public:
                                              spawn_bullet,
                                              std::forward<F>(bullet_spawn_callback),
                                              _group,
-                                             player_group_getter,
-                                             &_rand_pool))
+                                             player_group_getter))
                 _collision_box->apply_impulse(-dir * *recoil);
         }
     }
@@ -464,7 +466,8 @@ public:
             _cur_x_accel_r > 0.f,
             _pistol ? _pistol.on_shot() : false,
             _jump_pressed,
-            _jump_down_pressed
+            _jump_down_pressed,
+            _collision_box->is_lock_y()
         };
     }
 
@@ -564,7 +567,7 @@ private:
 
     std::deque<std::pair<std::chrono::steady_clock::time_point, sf::Vector2f>> _position_trace;
 
-    rand_float_pool _rand_pool;
+//    rand_float_pool _rand_pool;
 
     sf::Color _tracer_color = {255, 255, 0};
 
@@ -745,6 +748,7 @@ public:
         return _collision_box->is_lock_y() ? jumps_left + 1 : jumps_left;
     }
 
+    /*
     [[nodiscard]]
     const rand_float_pool& rand_pool() const {
         return _rand_pool;
@@ -757,6 +761,7 @@ public:
     void rand_pool(rand_float_pool pool) {
         _rand_pool = std::move(pool);
     }
+    */
 
     void increment_evt_counter() {
         ++_evt_counter;
