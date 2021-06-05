@@ -37,10 +37,12 @@ progress() {
 }
 
 _build() {
-    local CXX_COMPILER="${CXX_COMPILER:=/usr/bin/g++}"
-    local C_COMPILER="${C_COMPILER:=/usr/bin/gcc}"
+    local CXX_COMPILER="${CXX_COMPILER:=/usr/bin/g++-10}"
+    local C_COMPILER="${C_COMPILER:=/usr/bin/gcc-10}"
     local builddir='./easybuild'
     local rebuild_submodules=false
+    local compodb=false
+    local run_args=
 
     local hardening_flags="
 -fstrict-aliasing
@@ -63,19 +65,27 @@ _build() {
 -Wno-missing-braces
 "
 
-    for arg in "$@"; do
-        case "$arg" in
+    while [ -n "$1" ]; do
+        case "$1" in
         --builddir=*)
-            builddir="${arg#*=}"
+            builddir="${1#*=}"
             ;;
         --rebuild-subs)
             rebuild_submodules=true
             ;;
-        --run=*)
-            LD_LIBRARY_PATH="$builddir/3rd/lib:$builddir/3rd/lib64" "$builddir/${arg#*=}"
-            exit 0
+        --compodb)
+            compodb=true
+            ;;
+        --run)
+            shift
+            run_args="LD_LIBRARY_PATH='$builddir/3rd/lib:$builddir/3rd/lib64' $builddir/$@"
+            break
+            ;;
+        *)
+            fail "Unknown argument $1"
             ;;
         esac
+        shift
     done
 
     mkdir -p "$builddir/3rd"
@@ -109,21 +119,39 @@ _build() {
         rm -f "$builddir/.easybuild-list"
 
         colored yellow "Building $builddir/dfdh"
-        "$CXX_COMPILER" -std=c++20 \
+        local cmd="$(command -v "$CXX_COMPILER") -std=c++20 \
             -O2 -march=native \
             $hardening_flags \
-            -L "$builddir/3rd/lib" \
-            -L "$builddir/3rd/lib64" \
-            -I "$builddir/3rd/include" 'diefastdiehard.cpp' \
-            -o "$builddir/dfdh" \
-            -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread || fail "Build failed"
+            -L '$(pwd)/$builddir/3rd/lib' \
+            -L '$(pwd)/$builddir/3rd/lib64' \
+            -I '$(pwd)/$builddir/3rd/include' '$(pwd)/diefastdiehard.cpp' \
+            -o '$(pwd)/$builddir/dfdh' \
+            -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread"
+        cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
+
+        eval $cmd || fail "Build failed"
+
+        if [ "$compodb" = true ]; then
+            cat > ./compile_commands.json <<EOF
+[
+{
+  "directory": "$(pwd)/$builddir",
+  "command": "$cmd",
+  "file": "$(pwd)/diefastdiehard.cpp"
+}
+]
+EOF
+        fi
 
         mv -f "$builddir/.new-easybuild-list" "$builddir/.easybuild-list"
 
         colored lgreen "Build done"
     else
         colored yellow "Already built in $builddir/dfdh"
+        rm -f "$builddir/.new-easybuild-list"
     fi
+
+    eval $run_args
 }
 
 _build "$@"
