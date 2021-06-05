@@ -4,20 +4,23 @@
 
 #include "types.hpp"
 #include "physic_simulation.hpp"
+#include "bullet.hpp"
 
 namespace dfdh {
 class instant_kick {
 public:
-    instant_kick(physic_simulation& sim,
-                 const sf::Vector2f& position,
-                 const sf::Vector2f& end_point,
-                 float mass,
-                 float velocity,
-                 int   group): _group(group) {
-        auto tstep = sim.last_timestep();
-        auto dist = end_point - position;
-        auto vel = dist * (1.f / tstep);
-        auto s_vel = magnitude(vel);
+    instant_kick(physic_simulation&          sim,
+                 const sf::Vector2f&         position,
+                 const sf::Vector2f&         end_point,
+                 float                       mass,
+                 float                       velocity,
+                 int                         group,
+                 std::weak_ptr<physic_point> related_bullet_pbox):
+        _group(group), _related_bullet_pbox(std::move(related_bullet_pbox)) {
+        auto tstep  = sim.last_timestep();
+        auto dist   = end_point - position;
+        auto vel    = dist * (1.f / tstep);
+        auto s_vel  = magnitude(vel);
         auto f_mass = velocity / s_vel;
         mass *= f_mass;
 
@@ -45,9 +48,15 @@ public:
         return definitely_greater(_ph->get_distance(), 0.f, 0.0001f);
     }
 
+    [[nodiscard]]
+    std::weak_ptr<physic_point>& related_bullet_pbox() {
+        return _related_bullet_pbox;
+    }
+
 private:
     std::shared_ptr<physic_point> _ph;
     int                           _group;
+    std::weak_ptr<physic_point>   _related_bullet_pbox;
 };
 
 class instant_kick_mgr {
@@ -57,13 +66,15 @@ public:
         sim.add_collide_callback(_name, std::move(hit_callback));
     }
 
-    void spawn(physic_simulation&  sim,
-               const sf::Vector2f& position,
-               const sf::Vector2f& end_point,
-               float               mass,
-               float               velocity,
-               int                 group) {
-        auto& kick = _kicks.emplace_back(sim, position, end_point, mass, velocity, group);
+    void spawn(physic_simulation&          sim,
+               const sf::Vector2f&         position,
+               const sf::Vector2f&         end_point,
+               float                       mass,
+               float                       velocity,
+               int                         group,
+               std::weak_ptr<physic_point> related_bullet_pbox = {}) {
+        auto& kick = _kicks.emplace_back(
+            sim, position, end_point, mass, velocity, group, std::move(related_bullet_pbox));
         kick.physic()->user_data(0xdeadbeef);
         if (group != -1)
             kick.physic()->set_collide_allower([=](const physic_point* p) {
@@ -74,6 +85,9 @@ public:
     void update() {
         for (auto i = _kicks.begin(); i != _kicks.end();) {
             if (i->expired() || i->physic()->ready_delete_later()) {
+                if (i->physic()->ready_delete_later())
+                    if (auto blt = i->related_bullet_pbox().lock())
+                        blt->delete_later();
                 i->physic()->delete_later();
                 _kicks.erase(i++);
             } else
