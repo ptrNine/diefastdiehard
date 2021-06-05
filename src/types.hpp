@@ -4,8 +4,12 @@
 #include <cstdint>
 #include <array>
 #include <vector>
+#include <string>
 
 namespace dfdh {
+
+using namespace std::string_view_literals;
+using namespace std::string_literals;
 
 using u8 = uint8_t;
 using u16 = uint16_t;
@@ -52,5 +56,17 @@ concept Number = Integral<T> || std::is_floating_point_v<T>;
 
 template<typename T, typename... ArgsT>
 concept AnyOfType = (std::is_same_v<T, ArgsT> || ...);
+
+template <typename... Ts>
+requires requires(const Ts&... s) {
+    ((s.size()), ...);
+    (std::string_view(s), ...);
+}
+std::string build_string(const Ts&... strings) {
+    std::string str;
+    str.reserve((strings.size() + ...));
+    ((str.append(strings)), ...);
+    return str;
+}
 
 } // namespace dfdh
