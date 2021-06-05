@@ -11,6 +11,8 @@
 #include "src/rand_pool.hpp"
 #include "src/networking.hpp"
 #include "src/adjustment_box.hpp"
+#include "src/log.hpp"
+#include <ranges>
 
 #include <SFML/Graphics/RectangleShape.hpp>
 
@@ -52,59 +54,13 @@ struct client_state {
 
     bool hello = false;
 
-    player_states_t input_states{false, false, false, false, false};
+    player_states_t input_states{false, false, false, false, false, false};
 
     sf::IpAddress serv_ip = "127.0.0.1";
     u16 serv_port = SERVER_DEFAULT_PORT;
     act_socket sock = act_socket(CLIENT_DEFAULT_PORT);
-
-    struct evt_cache {
-        sf::Vector2f pos;
-        sf::Vector2f vel;
-        st_clock::time_point last_update = st_clock::now();
-    };
-
-    std::deque<evt_cache> previous_states;
-    static constexpr size_t max_states = 128;
-    sf::Clock states_update_timer;
-
-    void push_state(const sf::Vector2f& position, const sf::Vector2f& velocity) {
-        if (previous_states.size() == max_states)
-            previous_states.pop_front();
-        previous_states.push_back({position, velocity, st_clock::now()});
-    }
-
-    std::optional<evt_cache> find_previous(float ping_s) {
-        auto now = st_clock::now();
-
-        auto time_dur = [](auto now, auto last) {
-            return std::chrono::duration_cast<std::chrono::duration<float>>(now - last).count();
-        };
-
-        auto pos = previous_states.begin();
-        for (; pos != previous_states.end(); ++pos)
-            if (time_dur(now, pos->last_update) < ping_s)
-                break;
-
-        if (pos == previous_states.end())
-            return {};
-
-        if (pos != previous_states.begin()) {
-            auto before = pos - 1;
-            auto dist_before = std::fabs(time_dur(now, before->last_update));
-            auto dist = std::fabs(time_dur(now, pos->last_update));
-            auto f = dist_before / (dist + dist_before);
-
-            return evt_cache{
-                lerp(before->pos, pos->pos, dist_before / f),
-                lerp(before->vel, pos->vel, dist_before / f)
-            };
-
-        }
-
-        return *pos;
-    }
 };
+
 
 class diefastdiehard : public dfdh::engine {
 public:
@@ -114,6 +70,10 @@ public:
         if (args.get("--client")) {
             _client = std::make_shared<client_state>();
             player_idx = 1;
+        }
+
+        if (args.get("--physic-debug")) {
+            _physic_debug = true;
         }
 
         window().setSize({800, 600});
@@ -167,7 +127,7 @@ public:
         });
 
         //if (!_client)
-        //    ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 0));
+        //    ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 1));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 2));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 3));
@@ -185,7 +145,7 @@ public:
     }
 
     /* TODO: remove later */
-    player_states_t server_player_states{false, false, false, false, false};
+    player_states_t server_player_states{false, false, false, false, false, false};
 
     void handle_event(const sf::Event& evt) final {
         if (!_on_game)
@@ -219,26 +179,6 @@ public:
                     cur_wpn = 0;
 
                 for (auto& plr : players) plr->setup_pistol(wpns[cur_wpn]);
-
-                /*
-                ++player_idx;
-                if (player_idx == players.size())
-                    player_idx = 0;
-                    */
-            } else if (evt.key.code == sf::Keyboard::C) {
-                auto& plr = players[player_idx];
-                auto  barrel_pos = plr->barrel_pos();
-                _kick_mgr.spawn(sim,
-                                barrel_pos,
-                                barrel_pos + sf::Vector2f{plr->get_on_left() ? -500.f : 500.f, 0.f},
-                                0.2f,
-                                1300.f,
-                                plr->get_group());
-
-                auto& trg = players[1];
-                auto pos = trg->get_position();
-                pos.y -= trg->get_size().y;
-                _adj_box_mgr.add(trg, sim, pos, trg->get_size());
             }
         }
     }
@@ -251,39 +191,40 @@ public:
 
         _bm.draw(wnd);
 
-        for (auto& e : sim.point_primitives()) {
-            for (auto p : group_tree_view(e.get())) {
-                sf::RectangleShape s;
-                s.setPosition(p->bb().getPosition());
-                s.setSize(p->bb().getSize());
-                if (s.getSize().y < 2.f)
-                    s.setSize({s.getSize().x, 2.f});
-                s.setFillColor(sf::Color(0, 255, 0));
-                wnd.draw(s);
+        if (_physic_debug) {
+            for (auto& e : sim.point_primitives()) {
+                for (auto p : group_tree_view(e.get())) {
+                    sf::RectangleShape s;
+                    s.setPosition(p->bb().getPosition());
+                    s.setSize(p->bb().getSize());
+                    if (s.getSize().y < 2.f)
+                        s.setSize({s.getSize().x, 2.f});
+                    s.setFillColor(sf::Color(0, 255, 0));
+                    wnd.draw(s);
+                }
+            }
+
+            for (auto& e : sim.line_primitives()) {
+                for (auto p : group_tree_view(e.get())) {
+                    sf::RectangleShape s;
+                    s.setPosition(p->bb().getPosition());
+                    s.setSize(p->bb().getSize());
+                    s.setOutlineColor(sf::Color(0, 255, 0));
+                    s.setOutlineThickness(1.f);
+                    wnd.draw(s);
+                }
             }
         }
 
-        for (auto& e : sim.line_primitives()) {
-            for (auto p : group_tree_view(e.get())) {
-                sf::RectangleShape s;
-                s.setPosition(p->bb().getPosition());
-                s.setSize(p->bb().getSize());
-                s.setOutlineColor(sf::Color(0, 255, 0));
-                s.setOutlineThickness(1.f);
-                wnd.draw(s);
+        if (_physic_debug) {
+            for (auto& p : sim.platforms()) {
+                sf::Vertex line[] = {
+                    sf::Vertex(p.get_position()),
+                    sf::Vertex(p.get_position() + sf::Vector2f(p.length(), 0.f)),
+                };
+                wnd.draw(line, 2, sf::Lines);
             }
         }
-
-        /* TODO: debug platforms */
-        /*
-        for (auto& p : sim.platforms()) {
-            sf::Vertex line[] = {
-                sf::Vertex(p.get_position()),
-                sf::Vertex(p.get_position() + sf::Vector2f(p.length(), 0.f)),
-            };
-            wnd.draw(line, 2, sf::Lines);
-        }
-        */
     }
 
     void ai_operators_consume() {
@@ -347,7 +288,7 @@ public:
         if (sync_state.player_id != player_idx) {
             player->position(sync_state.position);
             player->velocity(sync_state.velocity);
-            std::cout << sync_state.evt_counter << " " << player->evt_counter() << std::endl;
+            LOG_UPDATE("{} {}", sync_state.evt_counter, player->evt_counter());
             if (sync_state.evt_counter < player->evt_counter())
                 return;
         } else {
@@ -360,21 +301,15 @@ public:
         if (old_gun_name != sync_state.cur_wpn_name) {
             player->setup_pistol(sync_state.cur_wpn_name);
         }
-
-        player->rand_pool().position(sync_state.random_pool_pos);
     }
 
-    void act_from_server(const a_srv_player_random_pool_init& act) {
-        auto& player = players[act.player_id];
-        player->rand_pool(act.pool);
+    void act_from_server(const a_spawn_bullet& act) {
+        server_client_shot_update(static_cast<u32>(act.player_id), act);
     }
 
     void act_from_server(const auto&) {} /* dummy */
 
-    void client_player_update(u32 player_id, const a_cli_i_wanna_play&) {
-        for (size_t i = 0; i < players.size(); ++i)
-            server().send(player_id, a_srv_player_random_pool_init{i, players[i]->rand_pool()}, true);
-
+    void client_player_update(u32, const a_cli_i_wanna_play&) {
         /* TODO: handle this */
         _on_game = true;
     }
@@ -398,27 +333,33 @@ public:
     }
 
     void client_player_update(u32 player_id, const a_spawn_bullet& act) {
+        server_client_shot_update(player_id, act);
+    }
+
+    void server_client_shot_update(u32 player_id, const a_spawn_bullet& act) {
         if (player_id >= players.size())
             return;
 
         auto& pl = players[player_id];
-        auto latency = static_cast<float>(server().get_ping(player_id)) * 0.001f * 1.0f;
+        auto  latency =
+            _client ? _self_ping : static_cast<float>(server().get_ping(player_id)) * 0.001f;
 
         for (auto& blt : act.bullets) {
-            std::cout << "LAT: " << latency << std::endl;
-            _bm.shot(sim,
-                     blt._position + blt._velocity * latency,
-                     act.mass,
-                     blt._velocity,
-                     pl->tracer_color(),
-                     pl->get_group(),
-                     player::player_group_getter);
+            auto& b = _bm.shot(sim,
+                                 blt._position + blt._velocity * latency,
+                                 act.mass,
+                                 blt._velocity,
+                                 pl->tracer_color(),
+                                 pl->get_group(),
+                                 player::player_group_getter);
+
             _kick_mgr.spawn(sim,
                             blt._position,
                             blt._position + blt._velocity * latency,
                             act.mass,
                             magnitude(blt._velocity),
-                            pl->get_group());
+                            pl->get_group(),
+                            b.physic());
 
 
             for (size_t plr_id = 0; plr_id != players.size(); ++plr_id) {
@@ -434,7 +375,7 @@ public:
                 auto bullet_time = dist / magnitude(blt._velocity);
 
                 if (auto prev_pos = players[plr_id]->position_trace_lookup(
-                        sim.current_update_time(), latency * 1.04f - bullet_time)) {
+                        sim.current_update_time(), latency - bullet_time)) {
                     _adj_box_mgr.add(players[plr_id], sim, *prev_pos, players[plr_id]->get_size());
                 }
             }
@@ -486,7 +427,6 @@ public:
                                                      player->get_velocity(),
                                                      player->extract_client_input_state(),
                                                      gun ? gun.get_weapon()->section() : "",
-                                                     player->rand_pool().position(),
                                                      player->evt_counter(),
                                                      gun ? gun.ammo_elapsed() : 0,
                                                      player->get_on_left()});
@@ -500,7 +440,7 @@ public:
             for (auto& pl : players) {
                 if (pl->id() == player_idx) {
                     std::vector<a_spawn_bullet::bullet_data_t> bullets;
-                    float mass;
+                    float mass = 0.f;
                     pl->game_update(sim, _bm, true, bullet_spawn_callback{&bullets, &mass});
 
                     if (!bullets.empty()) {
@@ -539,10 +479,9 @@ public:
         player->increase_deaths();
         spawn(player);
 
-        std::cout << "Deaths: ";
-        for (auto& pl : players)
-            std::cout << pl->get_deaths() << " ";
-        std::cout << std::endl;
+        LOG_UPDATE("Deaths: {}", players | std::ranges::views::transform([](auto&& v) {
+                                     return v->get_deaths();
+                                 }));
     }
 
     void spawn(player* player = nullptr) {
@@ -684,8 +623,6 @@ private:
 private:
     physic_simulation sim;
 
-    // std::shared_ptr<physic_point> test_point;
-    // std::shared_ptr<physic_line> test_line;
     bullet_mgr         _bm;
     instant_kick_mgr   _kick_mgr;
     adjustment_box_mgr _adj_box_mgr;
@@ -712,6 +649,7 @@ private:
     float     _server_sync_step = 0.06f;
     bool _on_game = false;
 
+    bool _physic_debug = false;
     float _self_ping = 0.f;
 };
 
