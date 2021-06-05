@@ -125,8 +125,8 @@ public:
     }
 
     template <typename F>
-    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color, int group, F player_group_getter) {
-        _bullets.emplace_back(sim, position, mass, velocity, color, group);
+    auto& shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color, int group, F player_group_getter) {
+        auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, group);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
         if (group != -1)
@@ -137,12 +137,15 @@ public:
                 }
                 return false;
             });
+        return res;
     }
 
-    void shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color) {
-        _bullets.emplace_back(sim, position, mass, velocity, color, -1);
+    auto& shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color) {
+        auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, -1);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
+
+        return res;
         /*
         if (group != -1)
             blt.physic()->set_collide_allower([](const physic_point* p) {
