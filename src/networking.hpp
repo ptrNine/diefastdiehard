@@ -5,106 +5,71 @@
 #include <iostream>
 #include <chrono>
 #include <list>
+#include <optional>
 
 #include <SFML/Network/UdpSocket.hpp>
 #include <SFML/Graphics/Color.hpp>
 
 #include "types.hpp"
+#include "packet.hpp"
 #include "vec_math.hpp"
 #include "fixed_string.hpp"
 #include "rand_pool.hpp"
 #include "avg_counter.hpp"
+#include "log.hpp"
 
 namespace dfdh {
 
 using namespace std::chrono_literals;
 
-class packet_t {
-public:
-    template <typename... Ts>
-    static constexpr size_t calc_size(const Ts&... v) {
-        return 0 + (sizeof(v) + ...);
+inline constexpr auto CLI_HELLO_MAGICK        = 0xdeadbeeffeedf00d;
+inline constexpr u16  SERVER_DEFAULT_PORT     = 27015;
+inline constexpr u16  CLIENT_DEFAULT_PORT     = 27020;
+inline constexpr bool ENABLE_DEBUG_SEND_DELAY = false;
+inline constexpr auto DEBUG_SEND_DELAY        = 100ms;
+
+template <bool Enable>
+struct _debug_packet_queue {
+    struct delayed_send_t {
+        std::chrono::steady_clock::time_point tp;
+        sf::IpAddress                         ip;
+        u16                                   port;
+        packet_t                              packet;
+    };
+
+    static auto& queue() {
+        static std::list<delayed_send_t> queue;
+        return queue;
     }
-
-    template <typename Tpl, size_t... I>
-    static constexpr size_t _offset(std::index_sequence<I...>) {
-        return (sizeof(std::tuple_element_t<I, Tpl>) + ... + 0);
-    }
-
-    template <typename... Ts, size_t... S>
-    void _append_impl(const Ts&... args, std::index_sequence<S...>) {
-        auto old_size = _data.size();
-        _data.resize(_data.size() + calc_size(args...));
-
-        auto tpl = std::tuple<const Ts&...>(args...);
-
-        (std::memcpy(_data.data() + old_size +
-                         _offset<std::tuple<Ts...>>(std::make_index_sequence<S>()),
-                     &(std::get<S>(tpl)),
-                     sizeof(std::tuple_element_t<S, std::tuple<Ts...>>)),
-         ...);
-    }
-
-    template <typename... Ts>
-    void append(const Ts&... args) {
-        _append_impl<Ts...>(args..., std::make_index_sequence<sizeof...(Ts)>());
-    }
-
-    void append_raw(const u8* data, size_t size) {
-        auto old_size = _data.size();
-        _data.resize(old_size + size);
-        std::memcpy(_data.data() + old_size, data, size);
-    }
-
-    [[nodiscard]]
-    size_t size() const {
-        return _data.size();
-    }
-
-    [[nodiscard]]
-    const u8* data() const {
-        return _data.data();
-    }
-
-    [[nodiscard]]
-    u8* data() {
-        return _data.data();
-    }
-
-    void resize(size_t size) {
-        _data.resize(size);
-    }
-
-private:
-    std::vector<u8> _data;
 };
 
-struct delayed_send_t {
-    std::chrono::steady_clock::time_point tp;
-    sf::IpAddress                         ip;
-    u16                                   port;
-    packet_t                              packet;
-};
+template <>
+struct _debug_packet_queue<false> {};
 
-static std::list<delayed_send_t> _packets;
-void send_delayed(const sf::IpAddress& ip, u16 port, const packet_t& packet) {
-    _packets.push_back({std::chrono::steady_clock::now(), ip, port, packet});
+template <bool Debug = ENABLE_DEBUG_SEND_DELAY>
+void send_packet(sf::UdpSocket& sock, const sf::IpAddress& ip, u16 port, const packet_t& packet) {
+    if constexpr (Debug)
+        _debug_packet_queue<Debug>::queue().push_back(
+            {std::chrono::steady_clock::now(), ip, port, packet});
+    else
+        sock.send(packet.data(), packet.size(), ip, port);
 }
 
+template <bool Debug = ENABLE_DEBUG_SEND_DELAY>
 void update_delayed_send(sf::UdpSocket& sock) {
-    auto now = std::chrono::steady_clock::now();
-    for (auto i = _packets.begin(); i != _packets.end();) {
-        if (now - i->tp > 100ms) {
-            sock.send(i->packet.data(), i->packet.size(), i->ip, i->port);
-            _packets.erase(i++);
-        } else
-            break;
+    if constexpr (Debug) {
+        auto now = std::chrono::steady_clock::now();
+        for (auto i = _debug_packet_queue<Debug>::queue().begin();
+             i != _debug_packet_queue<Debug>::queue().end();) {
+            if (now - i->tp > DEBUG_SEND_DELAY) {
+                sock.send(i->packet.data(), i->packet.size(), i->ip, i->port);
+                _debug_packet_queue<Debug>::queue().erase(i++);
+            }
+            else
+                break;
+        }
     }
 }
-
-inline constexpr auto CLI_HELLO_MAGICK = 0xdeadbeeffeedf00d;
-inline constexpr u16  SERVER_DEFAULT_PORT = 27015;
-inline constexpr u16  CLIENT_DEFAULT_PORT = 27020;
 
 /*====================================== ACTIONS ==========================================*/
 
@@ -118,7 +83,7 @@ enum net_act : u32 {
     act_srv_ping,
     act_srv_player_states,
     act_srv_player_physic_sync,
-    act_srv_player_random_pool_init,
+//    act_srv_player_random_pool_init,
 
     act_spawn_bullet,
 
@@ -167,8 +132,9 @@ struct player_states_t {
     bool on_shot;
     bool jump;
     bool jump_down;
+    bool lock_y;
 
-    u8 _dummy0 = 0;
+    u8 _dummy0[2] = {0};
 };
 
 struct a_cli_player_sync {
@@ -196,7 +162,7 @@ struct a_srv_player_physic_sync {
     sf::Vector2f    velocity;
     player_states_t st;
     fixed_str<23>   cur_wpn_name;
-    u64             random_pool_pos;
+//    u64             random_pool_pos;
     u64             evt_counter;
     u32             ammo_elapsed;
     bool            on_left;
@@ -207,11 +173,13 @@ struct a_srv_player_physic_sync {
     net_act _act       = act_srv_player_physic_sync;
 };
 
+/*
 struct a_srv_player_random_pool_init {
     u64             player_id;
     rand_float_pool pool;
     net_act _act = act_srv_player_random_pool_init;
 };
+*/
 
 struct a_spawn_bullet {
     struct bullet_data_t {
@@ -263,6 +231,7 @@ struct packet_spec_t {
     u64     hash;
 };
 
+/*
 packet_t create_packet(const a_srv_player_random_pool_init& act, u32 transcontrol = 0, u64* id = nullptr) {
     packet_t packet;
     u64 packet_id = next_packet_id();
@@ -281,6 +250,7 @@ packet_t create_packet(const a_srv_player_random_pool_init& act, u32 transcontro
 
     return packet;
 }
+*/
 
 packet_t create_packet(const a_spawn_bullet& act, u32 transcontrol = 0, u64* id = nullptr) {
     packet_t packet;
@@ -304,7 +274,7 @@ packet_t create_packet(const a_spawn_bullet& act, u32 transcontrol = 0, u64* id 
 
 inline bool validate_packet_size(const packet_t& packet) {
     if (packet.size() < sizeof(packet_spec_t)) {
-        std::cerr << "packet dropped: invalid size " << packet.size() << std::endl;
+        LOG("packet dropped: invalid size {}", packet.size());
         return false;
     }
     return true;
@@ -313,8 +283,7 @@ inline bool validate_packet_size(const packet_t& packet) {
 inline bool validate_packet_hash(const packet_t& packet, u64 spec_hash) {
     auto real_hash = fnv1a64(packet.data(), packet.size() - sizeof(u64));
     if (spec_hash != real_hash) {
-        std::cerr << "packet dropped: invalid hash " << spec_hash << " (must be equal with " << real_hash
-                  << ")" << std::endl;
+        LOG("packet dropped: invalid hash {} (must be equal with {})", spec_hash, real_hash);
         return false;
     }
     return true;
@@ -322,7 +291,7 @@ inline bool validate_packet_hash(const packet_t& packet, u64 spec_hash) {
 
 inline bool validate_spec_act(const packet_spec_t& spec) {
     if (spec.act >= NET_ACT_COUNT) {
-        std::cerr << "packet dropped: invalid action " << u64(spec.act) << std::endl;
+        LOG("packet dropped: invalid action {}", u64(spec.act));
         return false;
     }
     return true;
@@ -359,6 +328,7 @@ T action_cast(const packet_t& packet) {
     return action;
 }
 
+/*
 template <>
 a_srv_player_random_pool_init action_cast(const packet_t& packet) {
     a_srv_player_random_pool_init act;
@@ -370,6 +340,7 @@ a_srv_player_random_pool_init action_cast(const packet_t& packet) {
 
     return act;
 }
+*/
 
 template <>
 a_spawn_bullet action_cast(const packet_t& packet) {
@@ -404,7 +375,7 @@ void action_dispatch(const sf::IpAddress& ip, u16 port, net_act act, const packe
         overload(srv_ping);
         overload(srv_player_states);
         overload(srv_player_physic_sync);
-        overload(srv_player_random_pool_init);
+ //       overload(srv_player_random_pool_init);
         overload(spawn_bullet);
     default: break;
     }
@@ -435,7 +406,7 @@ public:
         std::function<void(bool)> _handler;
     };
 
-    void send(sf::UdpSocket&            /*sock*/,
+    void send(sf::UdpSocket&            sock,
               packet_t                  packet,
               const sf::IpAddress&      ip,
               u16                       port,
@@ -455,11 +426,10 @@ public:
                                         resend_interval,
                                         std::move(handler)})
                       .first->second.packet;
-        send_delayed(ip, port, p);
-        //sock.send(p.data(), p.size(), ip, port);
+        send_packet(sock, ip, port, p);
     }
 
-    void update_resend(sf::UdpSocket&/* sock*/) {
+    void update_resend(sf::UdpSocket& sock) {
         for (auto i = _active.begin(); i != _active.end();) {
             auto& [info, params] = *i;
 
@@ -481,8 +451,7 @@ public:
             params.send_tp = now;
             --params.retries_left;
 
-            send_delayed(sf::IpAddress(info.ip), info.port, params.packet);
-            //sock.send(params.packet.data(), params.packet.size(), sf::IpAddress(info.ip), info.port);
+            send_packet(sock, sf::IpAddress(info.ip), info.port, params.packet);
 
             ++i;
         }
@@ -491,8 +460,9 @@ public:
     void receive_response(const sf::IpAddress& ip, u16 port, const a_transcontrol_ok& ok) {
         auto found = _active.find(uniq_packet_info{ip.toInteger(), port, ok.id, ok.hash});
         if (found == _active.end()) {
-            std::cerr << "packet dropped: unexpected transcontrol_ok packet with id=" << ok.id
-                      << " hash=" << ok.hash << std::endl;
+            LOG("packet dropped: unexpected transcontrol_ok packet with id={} hash={}",
+                ok.id,
+                ok.hash);
             return;
         }
 
@@ -505,7 +475,7 @@ public:
     void receive_response(const sf::IpAddress& ip, u16 port, const a_transcontrol_corrupted& corrupt) {
         auto found = _active.find(uniq_packet_info{ip.toInteger(), port, corrupt.id, corrupt.hash});
         if (found == _active.end()) {
-            std::cerr << "packet dropped: unexpected transcontrol_corrupted packet" << std::endl;
+            LOG("packet dropped: unexpected transcontrol_corrupted packet");
             return;
         }
 
@@ -532,15 +502,14 @@ public:
     using time_point_t =
         std::chrono::steady_clock::time_point;
 
-    bool validate_spec(sf::UdpSocket&       /*sock*/,
+    bool validate_spec(sf::UdpSocket&       sock,
                        const sf::IpAddress& ip,
                        u16                  port,
                        const packet_t&      packet,
                        const packet_spec_t& spec) {
         if (!validate_packet_hash(packet, spec.hash) || !validate_spec_act(spec)) {
             auto resp = create_packet(a_transcontrol_corrupted{spec.id, spec.hash});
-            send_delayed(ip, port, resp);
-            //sock.send(resp.data(), resp.size(), ip, port);
+            send_packet(sock, ip, port, resp);
             return false;
         }
 
@@ -550,14 +519,12 @@ public:
             _already_received.emplace(uniq_packet_info{ip.toInteger(), port, spec.id, spec.hash},
                                       std::chrono::steady_clock::now());
         if (!insert_was) {
-            send_delayed(ip, port, resp);
-            //sock.send(resp.data(), resp.size(), ip, port);
-            std::cerr << "packet dropped: already received" << std::endl;
+            send_packet(sock, ip, port, resp);
+            LOG("packet dropped: already received");
             i->second = std::chrono::steady_clock::now();
             return false;
         }
-        send_delayed(ip, port, resp);
-        //sock.send(resp.data(), resp.size(), ip, port);
+        send_packet(sock, ip, port, resp);
 
         return true;
     }
@@ -606,10 +573,8 @@ public:
         if constexpr (std::is_same_v<F, bool>) {
             if (transcontrol_handler)
                 trc_send.send(socket, packet, ip, port);
-            else {
-                send_delayed(ip, port, packet);
-                //socket.send(packet.data(), packet.size(), ip, port);
-            }
+            else
+                send_packet(socket, ip, port, packet);
         } else {
             trc_send.send(socket, packet, ip, port, std::function{transcontrol_handler});
         }
@@ -713,8 +678,9 @@ public:
     template <typename F>
     void act(const sf::IpAddress& ip, u16 port, const a_cli_i_wanna_play& act, F&& player_update_callback) {
         if (act.magik != CLI_HELLO_MAGICK) {
-            std::cerr << "packet dropped: client hello has invalid magik " <<
-                act.magik << " (could be " << CLI_HELLO_MAGICK << ")" << std::endl;
+            LOG("packet dropped: client hello has invalid magik {} (could be {})",
+                act.magik,
+                CLI_HELLO_MAGICK);
             return;
         }
 
@@ -740,7 +706,7 @@ public:
             auto now = std::chrono::steady_clock::now();
             auto time = std::chrono::duration_cast<std::chrono::milliseconds>(now - client._last_send).count();
             client.ping.update(time);
-            std::cout << "Ping: " << client.ping.value() << "ms" << std::endl;
+            LOG_UPDATE("Ping: {}ms", client.ping.value());
         }
     }
 
@@ -754,7 +720,7 @@ public:
 
     template <typename T, typename F> requires (!PlayerActs<T>)
     void act(const sf::IpAddress&, u16, const T&, F&&) {
-        std::cerr << "Invalid overload" << std::endl;
+        LOG("server action: invalid overload");
     }
 
     struct client_t {
@@ -775,7 +741,7 @@ public:
     std::optional<client_t> get_client_info(const sf::IpAddress& ip) const {
         auto find = _clients.find(ip.toInteger());
         if (find == _clients.end()) {
-            std::cerr << "packet dropped: cannot find player with ip " << ip.toString() << std::endl;
+            LOG("packet dropped: cannot find player with ip {}", ip.toString());
             return {};
         }
         return find->second;
@@ -804,8 +770,9 @@ public:
 
 private:
     server_singleton(): sock(SERVER_DEFAULT_PORT) {
-        std::cout << "Server started at " << sf::IpAddress::getLocalAddress().toString() << ":"
-                  << SERVER_DEFAULT_PORT << std::endl;
+        LOG("Server started at {}:{}",
+            sf::IpAddress::getLocalAddress().toString(),
+            SERVER_DEFAULT_PORT);
     }
     ~server_singleton() = default;
 
