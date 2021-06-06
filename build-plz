@@ -92,8 +92,8 @@ _build() {
     mkdir -p "$builddir/submodules/SFML"
 
     if [ ! -f "$builddir/submodules/SFML/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
-        git submodule init || fail ""
-        git submodule update || fail ""
+        git submodule init submodules/SFML || fail ""
+        git submodule update submodules/SFML || fail ""
         rm -f "$builddir/.easybuild-list"
         rm -f "$builddir/submodules/SFML/.easybuild_done"
         cmake submodules/SFML/ -B "$builddir/submodules/SFML" \
@@ -107,6 +107,12 @@ _build() {
             || fail "SFML submodule build failed"
 
         touch "$builddir/submodules/SFML/.easybuild_done"
+    fi
+
+    if [ ! -f "$builddir/3rd/include/nuklear.h" ]; then
+        git submodule init submodules/Nuklear || fail ""
+        git submodule update submodules/Nuklear || fail ""
+        cp 'submodules/Nuklear/nuklear.h' "$builddir/3rd/include/"
     fi
 
     rm -f "$builddir/.new-easybuild-list"
@@ -124,9 +130,9 @@ _build() {
             $hardening_flags \
             -L '$(pwd)/$builddir/3rd/lib' \
             -L '$(pwd)/$builddir/3rd/lib64' \
-            -I '$(pwd)/$builddir/3rd/include' '$(pwd)/diefastdiehard.cpp' \
+            -isystem '$(pwd)/$builddir/3rd/include' '$(pwd)/diefastdiehard.cpp' \
             -o '$(pwd)/$builddir/dfdh' \
-            -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread"
+            -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread -lGL -lGLEW"
         cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
         eval $cmd || fail "Build failed"
