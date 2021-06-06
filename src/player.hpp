@@ -610,6 +610,8 @@ private:
     bool _on_hit_event = false;
 
 public:
+    u64 last_state_packet_id = 0;
+
     [[nodiscard]]
     sf::Vector2f barrel_pos() const {
         if (_pistol) {
@@ -658,6 +660,16 @@ public:
     [[nodiscard]]
     u32 id() const {
         return _id;
+    }
+
+    void smooth_velocity_set(const sf::Vector2f& value, float smooth_factor = 0.25f) {
+        auto vel = get_velocity();
+        velocity(vel + (value - vel) * smooth_factor);
+    }
+
+    void smooth_position_set(const sf::Vector2f& value, float smooth_factor = 0.25f) {
+        auto pos = get_position();
+        position(pos + (value - pos) * smooth_factor);
     }
 
     void position(const sf::Vector2f& value) {

@@ -9,6 +9,7 @@
 
 #include <SFML/Network/UdpSocket.hpp>
 #include <SFML/Graphics/Color.hpp>
+#include <queue>
 
 #include "types.hpp"
 #include "packet.hpp"
@@ -25,8 +26,10 @@ using namespace std::chrono_literals;
 inline constexpr auto CLI_HELLO_MAGICK        = 0xdeadbeeffeedf00d;
 inline constexpr u16  SERVER_DEFAULT_PORT     = 27015;
 inline constexpr u16  CLIENT_DEFAULT_PORT     = 27020;
-inline constexpr bool ENABLE_DEBUG_SEND_DELAY = false;
-inline constexpr auto DEBUG_SEND_DELAY        = 100ms;
+inline constexpr bool ENABLE_DEBUG_SEND_DELAY = true;
+inline constexpr auto DEBUG_SEND_DELAY        = 40ms;
+inline constexpr bool VARIABLE_PING           = true;
+inline constexpr auto VARIABLE_PING_MAX_DELTA = 39ms;
 
 template <bool Enable>
 struct _debug_packet_queue {
@@ -35,11 +38,21 @@ struct _debug_packet_queue {
         sf::IpAddress                         ip;
         u16                                   port;
         packet_t                              packet;
+
+        [[nodiscard]]
+        bool operator<(const delayed_send_t& ds) const {
+            return tp.time_since_epoch().count() > ds.tp.time_since_epoch().count();
+        }
     };
 
     static auto& queue() {
-        static std::list<delayed_send_t> queue;
+        static std::priority_queue<delayed_send_t, std::vector<delayed_send_t>> queue;
         return queue;
+    }
+
+    static auto& mt() {
+        static std::mt19937 mt;
+        return mt;
     }
 };
 
@@ -48,25 +61,31 @@ struct _debug_packet_queue<false> {};
 
 template <bool Debug = ENABLE_DEBUG_SEND_DELAY>
 void send_packet(sf::UdpSocket& sock, const sf::IpAddress& ip, u16 port, const packet_t& packet) {
-    if constexpr (Debug)
-        _debug_packet_queue<Debug>::queue().push_back(
-            {std::chrono::steady_clock::now(), ip, port, packet});
-    else
+    if constexpr (Debug) {
+        auto& mt         = _debug_packet_queue<Debug>::mt();
+        auto  delta      = std::uniform_int_distribution<long>(-VARIABLE_PING_MAX_DELTA.count(),
+                                                         VARIABLE_PING_MAX_DELTA.count())(mt);
+        auto  send_delay = DEBUG_SEND_DELAY + std::chrono::milliseconds(delta);
+
+        _debug_packet_queue<Debug>::queue().push(
+            {std::chrono::steady_clock::now() + send_delay, ip, port, packet});
+    }
+    else {
         sock.send(packet.data(), packet.size(), ip, port);
+    }
 }
 
 template <bool Debug = ENABLE_DEBUG_SEND_DELAY>
 void update_delayed_send(sf::UdpSocket& sock) {
     if constexpr (Debug) {
         auto now = std::chrono::steady_clock::now();
-        for (auto i = _debug_packet_queue<Debug>::queue().begin();
-             i != _debug_packet_queue<Debug>::queue().end();) {
-            if (now - i->tp > DEBUG_SEND_DELAY) {
-                sock.send(i->packet.data(), i->packet.size(), i->ip, i->port);
-                _debug_packet_queue<Debug>::queue().erase(i++);
-            }
-            else
-                break;
+
+        auto& q = _debug_packet_queue<true>::queue();
+
+        while (!q.empty() && now > q.top().tp) {
+            auto& top = q.top();
+            sock.send(top.packet.data(), top.packet.size(), top.ip, top.port);
+            q.pop();
         }
     }
 }
@@ -151,6 +170,8 @@ struct a_srv_player_states {
     player_states_t st;
     u64             player_id;
     u64             evt_counter;
+    sf::Vector2f    position;
+    sf::Vector2f    velocity;
 
     u32     _dummy0 = 0;
     net_act _act    = act_srv_player_states;
@@ -362,11 +383,11 @@ a_spawn_bullet action_cast(const packet_t& packet) {
 
 #define overload(NAME) \
     case act_##NAME: \
-        overloaded(ip, port, action_cast<a_##NAME>(packet)); \
+        overloaded(ip, port, id, action_cast<a_##NAME>(packet)); \
         break
 
 template <typename F>
-void action_dispatch(const sf::IpAddress& ip, u16 port, net_act act, const packet_t& packet, F overloaded) {
+void action_dispatch(const sf::IpAddress& ip, u16 port, net_act act, u64 id, const packet_t& packet, F overloaded) {
 
     switch (act) {
         overload(cli_i_wanna_play);
@@ -610,7 +631,7 @@ public:
             trc_send.receive_response(ip, port, action_cast<a_transcontrol_corrupted>(packet));
             break;
         default:
-            action_dispatch(ip, port, spec.act, packet, overloaded);
+            action_dispatch(ip, port, spec.act, spec.id, packet, overloaded);
         }
     }
 
@@ -676,7 +697,7 @@ public:
     }
 
     template <typename F>
-    void act(const sf::IpAddress& ip, u16 port, const a_cli_i_wanna_play& act, F&& player_update_callback) {
+    void act(const sf::IpAddress& ip, u16 port, u64 packet_id, const a_cli_i_wanna_play& act, F&& player_update_callback) {
         if (act.magik != CLI_HELLO_MAGICK) {
             LOG("packet dropped: client hello has invalid magik {} (could be {})",
                 act.magik,
@@ -690,7 +711,7 @@ public:
         _clients.insert_or_assign(ip.toInteger(), client_t{player_id, port});
         _player_id_to_ip.insert_or_assign(player_id, client_t_ip{ip, port});
 
-        player_update_callback(player_id, act);
+        player_update_callback(player_id, packet_id, act);
     }
 
     u16 get_ping_packet_id() {
@@ -698,7 +719,7 @@ public:
     }
 
     template <typename F>
-    void act(const sf::IpAddress& ip, u16, const a_srv_ping& act, F&&) {
+    void act(const sf::IpAddress& ip, u16, u64, const a_srv_ping& act, F&&) {
         auto found = _clients.find(ip.toInteger());
         if (found != _clients.end() && found->second._last_ping_id == act._ping_id) {
             auto& client = found->second;
@@ -711,15 +732,15 @@ public:
     }
 
     template <typename F>
-    void act(const sf::IpAddress& ip, u16, const PlayerActs auto& act, F&& player_update_callback) {
+    void act(const sf::IpAddress& ip, u16, u64 packet_id, const PlayerActs auto& act, F&& player_update_callback) {
         auto client_info = get_client_info(ip);
 
         if (client_info)
-            player_update_callback(client_info->player_id, act);
+            player_update_callback(client_info->player_id, packet_id, act);
     }
 
     template <typename T, typename F> requires (!PlayerActs<T>)
-    void act(const sf::IpAddress&, u16, const T&, F&&) {
+    void act(const sf::IpAddress&, u16, u64, const T&, F&&) {
         LOG("server action: invalid overload");
     }
 
@@ -749,8 +770,8 @@ public:
 
     template <typename F>
     void work(F&& player_update_callback) {
-        sock.receiver([&, this](const sf::IpAddress& ip, u16 port, auto&& act) {
-            this->act(ip, port, act, player_update_callback);
+        sock.receiver([&, this](const sf::IpAddress& ip, u16 port, u64 id, auto&& act) {
+            this->act(ip, port, id, act, player_update_callback);
         });
 
         for (auto& [_, client] : _clients) {

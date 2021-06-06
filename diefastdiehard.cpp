@@ -28,6 +28,8 @@ auto wpns = std::array{
 
 size_t cur_wpn = 0;
 
+inline constexpr bool MP_MOVE_ADJUSTMENT = true;
+
 namespace dfdh {
 
 using st_clock = std::chrono::steady_clock;
@@ -126,8 +128,8 @@ public:
                     p->enable_double_jump();
         });
 
-        //if (!_client)
-        //    ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
+        if (!_client)
+            ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 1));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 2));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 3));
@@ -159,8 +161,11 @@ public:
             if (states != server_player_states) {
                 player->increment_evt_counter();
                 server_player_states = states;
-                server().send_to_all(a_srv_player_states{
-                    server_player_states, player_idx, player->evt_counter()});
+                server().send_to_all(a_srv_player_states{server_player_states,
+                                                         player_idx,
+                                                         player->evt_counter(),
+                                                         player->get_position(),
+                                                         player->get_velocity()});
             }
         } else {
             auto states = player->extract_client_input_state();
@@ -248,8 +253,11 @@ public:
                 if (states != server_player_states) {
                     players[id]->increment_evt_counter();
                     server_player_states = states;
-                    server().send_to_all(a_srv_player_states{
-                        server_player_states, player_idx, players[id]->evt_counter()});
+                    server().send_to_all(a_srv_player_states{server_player_states,
+                                                             player_idx,
+                                                             players[id]->evt_counter(),
+                                                             players[id]->get_position(),
+                                                             players[id]->get_velocity()});
                 }
             }
         }
@@ -257,41 +265,82 @@ public:
     }
 
     struct client_player_update_overloaded {
-        void operator()(u32 player_id, const auto& act) {
-            it->client_player_update(player_id, act);
+        void operator()(u32 player_id, u64 packet_id, const auto& act) {
+            it->client_player_update(player_id, packet_id, act);
         }
 
         diefastdiehard* it;
     };
 
     struct act_from_server_overloaded {
-        void operator()(const sf::IpAddress&, u16, const auto& act) {
-            it->act_from_server(act);
+        void operator()(const sf::IpAddress&, u16, u64 packet_id, const auto& act) {
+            it->act_from_server(packet_id, act);
         }
 
         diefastdiehard* it;
     };
 
-    void act_from_server(const a_srv_ping& act) {
+    void act_from_server(u64, const a_srv_ping& act) {
         _self_ping = static_cast<float>(act._ping_ms) * 0.001f;
         _client->send(act);
     }
 
-    void act_from_server(const a_srv_player_states& player_states) {
-        players[player_states.player_id]->update_from_client(player_states.st);
-        players[player_states.player_id]->evt_counter(player_states.evt_counter);
+    void act_from_server(u64 packet_id, const a_srv_player_states& player_states) {
+        auto& player = players[player_states.player_id];
+
+        if constexpr (MP_MOVE_ADJUSTMENT) {
+            if (player->last_state_packet_id > packet_id)
+                return;
+            player->last_state_packet_id = packet_id;
+
+            bool y_now_locked = !player->collision_box()->is_lock_y() && player_states.st.lock_y;
+            if (y_now_locked)
+                player->position(player_states.position);
+            else
+                player->smooth_position_set(player_states.position);
+            player->smooth_velocity_set(player_states.velocity);
+        }
+        else {
+            player->position(player_states.position);
+            player->velocity(player_states.velocity);
+        }
+
+        player->update_from_client(player_states.st);
+        player->evt_counter(player_states.evt_counter);
     }
 
-    void act_from_server(const a_srv_player_physic_sync& sync_state) {
+    void act_from_server(u64 packet_id, const a_srv_player_physic_sync& sync_state) {
         auto& player = players[sync_state.player_id];
 
+        if constexpr (MP_MOVE_ADJUSTMENT) {
+            if (player->last_state_packet_id > packet_id)
+                return;
+            player->last_state_packet_id = packet_id;
+        }
+
         if (sync_state.player_id != player_idx) {
-            player->position(sync_state.position);
-            player->velocity(sync_state.velocity);
+            if constexpr (MP_MOVE_ADJUSTMENT) {
+                bool y_now_locked = !player->collision_box()->is_lock_y() && sync_state.st.lock_y;
+
+                if (y_now_locked) {
+                    player->position(sync_state.position);
+                }
+                else {
+                    player->smooth_position_set(sync_state.position);
+                }
+                player->smooth_velocity_set(sync_state.velocity);
+            }
+            else {
+                player->position(sync_state.position);
+                player->velocity(sync_state.velocity);
+            }
+
+            player->update_from_client(sync_state.st);
             LOG_UPDATE("{} {}", sync_state.evt_counter, player->evt_counter());
             if (sync_state.evt_counter < player->evt_counter())
                 return;
-        } else {
+        }
+        else {
             if (sync_state.evt_counter < player->evt_counter()) {
                 return;
             }
@@ -303,36 +352,52 @@ public:
         }
     }
 
-    void act_from_server(const a_spawn_bullet& act) {
+    void act_from_server(u64, const a_spawn_bullet& act) {
         server_client_shot_update(static_cast<u32>(act.player_id), act);
     }
 
-    void act_from_server(const auto&) {} /* dummy */
+    void act_from_server(u64, const auto&) {} /* dummy */
 
-    void client_player_update(u32, const a_cli_i_wanna_play&) {
+    void client_player_update(u32, u64, const a_cli_i_wanna_play&) {
         /* TODO: handle this */
         _on_game = true;
     }
 
-    void client_player_update(u32 player_id, const a_cli_player_params& params) {
+    void client_player_update(u32 player_id, u64, const a_cli_player_params& params) {
         players[player_id]->set_params_from_client(params);
     }
 
-    void client_player_update(u32 player_id, const a_cli_player_sync& states) {
+    void client_player_update(u32 player_id, u64 packet_id, const a_cli_player_sync& states) {
         if (player_id >= players.size())
             return;
 
+        LOG_UPDATE("packet_id: {}", packet_id);
+
         auto& pl = players[player_id];
+
+        if constexpr (MP_MOVE_ADJUSTMENT) {
+            if (pl->last_state_packet_id > packet_id)
+                return;
+            pl->last_state_packet_id = packet_id;
+
+            bool y_now_locked = !pl->collision_box()->is_lock_y() && states.st.lock_y;
+            /* TODO: cheaters! */
+            if (y_now_locked)
+                pl->position(states.position);
+            else
+                pl->smooth_position_set(states.position);
+            pl->smooth_velocity_set(states.velocity);
+        }
+        else {
+            pl->position(states.position);
+            pl->velocity(states.velocity);
+        }
 
         pl->update_from_client(states.st);
         pl->evt_counter(states.evt_counter);
-
-        /* TODO: cheaters! */
-        pl->position(states.position);
-        pl->velocity(states.velocity);
     }
 
-    void client_player_update(u32 player_id, const a_spawn_bullet& act) {
+    void client_player_update(u32 player_id, u64, const a_spawn_bullet& act) {
         server_client_shot_update(player_id, act);
     }
 
