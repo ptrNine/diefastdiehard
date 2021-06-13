@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <optional>
+#include <SFML/Graphics/Color.hpp>
 
 #include "types.hpp"
 #include "vec_math.hpp"
@@ -47,6 +48,15 @@ private:
     ~cfg_singleton() = default;
 
 public:
+    bool try_parse(const fs::path& file) {
+        try {
+            parse(file);
+        } catch (...) {
+            return false;
+        }
+        return true;
+    }
+
     void parse(const fs::path& file) {
         auto ifs = std::ifstream(file.string(), std::ios::in);
         if (!ifs.is_open())
@@ -150,6 +160,12 @@ private:
             T res;
             for (auto v : raw / split(' '))
                 res.push_back(cast<typename T::value_type>(std::string(v.begin(), v.end()), section, key));
+            return res;
+        }
+        else if constexpr (std::is_same_v<T, sf::Color>) {
+            sf::Color res;
+            std::stringstream ss{raw};
+            ss >> res;
             return res;
         }
         else if constexpr (StdArray<T>) {
