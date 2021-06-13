@@ -54,6 +54,20 @@ public:
         shotgun
     };
 
+    static std::vector<std::string> get_pistol_sections() {
+        std::vector<std::string> result;
+
+        for (auto& [sect_name, sect] : cfg().sections()) {
+            if (sect_name.starts_with("wpn_")) {
+                auto wpn_class = sect.find("class");
+                if (wpn_class != sect.end() && wpn_class->second == "pistol")
+                    result.push_back(sect_name);
+            }
+        }
+
+        return result;
+    }
+
     static weapon_class weapon_class_from_str(const std::string& str) {
         if (str == "pistol")
             return pistol;
@@ -135,12 +149,17 @@ public:
         load_animations(section);
     }
 
+     [[nodiscard]]
+    sf::Vector2f arm_position_factors(bool lefty) const {
+            return lefty ? sf::Vector2f{1.f - _arm_pos_f.x, _arm_pos_f.y} : _arm_pos_f;
+    }
+
 public:
-    void draw(const sf::Vector2f& start_pos, bool left_dir, sf::RenderWindow& wnd) {
+    void draw(const sf::Vector2f& start_pos, bool left_dir, sf::RenderTarget& wnd, float scale = 1.f) {
         float invert = left_dir ? -1.f : 1.f;
         for (auto& sprite : _layers) {
             sprite.setPosition(start_pos);
-            sprite.setScale(_xf * invert, _yf);
+            sprite.setScale(_xf * invert * scale, _yf * scale);
             sprite.setRotation(0.f);
             wnd.draw(sprite);
         }
@@ -222,6 +241,51 @@ private:
 
 public:
     [[nodiscard]]
+    float hit_power() const {
+        return _hit_mass * bullet_scalar_velocity() * 0.001f;
+    }
+
+    [[nodiscard]]
+    float fire_rate() const {
+        return _fire_rate;
+    }
+
+    [[nodiscard]]
+    float recoil() const {
+        return _recoil;
+    }
+
+    [[nodiscard]]
+    float accuracy() const {
+        auto v = (M_PI_4f32 - std::min(_dispersion, M_PI_4f32)) / M_PI_4f32;
+        return v * v;
+    }
+
+    [[nodiscard]]
+    float bullet_scalar_velocity() const {
+        return tier_to_bullet_vel(_bullet_vel_tier);
+    }
+
+    const std::vector<sf::Sprite>& layers() const {
+        return _layers;
+    }
+
+    [[nodiscard]]
+    const sf::Vector2f& arm_idle_pos() const {
+        return _arm_idle_pos;
+    }
+
+    [[nodiscard]]
+    const sf::Vector2f& arm2_idle_pos() const {
+        return _arm2_idle_pos;
+    }
+
+    [[nodiscard]]
+    const sf::Vector2f& barrel_pos() const {
+        return _barrel;
+    }
+
+    [[nodiscard]]
     weapon_class wpn_class() const {
         return _wpn_class;
     }
@@ -273,7 +337,7 @@ private:
     std::map<std::string, weapon> _wpns;
 };
 
-inline weapon_storage_singleton& weapon_storage() {
+inline weapon_storage_singleton& weapon_mgr() {
     return weapon_storage_singleton::instance();
 }
 
@@ -302,7 +366,7 @@ public:
         }
     }
 
-    weapon_instance(const std::string& section): weapon_instance(&weapon_storage().load(section)) {}
+    weapon_instance(const std::string& section): weapon_instance(&weapon_mgr().load(section)) {}
 
     [[nodiscard]]
     weapon* wpn() {
@@ -314,10 +378,9 @@ public:
         return _wpn == nullptr;
     }
 
-    [[nodiscard]]
     sf::Vector2f arm_position_factors(bool lefty) const {
         if (_wpn)
-            return lefty ? sf::Vector2f{1.f - _wpn->_arm_pos_f.x, _wpn->_arm_pos_f.y} : _wpn->_arm_pos_f;
+            return _wpn->arm_position_factors(lefty);
         else
             return lefty ? sf::Vector2f(0.f, -0.4f) : sf::Vector2f(1.f, -0.4f);
     }

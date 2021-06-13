@@ -5,6 +5,7 @@
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Texture.hpp>
+#include <SFML/Graphics/RenderTexture.hpp>
 #include <SFML/Window/Event.hpp>
 #include <SFML/Graphics/CircleShape.hpp>
 
@@ -16,6 +17,7 @@
 #include "config.hpp"
 #include "weapon.hpp"
 #include "avg_counter.hpp"
+#include "player_configurator.hpp"
 
 namespace dfdh {
 
@@ -43,7 +45,7 @@ namespace details {
 
 struct control_keys {
     static std::string path(int id) {
-        return fs::current_path() / ("data/player_controls" + std::to_string(id) + ".cfg");
+        return fs::current_path() / ("data/settings/player_controls" + std::to_string(id) + ".cfg");
     }
 
     control_keys(int id = 0): _id(id) {
@@ -107,6 +109,35 @@ struct control_keys {
 
 class player {
 public:
+    static sf::Vector2f default_size() {
+        return {50.f, 90.f};
+    }
+
+    static sf::Vector2f sprite_size_adjust_factors() {
+        return {1.25f, 1.08f};
+
+    }
+
+    static sf::Vector2f default_sprite_size() {
+        auto adj = sprite_size_adjust_factors();
+        auto sz = default_size();
+        return {sz.x * adj.x, sz.y * adj.y};
+    }
+
+    static void default_hand_setup(sf::CircleShape& hand, const sf::Vector2f& size) {
+        hand.setOutlineColor(sf::Color(0, 0, 0));
+        hand.setOutlineThickness(size.x * 0.045f);
+        hand.setRadius(size.x * 0.14f);
+        hand.setOrigin(size.x * 0.14f, size.x * 0.14f);
+    }
+
+    static void default_leg_setup(sf::CircleShape& leg, const sf::Vector2f& size) {
+        leg.setOutlineColor(sf::Color(0, 0, 0));
+        leg.setOutlineThickness(size.x * 0.045f);
+        leg.setRadius(size.x * 0.2f);
+        leg.setOrigin(size.x * 0.2f, size.x * 0.35f);
+    }
+
     static std::shared_ptr<player> create(u32 id, physic_simulation& sim, const sf::Vector2f& size) {
         return std::make_shared<player>(id, sim, size);
     }
@@ -129,21 +160,10 @@ public:
 
         sim.add_primitive(_collision_box);
 
-        _left_hand.setOutlineColor(sf::Color(0, 0, 0));
-        _left_hand.setOutlineThickness(_size.x * 0.045f);
-        _left_hand.setRadius(size.x * 0.14f);
-        _left_hand.setOrigin(size.x * 0.14f, size.x * 0.14f);
-
-        _right_hand.setOutlineColor(sf::Color(0, 0, 0));
-        _right_hand.setOutlineThickness(_size.x * 0.045f);
-        _right_hand.setRadius(size.x * 0.14f);
-        _right_hand.setOrigin(size.x * 0.14f, size.x * 0.14f);
-
-        _left_leg = _left_hand;
-        _left_leg.setRadius(size.x * 0.2f);
-        _left_leg.setOrigin(size.x * 0.2f, size.x * 0.35f);
-        _right_leg = _left_leg;
-        _right_leg.setOrigin(size.x * 0.2f, size.x * 0.35f);
+        default_hand_setup(_left_hand, _size);
+        default_hand_setup(_right_hand, _size);
+        default_leg_setup(_left_leg, size);
+        default_leg_setup(_right_leg, size);
 
         jumps_left = max_jumps;
     }
@@ -359,9 +379,70 @@ public:
         }
     }
 
+    static void draw_to_texture_target(sf::RenderTexture&  target,
+                                       const sf::Vector2f& size,
+                                       float               scale,
+                                       sf::Sprite&         body,
+                                       sf::Sprite&         face,
+                                       sf::CircleShape&    hand_or_leg,
+                                       weapon*             wpn) {
+        float icon_x_size =
+            wpn ? size.x * wpn->arm_position_factors(false).x + wpn->barrel_pos().x * scale
+                : size.y;
+
+        target.create(u32(icon_x_size), u32(size.y));
+
+        auto body_txtr_size = body.getTexture()->getSize();
+        auto face_txtr_size = face.getTexture()->getSize();
+        auto body_f_x       = size.x / float(body_txtr_size.x);
+        auto body_f_y       = size.y / float(body_txtr_size.y);
+        auto face_f_x       = size.x / float(face_txtr_size.x);
+        auto face_f_y       = size.y / float(face_txtr_size.y);
+
+        body.setScale(body_f_x, body_f_y);
+        face.setScale(face_f_x, face_f_y);
+        body.setPosition(0.f, 0.f);
+        face.setPosition(0.f, 0.f);
+
+        target.setView(sf::View(sf::FloatRect{0.f, size.y, icon_x_size, -size.y}));
+        target.draw(body);
+        target.draw(face);
+
+        auto sz = size;
+        sz.x /= sprite_size_adjust_factors().x;
+        sz.y /= sprite_size_adjust_factors().y;
+
+        if (wpn) {
+            auto pos = size;
+            auto f = wpn->arm_position_factors(false);
+            pos.x *= f.x;
+            pos.y *= f.y;
+            pos.y += size.y;
+            wpn->draw(pos, false, target, scale);
+
+            default_hand_setup(hand_or_leg, sz);
+            hand_or_leg.setPosition(pos + wpn->arm_idle_pos() * scale);
+            target.draw(hand_or_leg);
+
+            hand_or_leg.move(wpn->arm2_idle_pos() * scale);
+            target.draw(hand_or_leg);
+        }
+
+
+        default_leg_setup(hand_or_leg, sz);
+        hand_or_leg.setPosition(size.x * 0.3f, size.y);
+        target.draw(hand_or_leg);
+
+        hand_or_leg.setPosition(size.x * 0.7f, size.y);
+        target.draw(hand_or_leg);
+
+        target.display();
+    }
+
     void draw(sf::RenderWindow& wnd) {
         auto pos = _collision_box->get_position();
-        auto dif = sf::Vector2f((_size.x * _txtr_adjust.x - _size.x) * 0.5f, _size.y * _txtr_adjust.y);
+        auto adj = sprite_size_adjust_factors();
+        auto dif = sf::Vector2f((_size.x * adj.x - _size.x) * 0.5f, _size.y * adj.y);
 
         if (_dir == dir_left && !_on_left) {
             _body.setScale(-_body.getScale().x, _body.getScale().y);
@@ -410,14 +491,6 @@ public:
             wnd.draw(_left_hand);
             wnd.draw(_right_hand);
         }
-    }
-
-    static std::string append_dir(const std::string& path) {
-        auto p = fs::path(path);
-        if (p == p.filename())
-            return fs::current_path() / "data/textures/player" / path;
-        else
-            return path;
     }
 
     void set_body(const std::string& path, const sf::Color& color = {255, 255, 255}) {
@@ -497,6 +570,18 @@ public:
         return pos->second;
     }
 
+    void set_from_config(u32 player_id) {
+        player_configurator pc{player_id};
+        set_body(pc.body_texture_path(), pc.body_color);
+        set_face(pc.face_texture_path());
+        setup_pistol(pc.pistol);
+        tracer_color(pc.tracer_color);
+    }
+
+    void set_from_config() {
+        set_from_config(_id);
+    }
+
 private:
     void leg_animation_update(float timestep, const sf::Vector2f& pos, const sf::Vector2f& vel) {
         auto vx = vel.x;
@@ -540,15 +625,15 @@ private:
                   sf::Sprite&         sprite,
                   const sf::Vector2f& size,
                   const sf::Color&    color) {
-        auto p = append_dir(path);
-        txtr.loadFromFile(p);
+        txtr = texture_mgr().load(path);
         txtr.setSmooth(true);
         sprite.setTexture(txtr);
         sprite.setColor(color);
 
         auto sz = txtr.getSize();
-        float xf = (size.x * _txtr_adjust.x) / float(sz.x);
-        float yf = (size.y * _txtr_adjust.y) / float(sz.y);
+        auto adj = sprite_size_adjust_factors();
+        float xf = (size.x * adj.x) / float(sz.x);
+        float yf = (size.y * adj.y) / float(sz.y);
         sprite.setScale(xf, yf);
     }
 
@@ -574,7 +659,6 @@ private:
     float _leg_timer = 0.f;
 
     sf::Vector2f _size;
-    sf::Vector2f _txtr_adjust = {1.25f, 1.08f};
 
     bool  _accel_left_reset = false;
     float _accel_f    = 1.f;

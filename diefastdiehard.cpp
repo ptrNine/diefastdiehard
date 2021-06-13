@@ -1,18 +1,16 @@
+#include "src/stdafx.hpp"
+
 #include <iostream>
 #include "src/engine.hpp"
-#include "src/physic_simulation.hpp"
-#include "src/config.hpp"
 #include "src/player.hpp"
 #include "src/level.hpp"
 #include "src/bullet.hpp"
-#include "src/instant_kick.hpp"
 #include "src/weapon.hpp"
 #include "src/ai.hpp"
-#include "src/rand_pool.hpp"
 #include "src/networking.hpp"
 #include "src/adjustment_box.hpp"
-#include "src/log.hpp"
-#include <ranges>
+#include "src/player_configurator_ui.hpp"
+#include "src/command_buffer.hpp"
 
 #include <SFML/Graphics/RectangleShape.hpp>
 
@@ -68,7 +66,14 @@ class diefastdiehard : public dfdh::engine {
 public:
     diefastdiehard(): _bm("bm1", sim, player_hit_callback), _kick_mgr("kick_mgr", sim, player_hit_callback) {}
 
+    void init_commands() {
+    }
+
     void on_init(args_view args) final {
+        init_commands();
+
+        _on_game = true;
+
         if (args.get("--client")) {
             _client = std::make_shared<client_state>();
             player_idx = 1;
@@ -102,20 +107,22 @@ public:
             pl2->position({600.f + float(i) * 50.f, 500});
             players.push_back(pl2);
             if (i >= 1) {
-                pl2->set_face("face1.png");
+                pl2->set_face("player/face1.png");
                 pl2->group(0);
-                pl2->set_body("body.png", {132, 10, 153});
+                pl2->set_body("player/body0.png", {132, 10, 153});
                 pl2->tracer_color({255, 170, 100});
             } else if (i == 0) {
-                pl2->set_face("face3.png");
+                pl2->set_face("player/face3.png");
                 pl2->group(1);
-                pl2->set_body("body.png", {247, 203, 72});
+                pl2->set_body("player/body0.png", {247, 203, 72});
             } else {
-                pl2->set_face("face0.png");
+                pl2->set_face("player/face0.png");
                 pl2->group(1);
-                pl2->set_body("body.png", {255, 255, 255});
+                pl2->set_body("player/body0.png", {255, 255, 255});
             }
         }
+
+        players[player_idx]->set_from_config(0);
 
         sim.add_update_callback("player", [this](const physic_simulation& sim, float timestep) {
             for (auto& p : players)
@@ -129,7 +136,7 @@ public:
         });
 
         if (!_client)
-            ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 0));
+            ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 1));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_hard, 1));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 2));
         //ai_operators.push_back(ai_operator::create(ai_difficulty::ai_easy, 3));
@@ -186,6 +193,12 @@ public:
                 for (auto& plr : players) plr->setup_pistol(wpns[cur_wpn]);
             }
         }
+    }
+
+    void ui_update() final {
+        engine::ui_update();
+        pconf_ui.update(ui);
+        //mainmenu().update(ui);
     }
 
     void render_update(sf::RenderWindow& wnd) final {
@@ -543,10 +556,6 @@ public:
     void on_dead(player* player) {
         player->increase_deaths();
         spawn(player);
-
-        LOG_UPDATE("Deaths: {}", players | std::ranges::views::transform([](auto&& v) {
-                                     return v->get_deaths();
-                                 }));
     }
 
     void spawn(player* player = nullptr) {
@@ -687,6 +696,8 @@ private:
 
 private:
     physic_simulation sim;
+
+    player_configurator_ui pconf_ui{0};
 
     bullet_mgr         _bm;
     instant_kick_mgr   _kick_mgr;
