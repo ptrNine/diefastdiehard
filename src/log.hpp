@@ -8,6 +8,8 @@
 #include <map>
 #include <chrono>
 #include <optional>
+#include <deque>
+#include <cstring>
 
 //#include "string_hash.hpp"
 //#include "time.hpp"
@@ -15,10 +17,150 @@
 #include "print.hpp"
 #include "types.hpp"
 #include "time.hpp"
+#include "split_view.hpp"
+#include "ring_buffer.hpp"
 //#include "container_extensions.hpp"
 
 namespace dfdh
 {
+
+inline constexpr auto LOG_TIME_FMT = "[hh:mm:ss.xxx]"sv;
+
+class log_fixed_buffer {
+public:
+    static std::shared_ptr<log_fixed_buffer> create(size_t imax_size) {
+        return std::make_shared<log_fixed_buffer>(imax_size);
+    }
+
+    log_fixed_buffer(size_t imax_size): lines(imax_size) {}
+
+    void newline() {
+        lines.skip();
+        last_pos = 0;
+    }
+
+    void write(const char* str, std::streamsize size) {
+        std::lock_guard lock{mtx};
+
+        auto sv = std::string_view(str, size_t(size));
+
+        if (size && str[0] == '\n') {
+            newline();
+            ++str;
+        }
+
+        size_t count = 0;
+        for (auto line : sv / split(split_mode::allow_empty, '\n')) {
+            if (count > 1)
+                newline();
+            ++count;
+
+            auto sv_line = std::string_view(line.begin(), line.end());
+            std::string& write_line = lines.back();
+
+            if (!sv_line.empty() && sv_line.front() == '\r') {
+                sv_line = std::string_view(sv_line.begin() + 1, sv_line.end());
+                last_pos = 0;
+            }
+
+            size_t return_count = 0;
+            for (auto subl : sv_line / split(split_mode::allow_empty, '\r')) {
+                if (return_count > 1)
+                    last_pos = 0;
+                ++return_count;
+
+                auto sz = size_t(subl.end() - subl.begin());
+                if (last_pos + sz > write_line.size()) {
+                    write_line.resize(last_pos + sz);
+                }
+
+                std::memcpy(write_line.data() + last_pos, subl.begin(), sz);
+                last_pos += sz;
+            }
+
+            if (sv_line.size() > 1 && sv_line.back() == '\r')
+                last_pos = 0;
+        }
+
+        if (size > 1 && str[size - 1] == '\n')
+            lines.skip();
+    }
+
+    void seekp(ssize_t offset, std::ios_base::seekdir dir) {
+        if (offset > 0)
+            throw std::runtime_error("Only negative offset supported");
+        if (dir != std::ios_base::end)
+            throw std::runtime_error("Only std::ios_base::end supported");
+
+        auto off = size_t(-offset);
+
+        std::lock_guard lock{mtx};
+
+        while (!lines.empty() && off != 0) {
+            auto& back = lines.back();
+            if (off <= back.size()) {
+                back.resize(back.size() - off);
+                off = 0;
+            } else {
+                off -= back.size() + 1;
+                lines.pop();
+            }
+        }
+
+        if (lines.empty())
+            lines.skip();
+    }
+
+    template <typename I>
+    struct locker_log_range {
+        locker_log_range(I ibegin, I iend, std::mutex& mtx):
+            b(std::move(ibegin)), e(std::move(iend)), _mtx(mtx) {}
+
+        ~locker_log_range() {
+            _mtx.unlock();
+        }
+
+        locker_log_range(const locker_log_range&) = delete;
+        locker_log_range& operator=(const locker_log_range&) = delete;
+        locker_log_range(locker_log_range&&) = delete;
+        locker_log_range& operator=(locker_log_range&&) = delete;
+
+        [[nodiscard]]
+        auto begin() const {
+            return b;
+        }
+
+        [[nodiscard]]
+        auto end() const {
+            return e;
+        }
+
+        I b, e;
+        std::mutex& _mtx;
+    };
+
+    auto get_log_locked(size_t max_lines) {
+        mtx.lock();
+        size_t start = max_lines < lines.size() ? lines.size() - max_lines : 0;
+        return locker_log_range(lines.begin() + ssize_t(start), lines.end(), mtx); // NOLINT
+    }
+
+    [[nodiscard]]
+    size_t size() const {
+        std::lock_guard lock{mtx};
+        return lines.size();
+    }
+
+    void flush() {
+        /* Do nothing */
+    }
+
+private:
+    ring_buffer<std::string> lines;
+    size_t                   last_pos = 0;
+    mutable std::mutex       mtx;
+};
+
 namespace log_dtls {
     struct holder_base {
         holder_base()          = default;
@@ -76,6 +218,34 @@ namespace log_dtls {
     };
 
     template <>
+    struct holder<std::weak_ptr<log_fixed_buffer>> : holder_base {
+        holder(std::weak_ptr<log_fixed_buffer> o): os(move(o)) {}
+
+        void write(std::string_view data) override {
+            if (auto o = os.lock())
+                o->write(data.data(), static_cast<std::streamsize>(data.size()));
+        }
+
+        void flush() override {}
+
+        [[nodiscard]]
+        std::optional<std::string> to_string() const override {
+            return {};
+        }
+
+        [[nodiscard]]
+        bool is_file() const override {
+            return false;
+        }
+
+        bool try_drop_postfix(size_t) override {
+            return false;
+        }
+
+        std::weak_ptr<log_fixed_buffer> os;
+    };
+
+    template <>
     struct holder<std::weak_ptr<std::ostream>> : holder_base {
         holder(std::weak_ptr<std::ostream> o): os(move(o)) {}
 
@@ -129,6 +299,8 @@ public:
     //log_output_stream(std::stringstream ss): _holder(make_unique<holder<std::stringstream>>(move(ss))) {}
     log_output_stream(std::weak_ptr<std::ostream> os):
         _holder(make_unique<log_dtls::holder<std::weak_ptr<std::ostream>>>(move(os))) {}
+    log_output_stream(std::weak_ptr<log_fixed_buffer> os):
+        _holder(make_unique<log_dtls::holder<std::weak_ptr<log_fixed_buffer>>>(move(os))) {}
 
     /**
      * @brief Creates the log stream with with stdout
@@ -217,7 +389,7 @@ private:
 public:
     enum Type { Details = 0, Message = 1, Warning, Error };
 
-    static constexpr std::array<std::string_view, 4> str_types = {": ", ": ", " WARNING: ", " ERROR: "};
+    static constexpr std::array<std::string_view, 4> str_types = {": ", ": ", " [warn]: ", " [error]: "};
 
     /**
      * @brief Flush all logger streams
@@ -230,7 +402,7 @@ public:
     template <int UniqId>
     void write(Type type, std::string_view data) {
         std::lock_guard lock(mtx);
-        auto msg = build_string(current_datetime("[hh:mm:ss.xxx]"), str_types.at(type), data);
+        auto msg = build_string(current_datetime(LOG_TIME_FMT), str_types.at(type), data);
 
         if (_last_id == UniqId) {
             for (auto& [_, stream] : _streams) {
@@ -270,7 +442,7 @@ public:
         std::lock_guard lock(mtx);
 
         auto message = std::string(str_types.at(type)) + std::string(data);
-        auto datetime = current_datetime("[hh:mm:ss.xxx]");
+        auto datetime = current_datetime(LOG_TIME_FMT);
         std::string msg;
 
         if (_last_write == message) {
@@ -315,7 +487,7 @@ public:
         for (auto& val : _streams) {
             if (filter_callback(val.second)) {
                 auto message =
-                    current_datetime("[hh:mm:ss.xxx]") + std::string(str_types.at(type)) + std::string(data);
+                    current_datetime(LOG_TIME_FMT) + std::string(str_types.at(type)) + std::string(data);
 
                 val.second.write("\n");
                 val.second.write(message);
@@ -463,22 +635,22 @@ inline logger& log() {
 }
 } // namespace dfdh
 
-#define LOG(...)         dfdh::logger::instance().write(__VA_ARGS__)
-#define LOG_WARNING(...) dfdh::logger::instance().write(dfdh::logger::Warning, __VA_ARGS__)
-#define LOG_ERROR(...)   dfdh::logger::instance().write(dfdh::logger::Error, __VA_ARGS__)
+#define LOG(...)      dfdh::logger::instance().write(__VA_ARGS__)
+#define LOG_WARN(...) dfdh::logger::instance().write(dfdh::logger::Warning, __VA_ARGS__)
+#define LOG_ERR(...)  dfdh::logger::instance().write(dfdh::logger::Error, __VA_ARGS__)
 
 #define LOG_UPDATE(...) dfdh::logger::instance().write_update<__COUNTER__>(__VA_ARGS__)
-#define LOG_WARNING_UPDATE(...)                                                                    \
+#define LOG_WARN_UPDATE(...)                                                                    \
     dfdh::logger::instance().write_update<__COUNTER__>(dfdh::logger::Warning, __VA_ARGS__)
-#define LOG_ERROR_UPDATE(...)                                                                      \
+#define LOG_ERR_UPDATE(...)                                                                      \
     dfdh::logger::instance().write_update<__COUNTER__>(dfdh::logger::Error, __VA_ARGS__)
 
 #ifndef NDEBUG
-    #define DLOG(...)         dfdh::logger::instance().write(__VA_ARGS__)
-    #define DLOG_WARNING(...) dfdh::logger::instance().write(dfdh::logger::Warning, __VA_ARGS__)
-    #define DLOG_ERROR(...)   dfdh::logger::instance().write(dfdh::logger::Error, __VA_ARGS__)
+    #define DLOG(...)      dfdh::logger::instance().write(__VA_ARGS__)
+    #define DLOG_WARN(...) dfdh::logger::instance().write(dfdh::logger::Warning, __VA_ARGS__)
+    #define DLOG_ERR(...)  dfdh::logger::instance().write(dfdh::logger::Error, __VA_ARGS__)
 #else
-    #define DLOG(...)         void(0)
-    #define DLOG_WARNING(...) void(0)
-    #define DLOG_ERROR(...)   void(0)
+    #define DLOG(...)      void(0)
+    #define DLOG_WARN(...) void(0)
+    #define DLOG_ERR(...)  void(0)
 #endif
