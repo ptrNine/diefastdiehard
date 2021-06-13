@@ -295,7 +295,7 @@ packet_t create_packet(const a_spawn_bullet& act, u32 transcontrol = 0, u64* id 
 
 inline bool validate_packet_size(const packet_t& packet) {
     if (packet.size() < sizeof(packet_spec_t)) {
-        LOG("packet dropped: invalid size {}", packet.size());
+        LOG_WARN("packet dropped: invalid size {}", packet.size());
         return false;
     }
     return true;
@@ -304,7 +304,7 @@ inline bool validate_packet_size(const packet_t& packet) {
 inline bool validate_packet_hash(const packet_t& packet, u64 spec_hash) {
     auto real_hash = fnv1a64(packet.data(), packet.size() - sizeof(u64));
     if (spec_hash != real_hash) {
-        LOG("packet dropped: invalid hash {} (must be equal with {})", spec_hash, real_hash);
+        LOG_WARN("packet dropped: invalid hash {} (must be equal with {})", spec_hash, real_hash);
         return false;
     }
     return true;
@@ -312,7 +312,7 @@ inline bool validate_packet_hash(const packet_t& packet, u64 spec_hash) {
 
 inline bool validate_spec_act(const packet_spec_t& spec) {
     if (spec.act >= NET_ACT_COUNT) {
-        LOG("packet dropped: invalid action {}", u64(spec.act));
+        LOG_WARN("packet dropped: invalid action {}", u64(spec.act));
         return false;
     }
     return true;
@@ -481,7 +481,7 @@ public:
     void receive_response(const sf::IpAddress& ip, u16 port, const a_transcontrol_ok& ok) {
         auto found = _active.find(uniq_packet_info{ip.toInteger(), port, ok.id, ok.hash});
         if (found == _active.end()) {
-            LOG("packet dropped: unexpected transcontrol_ok packet with id={} hash={}",
+            LOG_WARN("packet dropped: unexpected transcontrol_ok packet with id={} hash={}",
                 ok.id,
                 ok.hash);
             return;
@@ -496,7 +496,7 @@ public:
     void receive_response(const sf::IpAddress& ip, u16 port, const a_transcontrol_corrupted& corrupt) {
         auto found = _active.find(uniq_packet_info{ip.toInteger(), port, corrupt.id, corrupt.hash});
         if (found == _active.end()) {
-            LOG("packet dropped: unexpected transcontrol_corrupted packet");
+            LOG_WARN("packet dropped: unexpected transcontrol_corrupted packet");
             return;
         }
 
@@ -541,7 +541,7 @@ public:
                                       std::chrono::steady_clock::now());
         if (!insert_was) {
             send_packet(sock, ip, port, resp);
-            LOG("packet dropped: already received");
+            LOG_WARN("packet dropped: already received");
             i->second = std::chrono::steady_clock::now();
             return false;
         }
@@ -699,7 +699,7 @@ public:
     template <typename F>
     void act(const sf::IpAddress& ip, u16 port, u64 packet_id, const a_cli_i_wanna_play& act, F&& player_update_callback) {
         if (act.magik != CLI_HELLO_MAGICK) {
-            LOG("packet dropped: client hello has invalid magik {} (could be {})",
+            LOG_WARN("packet dropped: client hello has invalid magik {} (could be {})",
                 act.magik,
                 CLI_HELLO_MAGICK);
             return;
@@ -741,7 +741,7 @@ public:
 
     template <typename T, typename F> requires (!PlayerActs<T>)
     void act(const sf::IpAddress&, u16, u64, const T&, F&&) {
-        LOG("server action: invalid overload");
+        LOG_WARN("server action: invalid overload");
     }
 
     struct client_t {
@@ -762,7 +762,7 @@ public:
     std::optional<client_t> get_client_info(const sf::IpAddress& ip) const {
         auto find = _clients.find(ip.toInteger());
         if (find == _clients.end()) {
-            LOG("packet dropped: cannot find player with ip {}", ip.toString());
+            LOG_WARN("packet dropped: cannot find player with ip {}", ip.toString());
             return {};
         }
         return find->second;
