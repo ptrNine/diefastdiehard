@@ -1,9 +1,9 @@
 #pragma once
 
 #include <vector>
+#include <cstring>
 
 #include "types.hpp"
-#include "cstring"
 
 namespace dfdh {
 class packet_t {
