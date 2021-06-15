@@ -250,6 +250,13 @@ EOF
     echo "]" >> ./compile_commands.json
 }
 
+asan_flags() {
+    cat <<EOF
+-fsanitize=address
+-fno-omit-frame-pointer
+EOF
+}
+
 _build() {
     local CXX_COMPILER="${CXX_COMPILER:=/usr/bin/g++-10}"
     local C_COMPILER="${C_COMPILER:=/usr/bin/gcc-10}"
@@ -257,7 +264,46 @@ _build() {
     local rebuild_submodules=false
     local compodb=false
     local debug=false
+    local asan=false
     local run_args=
+
+    while [ -n "$1" ]; do
+        case "$1" in
+        --builddir=*)
+            builddir="${1#*=}"
+            [ "$debug" = true ] && builddir="$builddir-debug"
+            [ "$asan" = true ] && builddir="$builddir-asan"
+            ;;
+        --rebuild-subs)
+            rebuild_submodules=true
+            ;;
+        --compodb)
+            compodb=true
+            ;;
+        --debug)
+            debug=true
+            builddir="$builddir-debug"
+            ;;
+        --asan)
+            asan=true
+            builddir="$builddir-asan"
+            ;;
+        --run)
+            shift
+            run_args="LD_LIBRARY_PATH='$builddir/3rd/lib:$builddir/3rd/lib64' $builddir/$@"
+            break
+            ;;
+        --gdbrun)
+            shift
+            run_args="LD_LIBRARY_PATH='$builddir/3rd/lib:$builddir/3rd/lib64' gdb --args $builddir/$@"
+            break
+            ;;
+        *)
+            fail "Unknown argument $1"
+            ;;
+        esac
+        shift
+    done
 
     local hardening_flags="
 -fstrict-aliasing
@@ -278,40 +324,8 @@ _build() {
 -Werror=unused-result
 -Wno-unused-function
 -Wno-missing-braces
+$([ "$asan" == true ] && asan_flags)
 "
-
-    while [ -n "$1" ]; do
-        case "$1" in
-        --builddir=*)
-            builddir="${1#*=}"
-            [ "$debug" = true ] && builddir="$builddir-debug"
-            ;;
-        --rebuild-subs)
-            rebuild_submodules=true
-            ;;
-        --compodb)
-            compodb=true
-            ;;
-        --debug)
-            debug=true
-            builddir="$builddir-debug"
-            ;;
-        --run)
-            shift
-            run_args="LD_LIBRARY_PATH='$builddir/3rd/lib:$builddir/3rd/lib64' $builddir/$@"
-            break
-            ;;
-        --gdbrun)
-            shift
-            run_args="LD_LIBRARY_PATH='$builddir/3rd/lib:$builddir/3rd/lib64' gdb --args $builddir/$@"
-            break
-            ;;
-        *)
-            fail "Unknown argument $1"
-            ;;
-        esac
-        shift
-    done
 
     mkdir -p "$builddir/3rd"
     mkdir -p "$builddir/.ezbld"
