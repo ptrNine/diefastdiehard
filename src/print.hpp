@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <tuple>
+#include <optional>
 
 #include "types.hpp"
 
@@ -109,6 +110,13 @@ struct printer<T> {
 
     void operator()(std::ostream& os, const T& v) {
         print(os, v, std::make_index_sequence<std::tuple_size_v<T>>());
+    }
+};
+
+template <typename T>
+struct printer<std::optional<T>> {
+    void operator()(std::ostream& os, const std::optional<T>& v) {
+        print_any(os, v ? *v : "(null)");
     }
 };
 
