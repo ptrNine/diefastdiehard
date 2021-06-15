@@ -41,7 +41,7 @@ public:
         fonts.pt17 = nk_font_atlas_add_from_file(&_sfml.atlas, "data/font/RobotoMono-Regular.ttf", 17.f, &cfg);
 
         nk_sfml_font_stash_end(&_sfml);
-        nk_style_load_all_cursors(&_sfml.ctx, _sfml.atlas.cursors);
+        //nk_style_load_all_cursors(&_sfml.ctx, _sfml.atlas.cursors);
         nk_style_set_font(&_sfml.ctx, &fonts.pt17->handle);
     }
 

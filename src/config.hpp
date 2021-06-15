@@ -36,7 +36,12 @@ public:
     }
 
     [[nodiscard]]
-    decltype(auto) sections() const {
+    auto& sections() const {
+        return _sections;
+    }
+
+    [[nodiscard]]
+    auto& sections() {
         return _sections;
     }
 

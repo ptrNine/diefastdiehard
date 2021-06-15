@@ -66,7 +66,162 @@ class diefastdiehard : public dfdh::engine {
 public:
     diefastdiehard(): _bm("bm1", sim, player_hit_callback), _kick_mgr("kick_mgr", sim, player_hit_callback) {}
 
+    void cmd_help(const std::string& cmd) {
+        std::string_view help;
+        if (cmd == "player") {
+            help = "available commands:\n"
+                   "  player reload - reload player configuration\n"
+                   "  player conf   - open configuration ui";
+        }
+        else if (cmd == "log") {
+            help = "available commands:\n"
+                   "  log time [on/off]  - enables or disables time showing\n"
+                   "  log level [on/off] - enables or disables level showing\n"
+                   "  log ring  [uint]   - setup log ring buffer size\n"
+                   "  log clear          - clear devconsole log";
+        }
+        else if (cmd == "cfg") {
+            help = "shows loaded configs\n"
+                   "available commands:\n"
+                   "  cfg [section_name] [key]?  - shows key/values for specified section\n"
+                   "  cfg reload                 - reloads all config users";
+        }
+        else if (cmd == "cfgset") {
+            help = "setup configs\n"
+                   "available commands:\n"
+                   "  cfgset [section_name] [key] [value]?  - setup value for specified section";
+        }
+
+        if (!help.empty())
+            LOG("{}", help);
+    }
+
+    void cmd_player(const std::string& cmd) {
+        if (cmd == "reload") {
+            players[player_idx]->set_from_config();
+        } else if (cmd == "conf") {
+            pconf_ui.show(true);
+        } else if (cmd == "help") {
+            cmd_help("player");
+        } else {
+            LOG_ERR("player: unknown subcommand '{}'", cmd);
+        }
+    }
+
+    void cmd_log(const std::string& cmd, const std::optional<std::string>& value) {
+        if (cmd == "time") {
+            if (value) {
+                if (*value == "on")
+                    devcons().show_time();
+                else if (*value == "off")
+                    devcons().show_time(false);
+                else
+                    LOG_ERR("log time: unknown action '{}' (must be 'on' or 'off')", *value);
+            } else {
+                LOG_INFO("log time: {}", devcons().is_show_time() ? "on"sv : "off"sv);
+            }
+        }
+        else if (cmd == "level") {
+            if (value) {
+                if (*value == "on")
+                    devcons().show_level();
+                else if (*value == "off")
+                    devcons().show_level(false);
+                else
+                    LOG_ERR("log level: unknown action '{}' (must be 'on' or 'off')", *value);
+            } else {
+                LOG_INFO("log level: {}", devcons().is_show_level() ? "on"sv : "off"sv);
+            }
+        }
+        else if (cmd == "ring") {
+            if (value) {
+                try {
+                    auto sz = ston<size_t>(*value);
+                    devcons().ring_size(sz);
+                } catch (...) {
+                    LOG_ERR("log ring: '{}' not an unsigned int", *value);
+                }
+            }
+            else {
+                LOG_INFO("log ring: {}", devcons().ring_size());
+            }
+        }
+        else if (cmd == "clear") {
+            devcons().clear();
+        }
+        else if (cmd == "help") {
+            cmd_help("log");
+        }
+        else {
+            LOG_ERR("log: unknown subcommand '{}'", cmd);
+        }
+    }
+
+    void cmd_cfg(const std::string& sect, const std::optional<std::string>& value) {
+        if (sect == "reload") {
+            weapon_mgr().reload();
+            LOG_INFO("configs reloaded!");
+            return;
+        } else if (sect == "help") {
+            cmd_help("cfg");
+            return;
+        }
+
+        auto found_sect = cfg().sections().find(sect);
+        if (found_sect == cfg().sections().end()) {
+            LOG_ERR("cfg: section [{}] not found", sect);
+            return;
+        }
+
+        if (value) {
+            auto found_key = found_sect->second.find(*value);
+            if (found_key == found_sect->second.end()) {
+                LOG_ERR("cfg {}: key '{}' not found", sect, *value);
+                return;
+            }
+
+            LOG("{} = {}", *value, found_key->second);
+        }
+        else {
+            size_t spaces = 0;
+            std::string to_print;
+            for (auto& [k, v] : found_sect->second) {
+                to_print.push_back('\n');
+                to_print += k;
+                if (k.size() > spaces)
+                    spaces = k.size();
+                else
+                    to_print.resize(to_print.size() + (spaces - k.size()), ' ');
+                to_print += " = "sv;
+                to_print += v;
+            }
+            LOG("{}", to_print);
+        }
+    }
+
+    void cmd_cfgset(const std::string& sect, const std::string& key, const std::optional<std::string>& value) {
+        auto found_sect = cfg().sections().find(sect);
+        if (found_sect == cfg().sections().end()) {
+            LOG_ERR("cfgset: section [{}] not found", sect);
+            return;
+        }
+
+        auto found_key = found_sect->second.find(key);
+        if (found_key == found_sect->second.end()) {
+            LOG_ERR("cfgset {}: key '{}' not found", sect, key);
+            return;
+        }
+
+        found_key->second = value ? *value : "";
+        LOG_INFO("[{}] {} = {}", sect, key, value ? *value : "");
+    }
+
     void init_commands() {
+        command_buffer().add_handler("player", &diefastdiehard::cmd_player, this);
+        command_buffer().add_handler("log", &diefastdiehard::cmd_log, this);
+        command_buffer().add_handler("cfg", &diefastdiehard::cmd_cfg, this);
+        command_buffer().add_handler("cfgset", &diefastdiehard::cmd_cfgset, this);
+        command_buffer().add_handler("help", &diefastdiehard::cmd_help, this);
     }
 
     void on_init(args_view args) final {
@@ -732,5 +887,5 @@ private:
 }
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
-    return dfdh::diefastdiehard().run(dfdh::args_view(argc, argv));
+    return std::make_unique<dfdh::diefastdiehard>()->run(dfdh::args_view(argc, argv));
 }

@@ -46,6 +46,11 @@ public:
         using arg_type = std::tuple_element_t<I, std::tuple<ArgsT...>>;
     };
 
+    template <typename T>
+    struct optional_t: std::false_type {};
+    template <typename T>
+    struct optional_t<std::optional<T>>: std::true_type {};
+
     template <typename F, size_t I = 0, typename... Ts>
     static void command_dispatch(const std::string& command_name,
                                  F&&                func,
@@ -54,10 +59,15 @@ public:
                                  Ts&&... args) {
         if (arg_begin == arg_end) {
             if constexpr (I < func_traits<std::decay_t<F>>::arity) {
-                LOG_ERR("command '{}' accepts {} arguments (called with {} arguments)",
-                        command_name,
-                        func_traits<std::decay_t<F>>::arity,
-                        I);
+                if constexpr (func_traits<std::decay_t<F>>::arity - I == 1 &&
+                              optional_t<std::decay_t<typename func_traits<
+                                  std::decay_t<F>>::template arg_type<I>>>::value)
+                    func(std::forward<Ts>(args)..., {});
+                else
+                    LOG_ERR("command '{}' accepts {} arguments (called with {} arguments)",
+                            command_name,
+                            func_traits<std::decay_t<F>>::arity,
+                            I);
             }
             else {
                 func(std::forward<Ts>(args)...);
@@ -70,11 +80,23 @@ public:
                         func_traits<std::decay_t<F>>::arity,
                         I + 1);
             } else {
+                auto str = std::string((*arg_begin).begin(), (*arg_begin).end());
                 using arg_type = typename func_traits<std::decay_t<F>>::template arg_type<I>;
+                if constexpr (std::is_same_v<std::decay_t<arg_type>, bool>) {
+                    if (str == "true" || str == "on")
+                        command_dispatch<F, I + 1>(
+                            command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., true);
+                    else if (str == "false" || str == "off")
+                        command_dispatch<F, I + 1>(
+                            command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., false);
+                    else
+                        LOG_ERR("{}: argument[{}] must be a boolean true/false (on/off)", command_name, I);
+                    return;
+                }
                 if constexpr (Number<std::decay_t<arg_type>>) {
                     std::decay_t<arg_type> v;
                     try {
-                        v = ston<arg_type>(std::string((*arg_begin).begin(), (*arg_end).end()));
+                        v = ston<arg_type>(str);
                     }
                     catch (const std::exception& e) {
                         LOG_ERR("{}: argument[{}] must be a number", command_name, I);
@@ -82,12 +104,19 @@ public:
                     }
                     command_dispatch<F, I + 1>(
                         command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., v);
+                    return;
                 }
                 if constexpr (std::is_same_v<std::decay_t<arg_type>, std::string>) {
-                    auto v = std::string((*arg_begin).begin(), (*arg_end).end());
                     command_dispatch<F, I + 1>(
-                        command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., v);
+                        command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., str);
+                    return;
                 }
+                if constexpr (std::is_same_v<std::decay_t<arg_type>, std::optional<std::string>>) {
+                    command_dispatch<F, I + 1>(
+                        command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., str);
+                    return;
+                }
+                LOG_ERR("{}: function argument[{}] has unknown type", command_name, I);
             }
         }
     }
@@ -124,10 +153,20 @@ public:
     }
 
     template <typename T, typename RetT, typename... ArgsT>
-    void add_handler(const std::string& command_name, RetT(T::*func)(ArgsT...), T* it) {
-        handlers.emplace(command_name, command_dispatcher(command_name, std::function{[it, func](ArgsT... args) mutable {
-            return (it->*func)(args...);
-        }}));
+    void add_handler(const std::string& command_name, RetT (T::*func)(ArgsT...), T* it) {
+        handlers.emplace(
+            command_name,
+            command_dispatcher(command_name, std::function{[it, func](ArgsT... args) mutable {
+                                   return (it->*func)(args...);
+                               }}));
+    }
+
+    [[nodiscard]]
+    std::optional<std::string_view> find(const std::string& command_name) const {
+        auto found = handlers.lower_bound(command_name);
+        if (found != handlers.end() && found->first.starts_with(command_name))
+            return found->first;
+        return {};
     }
 
 private:

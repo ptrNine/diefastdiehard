@@ -58,15 +58,17 @@ public:
                     on_window_resize(evt.size.width, evt.size.height);
                     _main_menu.set_size({float(evt.size.width), float(evt.size.height)});
                 }
-                else
-                    handle_event(evt);
+                else {
+                    if (!_devcons.is_active()) 
+                        handle_event(evt);
+                }
             }
             ui.input_end();
 
+            ui_update();
             _wnd.clear();
             render_update(_wnd);
             ui.render();
-            ui_update();
             _wnd.display();
         }
 

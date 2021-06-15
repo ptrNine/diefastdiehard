@@ -179,7 +179,7 @@ public:
     }
 
 private:
-    std::string_view       _name;
+    std::string_view            _name;
     std::list<std::string_view> _data;
 };
 

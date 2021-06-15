@@ -29,21 +29,22 @@ public:
             update_size(ui, {float(evt.size.width), float(evt.size.height)});
         }
         else if (evt.type == sf::Event::KeyPressed) {
+
             switch (evt.key.code) {
             case sf::Keyboard::Tilde:
-                toggle();
+                toggle(ui);
                 break;
 
             case sf::Keyboard::Up:
-                if (!_edit_active)
+                if (!is_active())
                     return;
-                history_up();
+                history_up(ui);
                 break;
 
             case sf::Keyboard::Down:
-                if (!_edit_active)
+                if (!is_active())
                     return;
-                history_down();
+                history_down(ui);
 
             default:
                 break;
@@ -51,7 +52,7 @@ public:
         }
     }
 
-    void history_up() {
+    void history_up(ui_ctx& ui) {
         if (_history_pos == HISTORY_LEN) {
             _current_command = std::string(_command_edit.data(), size_t(_command_len));
             _history_pos = 0;
@@ -67,13 +68,15 @@ public:
         auto min_sz = std::min(cmd.size(), COMMAND_LEN);
         std::memcpy(_command_edit.data(), cmd.data(), min_sz);
         _command_len = int(min_sz);
+        ui.nk_ctx()->active->edit.cursor = _command_len + 1;
     }
 
-    void history_down() {
+    void history_down(ui_ctx& ui) {
         if (_history_pos == HISTORY_LEN) {
             return;
         } else if (_history_pos == 0) {
             _command_len = int(_current_command.size());
+            ui.nk_ctx()->active->edit.cursor = _command_len;
             std::memcpy(_command_edit.data(), _current_command.data(), _current_command.size());
             _history_pos = HISTORY_LEN;
             return;
@@ -84,42 +87,70 @@ public:
             auto min_sz = std::min(cmd.size(), COMMAND_LEN);
             std::memcpy(_command_edit.data(), cmd.data(), min_sz);
             _command_len = int(min_sz);
+            ui.nk_ctx()->active->edit.cursor = _command_len;
         }
     }
 
     void update(ui_ctx& ui) {
-        static constexpr auto push_line = [](auto& ui, auto&& line) {
-            constexpr auto warn_pref = "[warn]:"sv;
-            constexpr auto err_pref  = "[error]:"sv;
+        static constexpr auto push_line = [](ui_ctx& ui, auto&& line, bool show_time, bool show_level) {
+            if (ui.widget_position().y < 0.f) {
+                ui.spacing(1);
+                return;
+            }
+
+            constexpr auto info_pref = "[info]"sv;
+            constexpr auto warn_pref = "[warn]"sv;
+            constexpr auto err_pref  = "[error]"sv;
             auto color = sf::Color(220, 220, 220);
 
-            if (line.size() > LOG_TIME_FMT.size() + 1 + err_pref.size()) {
+            std::string_view log_line = line;
+
+            if (line.size() > LOG_TIME_FMT.size() + 1 + err_pref.size() && line[3] == ':' &&
+                line[6] == ':' && line[9] == '.') {
                 auto start_msg = line.data() + LOG_TIME_FMT.size() + 1;
                 auto end = line.data() + line.size();
 
+                if (!show_time)
+                    log_line = std::string_view(*start_msg == ' ' ? start_msg + 1 : start_msg, end);
+
+                bool times = false;
                 switch (*start_msg) {
                 case '(':
+                    times = true;
                     ++start_msg;
                     while (isdigit(*start_msg))
                         ++start_msg;
                     if (*start_msg == ' ')
                         ++start_msg;
-                    if (std::string_view(start_msg, end).starts_with("times) "sv))
-                        start_msg += "times) "sv.size();
+                    if (std::string_view(start_msg, end).starts_with("times):"sv))
+                        start_msg += "times):"sv.size();
                     if (size_t(end - start_msg) < err_pref.size())
                         break;
                     [[fallthrough]];
 
-                case '[':
-                    if (std::string_view(start_msg, warn_pref.size()) == warn_pref)
+                case ' ':
+                    ++start_msg;
+
+                    size_t sz = 0;
+                    if (std::string_view(start_msg, warn_pref.size()) == warn_pref) {
                         color = sf::Color(225, 195, 52);
-                    else if (std::string_view(start_msg, err_pref.size()) == err_pref)
+                        sz = warn_pref.size();
+                    }
+                    else if (std::string_view(start_msg, err_pref.size()) == err_pref) {
                         color = sf::Color(255, 56, 56);
+                        sz = err_pref.size();
+                    }
+                    else if (std::string_view(start_msg, info_pref.size()) == info_pref) {
+                        color = sf::Color(69, 217, 20);
+                        sz = info_pref.size();
+                    }
+                    if (!show_level && !times && sz)
+                        log_line = std::string_view(start_msg + sz + 1, end);
                 }
             }
 
             ui.text_colored(
-                line.data(), int(line.size()), NK_TEXT_LEFT, color /*sf::Color(69, 217, 20)*/);
+                log_line.data(), int(log_line.size()), NK_TEXT_LEFT, color);
         };
 
         if (!_show)
@@ -143,6 +174,13 @@ public:
             if (_first_run)
                 ui.window_set_scroll(_x_scroll, _y_scroll);
 
+            if (ui.nk_ctx()->active && !ui.nk_ctx()->active->edit.active) {
+                ui.nk_ctx()->active->edit.active = _last_active;
+                ui.nk_ctx()->active->edit.cursor = _command_len;
+            } else {
+                _last_active = ui.nk_ctx()->active->edit.active;
+            }
+
             _first_run = false;
 
             _pos  = ui.window_get_position();
@@ -159,18 +197,40 @@ public:
                 ui.layout_space_begin(NK_STATIC, 0, int(labels_in_region - 1));
                 y_acc = content_region_size.y - float(lines_count + 2) * (_row_height + lpush);
 
-
                 for (auto& line : log_buf->get_log_locked(labels_in_region)) {
                     ui.layout_space_push(nk_rect(0, y_acc, content_region_size.x, (_row_height + lpush)));
                     y_acc += _row_height + lpush;
-                    push_line(ui, line);
+                    push_line(ui, line, _show_time, _show_level);
                 }
                 ui.layout_space_push(nk_rect(0, y_acc, content_region_size.x, _row_height * 2.f));
             }
             else {
                 ui.layout_row_dynamic(_row_height, 1);
-                for (auto& line : log_buf->get_log_locked(labels_in_region * 4))
-                    push_line(ui, line);
+                auto pos = ui.widget_position();
+                auto wnd_bottom_pos = ui.window_get_position().y + ui.window_get_height();
+
+                size_t skipped_lines = 0;
+                if (pos.y < 0.f)
+                    skipped_lines = size_t(-pos.y) / (size_t(_row_height) + 14);
+
+                if (skipped_lines)
+                    ui.spacing(int(skipped_lines));
+
+                auto log_size = log_buf->size();
+
+                if (log_size > skipped_lines) {
+                    size_t printed_lines = 0;
+                    for (auto& line : log_buf->get_log_locked(log_size - skipped_lines)) {
+                        if (ui.widget_position().y > wnd_bottom_pos) {
+                            auto lines_remain = (log_size - skipped_lines) - printed_lines;
+                            ui.spacing(int(lines_remain));
+                            break;
+                        }
+
+                        push_line(ui, line, _show_time, _show_level);
+                        ++printed_lines;
+                    }
+                }
                 ui.layout_row_dynamic(_row_height * 2.f, 1);
             }
 
@@ -180,10 +240,40 @@ public:
                                              int(_command_edit.size()),
                                              nk_filter_default);
 
-            if (edit_state & NK_EDIT_ACTIVATED)
-                _edit_active = true;
-            if (edit_state & NK_EDIT_DEACTIVATED)
-                _edit_active = false;
+            /* Prohibit tab */
+            auto cursor_pos = ui.nk_ctx()->active->edit.cursor;
+            if (cursor_pos < _command_len) {
+                if (_command_edit[size_t(cursor_pos - 1)] == '\t') {
+                    std::memmove(_command_edit.data() + cursor_pos - 1,
+                                 _command_edit.data() + cursor_pos,
+                                 size_t(_command_len - cursor_pos));
+                    --ui.nk_ctx()->active->edit.cursor;
+                    --_command_len;
+                }
+            }
+
+            if (_command_len > 0 && _command_edit[size_t(_command_len - 1)] == '`')
+                _command_len = 0;
+
+            /* Autocomplete */
+            if (_command_len != 0 && _command_edit[size_t(_command_len - 1)] == '\t') {
+                --_command_len;
+                auto command_part = std::string(_command_edit.data(), size_t(_command_len));
+                auto found = command_buffer().find(command_part);
+                if (found) {
+                    if (command_part == *found) {
+                        if (!_last_help || *_last_help != command_part) {
+                            command_buffer().push("help " + command_part);
+                            _last_help = command_part;
+                        }
+                    }
+                    else {
+                        _command_len = int(std::min(found->size(), COMMAND_LEN));
+                        std::memcpy(_command_edit.data(), found->data(), size_t(_command_len));
+                    }
+                }
+                ui.nk_ctx()->active->edit.cursor = _command_len;
+            }
 
             if (_command_len > 0 && edit_state & NK_EDIT_COMMITED) {
                 auto command = std::string(_command_edit.data(), size_t(_command_len));
@@ -204,6 +294,7 @@ public:
 
                 _command_len = 0;
                 _history_pos = HISTORY_LEN;
+                _last_help.reset();
             }
 
             if (space_enable)
@@ -220,7 +311,7 @@ public:
         else {
             _show = false;
             _first_run = true;
-            _edit_active = false;
+            _history_pos = HISTORY_LEN;
         }
         ui.end();
 
@@ -244,17 +335,55 @@ public:
             set_size(ui, window_size);
     }
 
-    void show(bool value) {
+    void show(ui_ctx& ui, bool value) {
         if (_show && !value) {
+            ui.window_close("devconsole");
             _first_run = true;
-            _edit_active = false;
+            _history_pos = HISTORY_LEN;
         }
 
         _show = value;
     }
 
-    void toggle() {
-        show(!_show);
+    void toggle(ui_ctx& ui) {
+        show(ui, !_show);
+    }
+
+    [[nodiscard]]
+    bool is_active() const {
+        return _show;
+    }
+
+    void show_time(bool value = true) {
+        _show_time = value;
+    }
+
+    [[nodiscard]]
+    bool is_show_time() const {
+        return _show_time;
+    }
+
+    void show_level(bool value = true) {
+        _show_level = value;
+    }
+
+    [[nodiscard]]
+    bool is_show_level() {
+        return _show_level;
+    }
+
+    void clear() {
+        LOG("~~CLEAR~~");
+        log_buf->clear();
+    }
+
+    [[nodiscard]]
+    size_t ring_size() const {
+        return log_buf->max_size();
+    }
+
+    void ring_size(size_t value) {
+        return log_buf->resize_buf(value);
     }
 
 private:
@@ -270,10 +399,14 @@ private:
     u32                               _y_scroll = 0;
     bool                              _show = false;
     bool                              _first_run = true;
-    bool                              _edit_active = false;
+    bool                              _show_time = false;
+    bool                              _show_level = false;
 
     std::string                       _current_command;
     std::array<char, COMMAND_LEN>     _command_edit;
     int                               _command_len = 0;
+
+    int                               _last_active = 0;
+    std::optional<std::string>        _last_help;
 };
 }

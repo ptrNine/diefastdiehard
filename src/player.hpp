@@ -634,7 +634,7 @@ private:
         auto adj = sprite_size_adjust_factors();
         float xf = (size.x * adj.x) / float(sz.x);
         float yf = (size.y * adj.y) / float(sz.y);
-        sprite.setScale(xf, yf);
+        sprite.setScale(_on_left ? -xf : xf, yf);
     }
 
 private:

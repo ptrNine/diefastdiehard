@@ -204,6 +204,7 @@ public:
             }
         }
         else {
+            pconf.write();
             wnd_show = false;
         }
         ui.end();
@@ -226,7 +227,7 @@ private:
     std::string         wnd_title;
 
     struct nk_rect      wnd_rect{200, 100, 500, 500};
-    bool                wnd_show = true;
+    bool                wnd_show = false;
 
     sf::Sprite          sprt_body, sprt_face;
     sf::CircleShape     hand_or_leg;

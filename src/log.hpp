@@ -151,6 +151,22 @@ public:
         return lines.size();
     }
 
+    [[nodiscard]]
+    size_t max_size() const {
+        std::lock_guard lock{mtx};
+        return lines.max_size();
+    }
+
+    void resize_buf(size_t value) {
+        lines.resize(value);
+    }
+
+    void clear() {
+        std::lock_guard lock{mtx};
+        lines.clear();
+        last_pos = 0;
+    }
+
     void flush() {
         /* Do nothing */
     }
@@ -389,7 +405,7 @@ private:
 public:
     enum Type { Details = 0, Message = 1, Warning, Error };
 
-    static constexpr std::array<std::string_view, 4> str_types = {": ", ": ", " [warn]: ", " [error]: "};
+    static constexpr std::array<std::string_view, 4> str_types = {": [info] ", ": ", ": [warn] ", ": [error] "};
 
     /**
      * @brief Flush all logger streams
@@ -635,10 +651,13 @@ inline logger& log() {
 }
 } // namespace dfdh
 
+#define LOG_INFO(...) dfdh::logger::instance().write(dfdh::logger::Details, __VA_ARGS__)
 #define LOG(...)      dfdh::logger::instance().write(__VA_ARGS__)
 #define LOG_WARN(...) dfdh::logger::instance().write(dfdh::logger::Warning, __VA_ARGS__)
 #define LOG_ERR(...)  dfdh::logger::instance().write(dfdh::logger::Error, __VA_ARGS__)
 
+#define LOG_INFO_UPDATE(...)                                                                    \
+    dfdh::logger::instance().write_update<__COUNTER__>(dfdh::logger::Details, __VA_ARGS__)
 #define LOG_UPDATE(...) dfdh::logger::instance().write_update<__COUNTER__>(__VA_ARGS__)
 #define LOG_WARN_UPDATE(...)                                                                    \
     dfdh::logger::instance().write_update<__COUNTER__>(dfdh::logger::Warning, __VA_ARGS__)
@@ -646,10 +665,12 @@ inline logger& log() {
     dfdh::logger::instance().write_update<__COUNTER__>(dfdh::logger::Error, __VA_ARGS__)
 
 #ifndef NDEBUG
+    #define DLOG_INFO(...) dfdh::logger::instance().write(dfdh::logger::Details, __VA_ARGS__)
     #define DLOG(...)      dfdh::logger::instance().write(__VA_ARGS__)
     #define DLOG_WARN(...) dfdh::logger::instance().write(dfdh::logger::Warning, __VA_ARGS__)
     #define DLOG_ERR(...)  dfdh::logger::instance().write(dfdh::logger::Error, __VA_ARGS__)
 #else
+    #define DLOG_INFO(...) void(0)
     #define DLOG(...)      void(0)
     #define DLOG_WARN(...) void(0)
     #define DLOG_ERR(...)  void(0)
