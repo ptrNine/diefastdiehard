@@ -88,40 +88,45 @@ public:
         }
     }
 
-    weapon(const std::string& section): _section(section) {
-        _hit_mass      = cfg().get_req<float>(section, "hit_mass");
-        _dispersion    = cfg().get_req<float>(section, "dispersion");
-        _fire_rate     = cfg().get_req<float>(section, "fire_rate");
-        _recoil        = cfg().get_req<float>(section, "recoil");
-        _buckshot      = cfg().get_req<u32>(section, "buckshot");
-        _mag_size      = cfg().get_req<u32>(section, "mag_size");
-        _size          = cfg().get_req<sf::Vector2f>(section, "size");
-        _arm_joint     = cfg().get_req<sf::Vector2f>(section, "arm_joint");
-        _arm_bone      = cfg().get_req<u32>(section, "arm_bone");
-        _arm2_bone     = cfg().get_req<u32>(section, "arm2_bone");
-        _arm_idle_pos  = cfg().get_req<sf::Vector2f>(section, "arm_idle_pos");
-        _arm2_idle_pos = cfg().get_req<sf::Vector2f>(section, "arm2_idle_pos");
-        _arm_pos_f     = cfg().get_req<sf::Vector2f>(section, "arm_pos_f");
-        _barrel        = cfg().get_req<sf::Vector2f>(section, "barrel");
-        _shot_flash    = cfg().get_default<bool>(section, "shot_flash", false);
-        _eject_shell   = cfg().get_default<bool>(section, "eject_shell", false);
-        _wpn_class     = weapon_class_from_str(cfg().get_req<std::string>(section, "class"));
-        _bullet_vel_tier = cfg().get_req<u32>(section, "bullet_velocity_tier");
+    void cfg_set() {
+        _hit_mass      = cfg().get_req<float>(_section, "hit_mass");
+        _dispersion    = cfg().get_req<float>(_section, "dispersion");
+        _fire_rate     = cfg().get_req<float>(_section, "fire_rate");
+        _recoil        = cfg().get_req<float>(_section, "recoil");
+        _buckshot      = cfg().get_req<u32>(_section, "buckshot");
+        _mag_size      = cfg().get_req<u32>(_section, "mag_size");
+        _size          = cfg().get_req<sf::Vector2f>(_section, "size");
+        _arm_joint     = cfg().get_req<sf::Vector2f>(_section, "arm_joint");
+        _arm_bone      = cfg().get_req<u32>(_section, "arm_bone");
+        _arm2_bone     = cfg().get_req<u32>(_section, "arm2_bone");
+        _arm_idle_pos  = cfg().get_req<sf::Vector2f>(_section, "arm_idle_pos");
+        _arm2_idle_pos = cfg().get_req<sf::Vector2f>(_section, "arm2_idle_pos");
+        _arm_pos_f     = cfg().get_req<sf::Vector2f>(_section, "arm_pos_f");
+        _barrel        = cfg().get_req<sf::Vector2f>(_section, "barrel");
+        _shot_flash    = cfg().get_default<bool>(_section, "shot_flash", false);
+        _eject_shell   = cfg().get_default<bool>(_section, "eject_shell", false);
+        _wpn_class     = weapon_class_from_str(cfg().get_req<std::string>(_section, "class"));
+        _bullet_vel_tier = cfg().get_req<u32>(_section, "bullet_velocity_tier");
 
         if (_eject_shell) {
-            _shell_pos   = cfg().get_req<sf::Vector2f>(section, "shell_pos");
-            _shell_dir   = normalize(cfg().get_req<sf::Vector2f>(section, "shell_dir"));
-            _shell_frame = cfg().get_req<u32>(section, "shell_frame");
-            auto& txtr = texture_mgr().load(cfg().get_req<std::string>(section, "shell_txtr"));
+            _shell_pos   = cfg().get_req<sf::Vector2f>(_section, "shell_pos");
+            _shell_dir   = normalize(cfg().get_req<sf::Vector2f>(_section, "shell_dir"));
+            _shell_frame = cfg().get_req<u32>(_section, "shell_frame");
+            auto& txtr   = texture_mgr().load(cfg().get_req<std::string>(_section, "shell_txtr"));
             _shell_sprite.setTexture(txtr);
             _shell_sprite.setOrigin(float(txtr.getSize().x) * 0.5f, float(txtr.getSize().y) * 0.5f);
-            auto sz = cfg().get_req<sf::Vector2f>(section, "shell_size");
+            auto sz = cfg().get_req<sf::Vector2f>(_section, "shell_size");
             _shell_sprite.setScale(sz.x / float(txtr.getSize().x), sz.y / float(txtr.getSize().y));
-            _shell_vel = cfg().get_req<float>(section, "shell_vel");
+            _shell_vel = cfg().get_req<float>(_section, "shell_vel");
         }
+    }
+
+    void reload_layers() {
+        _layers.clear();
+        _animations.clear();
 
         int i = 0;
-        while (auto layer_txtr = cfg().get<std::string>(section, "layer" + std::to_string(i))) {
+        while (auto layer_txtr = cfg().get<std::string>(_section, "layer" + std::to_string(i))) {
             if (layer_txtr->empty()) {
                 _layers.push_back(sf::Sprite());
                 ++i;
@@ -144,9 +149,14 @@ public:
         }
 
         if (_layers.empty())
-            throw std::runtime_error("Weapon " + section + " has not layers");
+            throw std::runtime_error("Weapon " + _section + " has no layers");
 
-        load_animations(section);
+        load_animations(_section);
+    }
+
+    weapon(std::string section): _section(std::move(section)) {
+        cfg_set();
+        reload_layers();
     }
 
      [[nodiscard]]
@@ -325,6 +335,13 @@ public:
             return found->second;
         else
             return _wpns.emplace(section, weapon(section)).first->second;
+    }
+
+    void reload() {
+        for (auto& [_, wpn] : _wpns) {
+            wpn.cfg_set();
+            wpn.reload_layers();
+        }
     }
 
     weapon_storage_singleton(const weapon_storage_singleton&) = delete;
