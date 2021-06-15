@@ -95,6 +95,26 @@ public:
 
     ring_buffer(size_t size): _data(size > 0 ? size : 1) {}
 
+    void clear() {
+        for (auto& s : _data)
+            s = {};
+        _start  = 0;
+        _insert = 0;
+        _size   = 0;
+    }
+
+    void resize(size_t new_size) {
+        new_size = new_size > 0 ? new_size : 1;
+        ring_buffer new_buf{new_size};
+        for (auto& v : *this)
+            new_buf.push(std::move(v));
+
+        _data = std::move(new_buf._data);
+        _start  = new_buf._start;
+        _insert = new_buf._insert;
+        _size   = new_buf._size;
+    }
+
     void push(T value) {
         if (_size == _data.size())
             _start = (_start + 1) % _data.size();
@@ -134,6 +154,11 @@ public:
     [[nodiscard]]
     size_t size() const {
         return _size;
+    }
+
+    [[nodiscard]]
+    size_t max_size() const {
+        return _data.size();
     }
 
     decltype(auto) back() {
