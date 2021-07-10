@@ -15,6 +15,35 @@ namespace dfdh {
 
 namespace fs = std::filesystem;
 
+class cfg_section {
+public:
+    cfg_section(std::string isection_name, std::string ifile_path):
+        section_name(std::move(isection_name)), file_path(std::move(ifile_path)) {}
+
+    [[nodiscard]]
+    std::string content() const {
+        size_t indent = 0;
+        for (auto& v : sects)
+            indent = std::max(indent, v.first.size());
+
+        std::string sect_content;
+        for (auto& v : sects) {
+            sect_content += v.first;
+            sect_content.resize(sect_content.size() + (indent - v.first.size()), ' ');
+            sect_content += " = ";
+            sect_content += v.second;
+            sect_content += '\n';
+        }
+        if (!sect_content.empty() && sect_content.back() == '\n')
+            sect_content.pop_back();
+        return sect_content;
+    }
+
+    std::string section_name;
+    std::string file_path;
+    std::map<std::string, std::string> sects;
+};
+
 class cfg_singleton {
 public:
     static cfg_singleton& instance() {
@@ -80,7 +109,7 @@ public:
                     auto found = l.find(']');
                     if (found != std::string_view::npos) {
                         cur_sect = trim_spaces(l.substr(1, found - 1));
-                        _sections[cur_sect];
+                        _sections.insert_or_assign(cur_sect, cfg_section(cur_sect, file));
                     }
                 }
             } else {
@@ -88,16 +117,22 @@ public:
                     auto found = l.find(']');
                     if (found != std::string_view::npos) {
                         cur_sect = trim_spaces(l.substr(1, found - 1));
-                        _sections[cur_sect];
+                        _sections.insert_or_assign(cur_sect, cfg_section(cur_sect, file));
                     }
                 } else {
                     auto found = l.find('=');
                     if (found == std::string_view::npos) {
-                        _sections[cur_sect][std::string(l)];
+                        auto& sect = _sections.at(cur_sect);
+                        sect.section_name = cur_sect;
+                        sect.file_path = file;
+                        sect.sects[std::string(l)];
                     } else {
                         auto key = trim_spaces(l.substr(0, found));
                         auto value = trim_spaces(l.substr(found + 1));
-                        _sections[cur_sect][std::string(key)] = value;
+                        auto& sect = _sections.at(cur_sect);
+                        sect.section_name = cur_sect;
+                        sect.file_path = file;
+                        sect.sects[std::string(key)] = value;
                     }
                 }
             }
@@ -110,8 +145,8 @@ public:
         if (sect_i == _sections.end())
             throw std::runtime_error("Section " + section + " not found");
 
-        auto value_i = sect_i->second.find(key);
-        if (value_i == sect_i->second.end())
+        auto value_i = sect_i->second.sects.find(key);
+        if (value_i == sect_i->second.sects.end())
             return std::nullopt;
 
         return value_i->second;
@@ -142,7 +177,159 @@ public:
             return default_value;
     }
 
+    template <typename T>
+    T get_or_write_default(const std::string& section, const std::string& key, const T& default_value, const std::string& config_path, bool refresh_file = false) {
+        try {
+            return get_req<T>(section, key);
+        }
+        catch (...) {
+            auto& sect = _sections.emplace(section, cfg_section(section, config_path)).first->second;
+            sect.sects[key] = str_cast(default_value);
+            if (refresh_file)
+                try_refresh_file(section);
+            return default_value;
+        }
+    }
+
+    /*
+    template <typename F>
+    void parse_or_write(const std::string& file_path, F default_writer) {
+        if (!try_parse(file_path)) {
+            {
+                auto ofs = std::ofstream(file_path, std::ios_base::out);
+                if (!ofs.is_open())
+                    throw std::runtime_error("Can't write config file " + file_path);
+
+                default_writer(ofs);
+            }
+            parse(file_path);
+        }
+    }
+    */
+
+    template <typename T>
+    bool try_write(const std::string& section, const std::string& key, const T& value, bool create = false, bool file_refresh = true) {
+        auto found_sect = _sections.find(section);
+        if (found_sect == _sections.end())
+            return false;
+
+        auto& sect = found_sect->second;
+        std::string* val;
+        if (create)
+            val = &sect.sects[key];
+        else {
+            auto found_value = sect.sects.find(key);
+            if (found_value == sect.sects.end())
+                return false;
+            val = &found_value->second;
+        }
+
+        *val = str_cast(value, *val);
+
+        if (file_refresh)
+            try_refresh_file(section);
+
+        return true;
+    }
+
+    bool try_refresh_file(const std::string& section) {
+        static constexpr auto space = [](char c) {
+            return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+        };
+
+        auto found_sect = _sections.find(section);
+        if (found_sect == _sections.end())
+            return false;
+        auto& sect = found_sect->second;
+
+        std::string file;
+        do {
+            auto ifs = std::ifstream(sect.file_path, std::ios_base::binary | std::ios_base::in);
+            if (!ifs.is_open())
+                break;
+
+            ifs.seekg(0, std::ios_base::end);
+            auto pos = ifs.tellg();
+            ifs.seekg(0, std::ios_base::beg);
+            auto size = static_cast<size_t>(pos - ifs.tellg());
+
+            file.resize(size);
+            ifs.read(file.data(), static_cast<std::streamsize>(size));
+        } while (false);
+
+        auto sect_name = "[" + sect.section_name + "]";
+        auto sect_pos = file.find(sect_name);
+        if (sect_pos == std::string::npos) {
+            /* Write new section */
+            auto ofs = std::ofstream(sect.file_path, std::ios_base::binary | std::ios_base::out | std::ios_base::app);
+
+            ofs << "\n\n";
+
+            auto sect_content = sect_name + "\n" + sect.content();
+            ofs.write(sect_content.data(), static_cast<std::streamsize>(sect_content.size()));
+
+            return true;
+        }
+
+        sect_pos += sect_name.size();
+        while (sect_pos != file.size() && (file[sect_pos] == '\r' || file[sect_pos] == '\n'))
+            ++sect_pos;
+
+        auto sect_end = file.find('[', sect_pos);
+        if (sect_end == std::string::npos)
+            sect_end = file.size();
+
+        auto non_space_end = sect_end - 1;
+        while (non_space_end > sect_pos && space(file[non_space_end]))
+            --non_space_end;
+
+        sect_end = non_space_end + 1;
+
+        file.replace(sect_pos, sect_end - sect_pos, sect.content());
+
+        auto ofs = std::ofstream(sect.file_path, std::ios_base::binary | std::ios_base::out);
+        if (!ofs.is_open())
+            return false;
+
+        ofs.write(file.data(), static_cast<std::streamsize>(file.size()));
+        return true;
+    }
+
 private:
+    template <typename T>
+    static std::string str_cast(const T& value, const std::string& prev_value = "") {
+        if constexpr (std::is_same_v<T, bool>) {
+            if (prev_value == "on" || prev_value == "off")
+                return value ? "on" : "off";
+            else
+                return value ? "true" : "false";
+        }
+        else if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>)
+            return std::to_string(value);
+        else if constexpr (std::is_same_v<T, sf::Vector2f>) {
+            return std::to_string(value.x) + " " + std::to_string(value.y);
+        }
+        else if constexpr (StdVector<T> || StdArray<T>) {
+            std::string result;
+            for (auto& v : value) {
+                result += str_cast(v);
+                result.push_back(' ');
+            }
+            if (!result.empty() && result.back() == ' ')
+                result.pop_back();
+        }
+        else if constexpr (std::is_same_v<T, sf::Color>) {
+            std::stringstream ss;
+            ss << value;
+            return ss.str();
+        }
+        else if constexpr (std::is_same_v<T, std::string>) {
+            return value;
+        } else {
+            throw std::runtime_error("Unknown type");
+        }
+    }
+
     template <typename T>
     static T cast(const std::string& raw, const std::string& section, const std::string& key) {
         if constexpr (std::is_same_v<T, bool>)
@@ -197,7 +384,7 @@ private:
     }
 
 private:
-    std::map<std::string, std::map<std::string, std::string>> _sections;
+    std::map<std::string, cfg_section> _sections;
 };
 
 inline cfg_singleton& cfg() {
