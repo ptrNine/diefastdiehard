@@ -14,6 +14,37 @@ namespace details {
     };
 }
 
+struct skip_whitespace_outside_quotes {
+    enum { no_quote = 0, on_single, on_double } state = no_quote;
+
+    bool operator()(char c) {
+        switch (state) {
+        case no_quote:
+            switch (c) {
+            case '"': state = on_double; return true;
+            case '\'': state = on_single; return true;
+            case ' ':
+            case '\t': return true;
+            default: break;
+            }
+            break;
+        case on_single:
+            if (c == '\'') {
+                state = no_quote;
+                return true;
+            }
+            break;
+        case on_double:
+            if (c == '"') {
+                state = no_quote;
+                return true;
+            }
+            break;
+        }
+        return false;
+    }
+};
+
 template <typename I, size_t Ndelims>
 class split_iterator {
 public:
