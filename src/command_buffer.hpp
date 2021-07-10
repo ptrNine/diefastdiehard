@@ -25,14 +25,22 @@ public:
     command_buffer_singleton& operator=(command_buffer_singleton&&) = delete;
 
 private:
-    command_buffer_singleton() = default;
+    command_buffer_singleton() {
+        cmd_tree = std::make_unique<command_node>();
+    }
+
     ~command_buffer_singleton() = default;
 
 public:
-
-    using arg_view     = split_viewer<std::string::iterator, 2>;
-    using arg_iterator = split_iterator<std::string::iterator, 2>;
+    using arg_view     = split_when_viewer<std::string::iterator, skip_whitespace_outside_quotes>;
+    using arg_iterator = split_when_iterator<std::string::iterator, skip_whitespace_outside_quotes>;
     using args_t       = std::vector<arg_view>;
+
+    struct command_node {
+        std::string cmd;
+        std::map<std::string, std::unique_ptr<command_node>> subcmds = {};
+        std::function<void(arg_iterator, arg_iterator)>      handler = {};
+    };
 
     template <typename F>
     struct func_traits;
@@ -134,44 +142,142 @@ public:
 
     void run_handlers() {
         while (!commands.empty()) {
-            auto args = commands.front() / split(' ', '\t');
-            auto command_name = std::string((*args.begin()).begin(), (*args.begin()).end());
-
-            auto found = handlers.find(command_name);
-            if (found != handlers.end())
-                found->second(++args.begin(), args.end());
-            else
-                LOG_ERR("command '{}' not found", command_name);
-
+            auto args = commands.front() / split_when(skip_whitespace_outside_quotes());
+            execute(*cmd_tree, args.begin(), args.end(), "");
             commands.pop();
         }
     }
 
     template <typename F>
-    void add_handler(const std::string& command_name, F func) {
-        handlers.emplace(command_name, command_dispatcher(command_name, std::function{func}));
+    void add_handler(const std::string& command, F func) {
+        command_node* node = cmd_tree.get();
+
+        bool insert = true;
+        for (auto cmd_view : command / split_when(skip_whitespace_outside_quotes())) {
+            auto cmd = std::string(cmd_view.begin(), cmd_view.end());
+            auto [pos, insert_was]     = node->subcmds
+                       .emplace(cmd, std::make_unique<command_node>(command_node{cmd}));
+            insert = insert_was;
+            node = pos->second.get();
+        }
+        if (!insert) {
+            LOG_ERR("command '{}' already registered", command);
+            return;
+        }
+
+        if (node == cmd_tree.get()) {
+            LOG_WARN("attempt to register empty command");
+            return;
+        }
+
+        node->handler = command_dispatcher(command, std::function{func});
+    }
+
+    void remove_handler(const std::string& command) {
+        std::unique_ptr<command_node>* node = &cmd_tree;
+
+        for (auto cmd_view : command / split_when(skip_whitespace_outside_quotes())) {
+            auto cmd = std::string(cmd_view.begin(), cmd_view.end());
+            auto found = (*node)->subcmds.find(cmd);
+            if (found == (*node)->subcmds.end())
+                return;
+
+            node = &found->second;
+        }
+
+        node->release();
     }
 
     template <typename T, typename RetT, typename... ArgsT>
-    void add_handler(const std::string& command_name, RetT (T::*func)(ArgsT...), T* it) {
-        handlers.emplace(
-            command_name,
-            command_dispatcher(command_name, std::function{[it, func](ArgsT... args) mutable {
+    void add_handler(const std::string& command, RetT (T::*func)(ArgsT...), T* it) {
+        command_node* node = cmd_tree.get();
+
+        bool insert = true;
+        for (auto cmd_view : command / split_when(skip_whitespace_outside_quotes())) {
+            auto cmd = std::string(cmd_view.begin(), cmd_view.end());
+            auto [pos, insert_was]     = node->subcmds
+                       .emplace(cmd, std::make_unique<command_node>(command_node{cmd}));
+            insert = insert_was;
+            node = pos->second.get();
+        }
+        if (!insert) {
+            LOG_ERR("command '{}' already registered", command);
+            return;
+        }
+
+        if (node == cmd_tree.get()) {
+            LOG_WARN("attempt to register empty command");
+            return;
+        }
+
+        node->handler =
+            command_dispatcher(command, std::function{[it, func](ArgsT... args) mutable {
                                    return (it->*func)(args...);
-                               }}));
+                               }});
     }
 
     [[nodiscard]]
-    std::optional<std::string_view> find(const std::string& command_name) const {
-        auto found = handlers.lower_bound(command_name);
-        if (found != handlers.end() && found->first.starts_with(command_name))
-            return found->first;
+    std::optional<std::string> find(const std::string& command) const {
+        command_node* node = cmd_tree.get();
+        std::string path;
+
+        auto args = command / split_when(skip_whitespace_outside_quotes());
+        for (auto i = args.begin(); i != args.end();) {
+            auto next = std::next(i);
+            auto cmd_view = *i;
+            auto cmd = std::string(cmd_view.begin(), cmd_view.end());
+
+            if (next == args.end()) {
+                auto found = node->subcmds.lower_bound(cmd);
+                if (found != node->subcmds.end() && found->first.starts_with(cmd)) {\
+                    if (!path.empty())
+                        path.push_back(' ');
+                    return path + found->first;
+                }
+            }
+            else {
+                auto found = node->subcmds.find(cmd);
+                if (found != node->subcmds.end()) {
+                    if (!path.empty())
+                        path.push_back(' ');
+                    path += cmd;
+                    node = found->second.get();
+                } else
+                    return {};
+            }
+
+            i = next;
+        }
+
         return {};
     }
 
+    [[nodiscard]]
+    auto& get_command_tree() const {
+        return cmd_tree;
+    }
+
 private:
-    std::queue<std::string>                                                commands;
-    std::map<std::string, std::function<void(arg_iterator, arg_iterator)>> handlers;
+    void execute(command_node& node, arg_iterator begin, arg_iterator end, const std::string& cmd_path) {
+        auto next = std::next(begin);
+        auto subcmd_view = *begin;
+        auto subcmd = std::string(subcmd_view.begin(), subcmd_view.end());
+        auto found = node.subcmds.find(subcmd);
+
+        if (found != node.subcmds.end()) {
+            execute(*found->second, next, end, cmd_path + ' ' + subcmd);
+        }
+        else if (node.handler) {
+            node.handler(begin, end);
+        } else {
+            LOG_ERR("unknown command {}", cmd_path);
+        }
+
+    }
+
+private:
+    std::queue<std::string>       commands;
+    std::unique_ptr<command_node> cmd_tree;
 };
 
 inline command_buffer_singleton& command_buffer() {
