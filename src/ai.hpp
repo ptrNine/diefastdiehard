@@ -7,11 +7,13 @@
 #include <atomic>
 #include <memory>
 #include <thread>
+#include <optional>
 
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/System/Clock.hpp>
 
+#include "fixed_string.hpp"
 #include "types.hpp"
 #include "vec_math.hpp"
 
@@ -20,8 +22,7 @@ namespace dfdh {
 enum ai_difficulty {
     ai_easy = 0,
     ai_medium,
-    ai_hard,
-    ai_insane
+    ai_hard
 };
 
 class ai_mgr_singleton {
@@ -47,9 +48,10 @@ public:
     void provide_players(const C& c, F get_adapter) {
         std::lock_guard lock{mtx};
 
-        players.resize(c.size());
-        for (size_t i = 0; i < players.size(); ++i)
-            players[i] = get_adapter(static_cast<u32>(i), c[i]);
+        for (auto& [_, p] : c) {
+            auto insert_player = get_adapter(p);
+            players.insert_or_assign(insert_player.name, insert_player);
+        }
     }
 
     void provide_physic_sim(const sf::Vector2f& gravity, float time_speed, u32 last_rps) {
@@ -128,16 +130,16 @@ private:
 
     void worker_op();
 
-    void add_ai_operator(u32 id, class ai_operator* oprt) {
+    void add_ai_operator(const player_name_t& name, class ai_operator* oprt) {
         std::lock_guard lock{mtx};
 
-        _operators.emplace(id, oprt);
+        _operators.emplace(name, oprt);
     }
 
-    void remove_ai_operator(u32 id) {
+    void remove_ai_operator(const player_name_t& name) {
         std::lock_guard lock{mtx};
 
-        _operators.erase(id);
+        _operators.erase(name);
     }
 
 public:
@@ -147,7 +149,7 @@ public:
         sf::Vector2f  size;
         sf::Vector2f  vel;
         sf::Vector2f  barrel_pos;
-        u32           id;
+        player_name_t name;
         u32           available_jumps;
         float         x_accel;
         float         x_slowdown;
@@ -188,21 +190,21 @@ public:
     using plat_neighbours_t = std::vector<plat_dist_t>;
     using ai_plat_map_t     = std::vector<plat_neighbours_t>;
 
-    std::vector<player_t>   players;
-    std::vector<bullet_t>   bullets;
-    physic_sim_t            physic_sim;
-    std::vector<platform_t> platforms;
-    ai_plat_map_t           platform_map;
-    level_t                 level;
+    std::map<player_name_t, player_t> players;
+    std::vector<bullet_t>             bullets;
+    physic_sim_t                      physic_sim;
+    std::vector<platform_t>           platforms;
+    ai_plat_map_t                     platform_map;
+    level_t                           level;
 
     float platforms_bound_start_x;
     float platforms_bound_end_x;
 
-    std::map<u32, class ai_operator*> _operators;
-    std::atomic<bool>                 _work;
-    std::atomic<bool>                 _stopped;
-    timer                             _timer;
-    std::thread                       _thread;
+    std::map<player_name_t, class ai_operator*> _operators;
+    std::atomic<bool>                           _work;
+    std::atomic<bool>                           _stopped;
+    timer                                       _timer;
+    std::thread                                 _thread;
 
 private:
     mutable std::mutex mtx;
@@ -283,16 +285,17 @@ public:
         t_jump_down
     };
 
-    static std::shared_ptr<ai_operator> create(ai_difficulty difficulty, u32 player_id) {
-        return std::make_shared<ai_operator>(difficulty, player_id);
+    static std::shared_ptr<ai_operator> create(ai_difficulty difficulty, const player_name_t& player_name) {
+        return std::make_shared<ai_operator>(difficulty, player_name);
     }
 
-    ai_operator(ai_difficulty difficulty, u32 player_id): _difficulty(difficulty), _player_id(player_id) {
-        ai_mgr().add_ai_operator(player_id, this);
+    ai_operator(ai_difficulty difficulty, const player_name_t& player_name):
+        _difficulty(difficulty), _player_name(player_name) {
+        ai_mgr().add_ai_operator(player_name, this);
     }
 
     ~ai_operator() {
-        ai_mgr().remove_ai_operator(_player_id);
+        ai_mgr().remove_ai_operator(_player_name);
     }
 
     std::optional<task_t> consume_task() {
@@ -371,6 +374,10 @@ public:
         return _difficulty;
     }
 
+    void set_difficulty(ai_difficulty value) {
+        _difficulty = value;
+    }
+
     void shot_next_frame(float shot_delay = 0.f) {
         if (!_shot_next_frame) {
             _shot_delay = shot_delay;
@@ -393,8 +400,8 @@ public:
     }
 
     [[nodiscard]]
-    u32 player_id() const {
-        return _player_id;
+    const player_name_t player_name() const {
+        return _player_name;
     }
 
     [[nodiscard]]
@@ -417,11 +424,11 @@ public:
         return _last_stand_on_plat;
     }
 
-    static constexpr u32 no_target = std::numeric_limits<u32>::max();
+    static constexpr player_name_t no_target = player_name_t{};
 
 private:
     ai_difficulty      _difficulty;
-    u32                _player_id;
+    player_name_t      _player_name;
     std::queue<task_t> _tasks;
 
     float _shot_delay = 0.f;
@@ -434,8 +441,8 @@ private:
     mutable std::mutex mtx;
 
     timer                               _timer;
-    u32                                 _target_id          = no_target;
-    u32                                 _last_target_id     = no_target;
+    player_name_t                       _target_id;
+    player_name_t                       _last_target_id;
     float                               _jump_x_max         = 0.f;
     const ai_mgr_singleton::platform_t* _last_stand_on_plat = nullptr;
     platform_res_t                      _operated_platforms;
@@ -478,22 +485,22 @@ inline bool i_see_you(const ai_mgr_singleton::player_t& it, const ai_mgr_singlet
     return overlap(it.pos.y, it.pos.y + it.size.y, pl.pos.y, pl.pos.y + pl.size.y);
 }
 
-inline std::optional<std::pair<u32, sf::Vector2f>>
-easy_ai_find_nearest(const ai_mgr_singleton::player_t&              it,
-                     const std::vector<ai_mgr_singleton::player_t>& players,
-                     const ai_mgr_singleton::level_t&               level,
-                     ai_operator&                                   oper) {
-    static constexpr auto cmp = [](const std::pair<u32, sf::Vector2f>& lhs,
-                                   const std::pair<u32, sf::Vector2f>& rhs) {
+inline std::optional<std::pair<player_name_t, sf::Vector2f>>
+easy_ai_find_nearest(const ai_mgr_singleton::player_t&                          it,
+                     const std::map<player_name_t, ai_mgr_singleton::player_t>& players,
+                     const ai_mgr_singleton::level_t&                           level,
+                     ai_operator&                                               oper) {
+    static constexpr auto cmp = [](const std::pair<player_name_t, sf::Vector2f>& lhs,
+                                   const std::pair<player_name_t, sf::Vector2f>& rhs) {
         return magnitude2(lhs.second) < magnitude2(rhs.second);
     };
 
-    std::set<std::pair<u32, sf::Vector2f>, decltype(cmp)> nearests;
-    for (auto& pl : players) {
+    std::set<std::pair<player_name_t, sf::Vector2f>, decltype(cmp)> nearests;
+    for (auto& [_, pl] : players) {
         auto iseeyou = oper.difficulty() == ai_hard ? hard_i_see_you(it, pl, level, it.gun_dispersion)
                                                       : i_see_you(it, pl);
-        if (pl.id != it.id && iseeyou)
-            nearests.emplace(pl.id, pl.pos - it.pos);
+        if (pl.name != it.name && iseeyou)
+            nearests.emplace(pl.name, pl.pos - it.pos);
     }
 
     if (nearests.empty())
@@ -727,19 +734,19 @@ inline void dodge_ai(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
     }
 }
 
-inline void hard_shooter(const std::vector<ai_mgr_singleton::player_t>& players,
-                           const ai_mgr_singleton::player_t&              plr,
-                           ai_operator&                                   op,
-                           const ai_mgr_singleton::physic_sim_t&          physic_sim,
-                           const ai_mgr_singleton::level_t&               level,
-                           ai_move_spec&                                  ) {
+inline void hard_shooter(const std::map<player_name_t, ai_mgr_singleton::player_t>& players,
+                         const ai_mgr_singleton::player_t&                          plr,
+                         ai_operator&                                               op,
+                         const ai_mgr_singleton::physic_sim_t&                      physic_sim,
+                         const ai_mgr_singleton::level_t&                           level,
+                         ai_move_spec&) {
     if (op.is_on_shot())
         return;
 
     std::map<float, const ai_mgr_singleton::player_t*> targets;
 
-    for (auto& trg : players) {
-        if (trg.id == plr.id || trg.is_y_locked)
+    for (auto& [_, trg] : players) {
+        if (trg.name == plr.name || trg.is_y_locked)
             continue;
 
         if (trg.group != -1 && trg.group == plr.group)
@@ -935,19 +942,17 @@ inline void move_to_target(const std::vector<ai_mgr_singleton::platform_t>& plat
     */
 }
 
-inline std::optional<u32>
-find_closest_target(const std::vector<ai_mgr_singleton::player_t>& players,
-                    const ai_mgr_singleton::player_t&              player) {
-    std::optional<u32> closest;
+inline std::optional<player_name_t>
+find_closest_target(const std::map<player_name_t, ai_mgr_singleton::player_t>& players,
+                    const ai_mgr_singleton::player_t&                          player) {
+    std::optional<player_name_t> closest;
     float dist = std::numeric_limits<float>::max();
 
-    for (u32 i = 0; i < players.size(); ++i) {
-        auto& trg = players[i];
-
+    for (auto& [_, trg] : players) {
         if (&player != &trg && (trg.group == -1 || trg.group != player.group)) {
             auto cur_dist = magnitude2(trg.pos - player.pos);
             if (cur_dist < dist) {
-                closest = i;
+                closest = trg.name;
                 dist = cur_dist;
             }
         }
@@ -973,8 +978,8 @@ inline void stay_away_from_borders(const ai_mgr_singleton::player_t& player,
 }
 
 inline void ai_mgr_singleton::worker_op() {
-    for (auto& [player_id, oper_ptr] : _operators) {
-        auto& player = players[player_id];
+    for (auto& [player_name, oper_ptr] : _operators) {
+        auto& player = players[player_name];
 
         auto last_stand_on = oper_ptr->_operated_platforms.stand_on;
         oper_ptr->_operated_platforms = find_platform(platforms, player);

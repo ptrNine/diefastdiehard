@@ -18,94 +18,9 @@
 #include "weapon.hpp"
 #include "avg_counter.hpp"
 #include "player_configurator.hpp"
+#include "player_controller.hpp"
 
 namespace dfdh {
-
-namespace details {
-    class player_id_getter {
-    public:
-        static player_id_getter& instance() {
-            static player_id_getter inst;
-            return inst;
-        }
-
-        [[nodiscard]]
-        u32 get() {
-            return counter++;
-        }
-
-    private:
-        u32 counter = 0;
-    };
-
-    player_id_getter& player_id() {
-        return player_id_getter::instance();
-    }
-}
-
-struct control_keys {
-    static std::string path(int id) {
-        return fs::current_path() / ("data/settings/player_controls" + std::to_string(id) + ".cfg");
-    }
-
-    control_keys(int id = 0): _id(id) {
-        std::string section = "player_controls";
-        if (_id != 0)
-            section += std::to_string(_id);
-
-        if (!cfg().sections().contains(section)) {
-            try {
-                cfg().parse(path(_id));
-            } catch (...) {
-                *this = control_keys(true, _id);
-                save();
-                cfg().parse(path(_id));
-            }
-        }
-
-        up      = cfg().get_req<int>(section, "up");
-        down    = cfg().get_req<int>(section, "down");
-        left    = cfg().get_req<int>(section, "left");
-        right   = cfg().get_req<int>(section, "right");
-        shot    = cfg().get_req<int>(section, "shot");
-        grenade = cfg().get_req<int>(section, "grenade");
-    }
-
-    control_keys(bool, int id): _id(id) {
-        if (_id == 0) {
-            up      = sf::Keyboard::Up;
-            down    = sf::Keyboard::Down;
-            left    = sf::Keyboard::Left;
-            right   = sf::Keyboard::Right;
-            shot    = sf::Keyboard::Comma;
-            grenade = sf::Keyboard::Dash;
-        } else if (_id == 1) {
-            up = sf::Keyboard::W;
-            down = sf::Keyboard::S;
-            left = sf::Keyboard::A;
-            right = sf::Keyboard::D;
-            shot = sf::Keyboard::Y;
-            grenade = sf::Keyboard::U;
-        }
-    }
-
-    void save() {
-        auto ofs = std::ofstream(path(_id));
-        if (!ofs.is_open())
-            throw std::runtime_error("Can't write " + path(_id));
-
-        ofs << "[player_controls" << (_id == 0 ? std::string("]\n") : std::to_string(_id) + "]\n") <<
-               "up      = " << up << "\n"
-               "down    = " << down << "\n"
-               "left    = " << left << "\n"
-               "right   = " << right << "\n"
-               "shot    = " << shot << "\n"
-               "grenade = " << grenade << std::endl;
-    }
-
-    int up, down, left, right, shot, grenade;
-    int _id;
-};
 
 class player {
 public:
@@ -138,15 +53,16 @@ public:
         leg.setOrigin(size.x * 0.2f, size.x * 0.35f);
     }
 
-    static std::shared_ptr<player> create(u32 id, physic_simulation& sim, const sf::Vector2f& size) {
-        return std::make_shared<player>(id, sim, size);
+    static std::shared_ptr<player> create(const player_name_t& name, physic_simulation& sim, const sf::Vector2f& size) {
+        return std::make_shared<player>(name, sim, size);
     }
 
     static std::shared_ptr<player> create(physic_simulation& sim, const sf::Vector2f& size) {
-        return std::make_shared<player>(details::player_id().get(), sim, size);
+        return std::make_shared<player>(player_name_t{}, sim, size);
     }
 
-    player(u32 id, physic_simulation& sim, const sf::Vector2f& size): _size(size), _id(id) {
+    player(const player_name_t& name, physic_simulation& sim, const sf::Vector2f& size):
+        _name(name), _size(size) {
         _collision_box = physic_group::create();
         _collision_box->append(physic_line::create({0.f, 0.f}, {0.f, -size.y}));
         _collision_box->append(physic_line::create({0.f, -size.y}, {size.x, 0.f}));
@@ -168,7 +84,7 @@ public:
         jumps_left = max_jumps;
     }
 
-    player(physic_simulation& sim, const sf::Vector2f& size): player(details::player_id().get(), sim, size) {}
+    player(physic_simulation& sim, const sf::Vector2f& size): player({}, sim, size) {}
 
     ~player() {
         _collision_box->delete_later();
@@ -228,7 +144,7 @@ public:
             _collision_box->unlock_y();
     }
 
-    void update_input(const control_keys& ks, sf::Event evt) {
+    void update_input(const player_controller& ks, sf::Event evt) {
         if (evt.type == sf::Event::KeyPressed) {
             auto c = evt.key.code;
             if (c == ks.up && !_jump_pressed) {
@@ -439,8 +355,11 @@ public:
         target.display();
     }
 
-    void draw(sf::RenderWindow& wnd) {
+    void draw(sf::RenderWindow& wnd, float interpolation_factor, float timestep) {
         auto pos = _collision_box->get_position();
+        auto next_pos = pos + _collision_box->get_velocity() * timestep;
+        pos = lerp(pos, next_pos, interpolation_factor);
+
         auto adj = sprite_size_adjust_factors();
         auto dif = sf::Vector2f((_size.x * adj.x - _size.x) * 0.5f, _size.y * adj.y);
 
@@ -470,8 +389,15 @@ public:
         wnd.draw(_face);
         wnd.draw(_hat);
 
-        wnd.draw(_left_leg);
-        wnd.draw(_right_leg);
+        static constexpr auto draw_leg_lerp = [](auto&& wnd, float timestep, float factor, auto&& leg, const sf::Vector2f& vel) {
+            auto pos = leg.getPosition();
+            auto next_pos = pos + vel * timestep;
+            leg.setPosition(lerp(pos, next_pos, factor));
+            wnd.draw(leg);
+            leg.setPosition(pos);
+        };
+        draw_leg_lerp(wnd, timestep, interpolation_factor, _left_leg, _collision_box->get_velocity());
+        draw_leg_lerp(wnd, timestep, interpolation_factor, _right_leg, _collision_box->get_velocity());
 
         if (_pistol) {
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
@@ -570,16 +496,12 @@ public:
         return pos->second;
     }
 
-    void set_from_config(u32 player_id) {
-        player_configurator pc{player_id};
+    void set_from_config() {
+        player_configurator pc{_name};
         set_body(pc.body_texture_path(), pc.body_color);
         set_face(pc.face_texture_path());
         setup_pistol(pc.pistol);
         tracer_color(pc.tracer_color);
-    }
-
-    void set_from_config() {
-        set_from_config(_id);
     }
 
 private:
@@ -638,6 +560,8 @@ private:
     }
 
 private:
+    player_name_t _name;
+
     std::shared_ptr<physic_group> _collision_box;
     sf::Sprite  _body;
     sf::Sprite  _face;
@@ -673,8 +597,6 @@ private:
     u32 jumps_left = 1;
     u32 max_jumps = 1;
 
-    u32  _id;
-
     u32 _deaths = 0;
     u64 _evt_counter = 0;
 
@@ -695,6 +617,11 @@ private:
 
 public:
     u64 last_state_packet_id = 0;
+
+    [[nodiscard]]
+    const player_name_t& name() const {
+        return _name;
+    }
 
     [[nodiscard]]
     sf::Vector2f barrel_pos() const {
@@ -739,11 +666,6 @@ public:
     void reset_accel_f(bool left_only) {
         _accel_f = 0.f;
         _accel_left_reset = left_only;
-    }
-
-    [[nodiscard]]
-    u32 id() const {
-        return _id;
     }
 
     void smooth_velocity_set(const sf::Vector2f& value, float smooth_factor = 0.25f) {

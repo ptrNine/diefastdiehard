@@ -259,12 +259,17 @@ public:
             if (_command_len != 0 && _command_edit[size_t(_command_len - 1)] == '\t') {
                 --_command_len;
                 auto command_part = std::string(_command_edit.data(), size_t(_command_len));
+
                 auto found = command_buffer().find(command_part);
                 if (found) {
                     if (command_part == *found) {
-                        if (!_last_help || *_last_help != command_part) {
-                            command_buffer().push("help " + command_part);
-                            _last_help = command_part;
+                        auto args     = command_part / split_when(skip_whitespace_outside_quotes());
+                        auto cmd_view = (*args.begin());
+                        auto cmd      = std::string(cmd_view.begin(), cmd_view.end());
+
+                        if (!_last_help || *_last_help != cmd) {
+                            command_buffer().push("help '" + cmd + "'");
+                            _last_help = cmd;
                         }
                     }
                     else {

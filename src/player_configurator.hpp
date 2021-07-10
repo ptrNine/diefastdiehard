@@ -3,13 +3,14 @@
 #include <SFML/Graphics/Color.hpp>
 #include <filesystem>
 
+#include "fixed_string.hpp"
 #include "log.hpp"
 #include "config.hpp"
 
 namespace dfdh {
 class player_configurator {
 public:
-    player_configurator(u32 iplayer_id): player_id(iplayer_id) {
+    player_configurator(const player_name_t& player_name): name(player_name) {
         read();
     }
 
@@ -18,52 +19,35 @@ public:
             write();
     }
 
-    static bool write_default_config(const std::string& cfg_path, u32 player_id) {
-        auto os = std::ofstream(cfg_path, std::ios_base::out);
-        if (!os.is_open()) {
-            LOG_ERR("Can't write config {}", cfg_path);
-            return false;
-        }
-        os << "[player_settings" << std::to_string(player_id) << "]\n";
-        return true;
-    }
-
     void read() {
-        auto player_id_str = std::to_string(player_id);
-        auto cfg_path      = "data/settings/player_settings" + player_id_str + ".cfg";
-        auto sect          = "player_settings" + player_id_str;
+        auto cfgpath = "data/settings/players_settings.cfg"s;
+        cfg().try_parse(cfgpath);
 
-        if (!cfg().try_parse(cfg_path) || !cfg().sections().contains(sect)) {
-            LOG_WARN("Can't parse config {} (will be created)", cfg_path);
-            if (!write_default_config(cfg_path, player_id))
-                return;
-            else
-                cfg().try_parse(cfg_path);
-        }
+        auto sect = "player_settings_" + std::string(name);
 
-        pistol       = cfg().get_default<std::string>(sect, "pistol", "wpn_glk17");
-        face_id      = cfg().get_default<u32>(sect, "face_id", 0);
-        body_id      = cfg().get_default<u32>(sect, "body_id", 0);
-        body_color   = cfg().get_default<sf::Color>(sect, "body_color", sf::Color(255, 255, 255));
-        tracer_color = cfg().get_default<sf::Color>(sect, "tracer_color", sf::Color(255, 255, 255));
+        pistol       = cfg().get_or_write_default<std::string>(sect, "pistol", "wpn_glk17", cfgpath);
+        face_id      = cfg().get_or_write_default<u32>(sect, "face_id", 0, cfgpath);
+        body_id      = cfg().get_or_write_default<u32>(sect, "body_id", 0, cfgpath);
+        body_color   = cfg().get_or_write_default<sf::Color>(sect, "body_color", sf::Color(255, 255, 255), cfgpath);
+        tracer_color = cfg().get_or_write_default<sf::Color>(sect, "tracer_color", sf::Color(255, 255, 255), cfgpath);
+
+        cfg().try_refresh_file(sect);
     }
 
     void write() {
-        auto player_id_str = std::to_string(player_id);
-        auto cfg_path      = "data/settings/player_settings" + player_id_str + ".cfg";
-        auto os            = std::ofstream(cfg_path, std::ios_base::out);
+        auto  sect = "player_settings_" + std::string(name);
+        auto& s    = cfg()
+                      .sections()
+                      .emplace(sect, cfg_section(sect, "data/settings/players_settings.cfg"))
+                      .first->second;
 
-        if (!os.is_open()) {
-            LOG_ERR("Can't write config {}", cfg_path);
-            return;
-        }
+        s.sects["pistol"] = pistol;
+        s.sects["face_id"] = std::to_string(face_id);
+        s.sects["body_id"] = std::to_string(body_id);
+        s.sects["body_color"] = format("{}", body_color);
+        s.sects["tracer_color"] = format("{}", tracer_color);
 
-        os << "[player_settings" << player_id_str << "]\n";
-        os << "pistol       = " << pistol << '\n';
-        os << "face_id      = " << face_id << '\n';
-        os << "body_id      = " << body_id << '\n';
-        os << "body_color   = " << body_color << '\n';
-        os << "tracer_color = " << tracer_color << '\n';
+        cfg().try_refresh_file(sect);
     }
 
     [[nodiscard]]
@@ -136,12 +120,12 @@ public:
     }
 
 public:
-    u32         player_id    = 0;
-    std::string pistol       = "wpn_glk17";
-    u32         face_id      = 0;
-    u32         body_id      = 0;
-    sf::Color   body_color   = {255, 255, 255};
-    sf::Color   tracer_color = {255, 255, 255};
+    player_name_t name         = "";
+    std::string   pistol       = "wpn_glk17";
+    u32           face_id      = 0;
+    u32           body_id      = 0;
+    sf::Color     body_color   = {255, 255, 255};
+    sf::Color     tracer_color = {255, 255, 255};
 
     bool write_on_delete = true;
 };

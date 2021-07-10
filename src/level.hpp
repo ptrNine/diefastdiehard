@@ -22,16 +22,24 @@ public:
         sf::Sprite      pl;
     };
 
-    static std::shared_ptr<level> create(const std::string& section, physic_simulation& sim) {
-        return std::make_shared<level>(section, sim);
+    static std::shared_ptr<level> create(const std::string& section) {
+        return std::make_shared<level>(section);
     }
 
-    level(const std::string& section, physic_simulation& sim) {
-        _name = cfg().get_req<std::string>(section, "name");
-        sim.gravity(cfg().get_req<sf::Vector2f>(section, "gravity"));
-        _platform_sz = cfg().get_req<float>(section, "platform_height");
-        _view_size = cfg().get_req<sf::Vector2f>(section, "view_size");
-        _level_size = cfg().get_req<sf::Vector2f>(section, "level_size");
+    static std::vector<std::string> list_available_levels() {
+        std::vector<std::string> res;
+        for (auto& [sect, _] : cfg().sections())
+            if (sect.starts_with("lvl_"))
+                res.push_back(sect);
+        return res;
+    }
+
+    void cfg_reload() {
+        _name = cfg().get_req<std::string>(_section, "name");
+        _gravity = cfg().get_req<sf::Vector2f>(_section, "gravity");
+        _platform_sz = cfg().get_req<float>(_section, "platform_height");
+        _view_size = cfg().get_req<sf::Vector2f>(_section, "view_size");
+        _level_size = cfg().get_req<sf::Vector2f>(_section, "level_size");
 
         auto txtr_path = fs::current_path() / "data/textures/" / _name;
         _end_platform_txtr.loadFromFile(txtr_path / "end_platform.png");
@@ -53,14 +61,14 @@ public:
 
         _background.setPosition(0.f, 0.f);
 
-
+        _platforms.clear();
         u32 pl = 0;
-        while (auto pl_data = cfg().get<std::array<float, 3>>(section, "pl" + std::to_string(pl))) {
+        while (auto pl_data = cfg().get<std::array<float, 3>>(_section, "pl" + std::to_string(pl))) {
             _platforms.push_back(
                 platform_t{physic_platform({(*pl_data)[0], (*pl_data)[1]}, (*pl_data)[2]),
                 _end_platform, _end_platform, _platform});
             auto& p = _platforms.back();
-            sim.add_platform(p.ph);
+            //sim.add_platform(p.ph);
 
             p.start_pl.setPosition(p.ph.get_position());
 
@@ -74,6 +82,18 @@ public:
 
             ++pl;
         }
+
+    }
+
+    level(std::string section): _section(std::move(section)) {
+        cfg_reload();
+    }
+
+    void setup_to(physic_simulation& sim) {
+        sim.gravity(_gravity);
+        sim.remove_all_platforms();
+        for (auto& pl : _platforms)
+            sim.add_platform(pl.ph);
     }
 
     void draw(sf::RenderWindow& wnd) {
@@ -92,6 +112,8 @@ public:
     }
 
 private:
+    std::string _section;
+
     sf::Sprite  _end_platform;
     sf::Sprite  _platform;
     sf::Sprite  _background;
@@ -100,9 +122,10 @@ private:
     sf::Texture _platform_txtr;
     sf::Texture _background_txtr;
 
-    float _platform_sz;
+    float _platform_sz = 10.f;
     sf::Vector2f _view_size;
     sf::Vector2f _level_size;
+    sf::Vector2f _gravity;
 
     std::vector<platform_t> _platforms;
 
@@ -117,6 +140,11 @@ public:
     [[nodiscard]]
     const sf::Vector2f& view_size() const {
         return _view_size;
+    }
+
+    [[nodiscard]]
+    const std::string& section_name() const {
+        return _section;
     }
 };
 

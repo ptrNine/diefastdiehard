@@ -156,7 +156,7 @@ public:
         */
     }
 
-    void draw(sf::RenderWindow& wnd) {
+    void draw(sf::RenderWindow& wnd, float interpolation_factor, float timestep) {
         for (auto i = _bullets.begin(); i != _bullets.end();) {
             if (i->physic()->ready_delete_later()) {
                 _bullets.erase(i++);
@@ -167,6 +167,9 @@ public:
                 i->physic()->delete_later();
 
             auto pos = i->physic()->get_position();
+            auto next_pos = pos + i->physic()->get_velocity() * timestep;
+            pos = lerp(pos, next_pos, interpolation_factor);
+
             auto dir = i->physic()->get_direction();
             auto angle = std::atan2(dir.y, dir.x);
 

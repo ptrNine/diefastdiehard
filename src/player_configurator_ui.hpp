@@ -11,9 +11,9 @@ namespace dfdh {
 
 class player_configurator_ui {
 public:
-    player_configurator_ui(u32 player_id):
-        pconf(player_id),
-        wnd_title("configure player " + std::to_string(player_id)),
+    player_configurator_ui(const player_name_t& name):
+        pconf(name),
+        wnd_title("configure player " + std::string(name)),
         player_size(player::default_sprite_size() * 1.5f) {
 
         reload();

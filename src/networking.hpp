@@ -146,12 +146,12 @@ struct a_srv_ping {
 struct player_states_t {
     auto operator<=>(const player_states_t&) const = default;
 
-    bool mov_left;
-    bool mov_right;
-    bool on_shot;
-    bool jump;
-    bool jump_down;
-    bool lock_y;
+    bool mov_left  = false;
+    bool mov_right = false;
+    bool on_shot   = false;
+    bool jump      = false;
+    bool jump_down = false;
+    bool lock_y    = false;
 
     u8 _dummy0[2] = {0};
 };
@@ -168,7 +168,7 @@ struct a_cli_player_sync {
 
 struct a_srv_player_states {
     player_states_t st;
-    u64             player_id;
+    player_name_t   name;
     u64             evt_counter;
     sf::Vector2f    position;
     sf::Vector2f    velocity;
@@ -178,7 +178,7 @@ struct a_srv_player_states {
 };
 
 struct a_srv_player_physic_sync {
-    u64             player_id;
+    player_name_t   name;
     sf::Vector2f    position;
     sf::Vector2f    velocity;
     player_states_t st;
@@ -207,7 +207,7 @@ struct a_spawn_bullet {
         sf::Vector2f _position;
         sf::Vector2f _velocity;
     };
-    u64                        player_id;
+    player_name_t              name;
     float                      mass;
     std::vector<bullet_data_t> bullets;
 
@@ -278,7 +278,7 @@ packet_t create_packet(const a_spawn_bullet& act, u32 transcontrol = 0, u64* id 
     u64 packet_id = next_packet_id();
 
     u64 sz = act.bullets.size();
-    packet.append(act.player_id, act.mass);
+    packet.append(act.name, act.mass);
     packet.append(sz);
     packet.append_raw(reinterpret_cast<const u8*>(act.bullets.data()), // NOLINT
                       sizeof(act.bullets[0]) * act.bullets.size());
@@ -367,8 +367,8 @@ template <>
 a_spawn_bullet action_cast(const packet_t& packet) {
     a_spawn_bullet act;
     size_t offset = 0;
-    std::memcpy(&act.player_id, packet.data() + offset, sizeof(act.player_id));
-    offset += sizeof(act.player_id);
+    std::memcpy(&act.name, packet.data() + offset, sizeof(act.name));
+    offset += sizeof(act.name);
     std::memcpy(&act.mass, packet.data() + offset, sizeof(act.mass));
     offset += sizeof(act.mass);
 
@@ -674,17 +674,24 @@ private:
 template <typename T>
 concept PlayerActs = AnyOfType<T, a_cli_player_params, a_cli_player_sync, a_spawn_bullet>;
 
-class server_singleton {
+class server_t {
 public:
-    static server_singleton& instance() {
-        static server_singleton inst;
-        return inst;
+    static std::unique_ptr<server_t> create(u16 port = SERVER_DEFAULT_PORT) {
+        return std::make_unique<server_t>(port);
     }
 
+    server_t(u16 port = SERVER_DEFAULT_PORT): sock(port) {
+        LOG("Server started at {}:{}",
+            sf::IpAddress::getLocalAddress().toString(),
+            SERVER_DEFAULT_PORT);
+    }
+
+    ~server_t() = default;
+
     template <typename T, typename F = bool>
-    void send(u64 player_id, const T& act, F transcontrol_handler = false) {
-        auto found = _player_id_to_ip.find(player_id);
-        if (found == _player_id_to_ip.end())
+    void send(const player_name_t& player_name, const T& act, F transcontrol_handler = false) {
+        auto found = _player_name_to_ip.find(player_name);
+        if (found == _player_name_to_ip.end())
             return;
 
         sock.send(found->second.ip, found->second.port, act, transcontrol_handler);
@@ -692,7 +699,7 @@ public:
 
     template <typename T>
     void send_to_all(const T& act) {
-        for (auto& [_, address] : _player_id_to_ip)
+        for (auto& [_, address] : _player_name_to_ip)
             sock.send(address.ip, address.port, act);
     }
 
@@ -706,12 +713,12 @@ public:
         }
 
         /* TODO: create player slot */
-        u32 player_id = 1;
+        player_name_t player_name/* = "adsdasdasd"*/;
 
-        _clients.insert_or_assign(ip.toInteger(), client_t{player_id, port});
-        _player_id_to_ip.insert_or_assign(player_id, client_t_ip{ip, port});
+        _clients.insert_or_assign(ip.toInteger(), client_t{player_name, port});
+        _player_name_to_ip.insert_or_assign(player_name, client_t_ip{ip, port});
 
-        player_update_callback(player_id, packet_id, act);
+        player_update_callback(player_name, packet_id, act);
     }
 
     u16 get_ping_packet_id() {
@@ -736,7 +743,7 @@ public:
         auto client_info = get_client_info(ip);
 
         if (client_info)
-            player_update_callback(client_info->player_id, packet_id, act);
+            player_update_callback(client_info->player_name, packet_id, act);
     }
 
     template <typename T, typename F> requires (!PlayerActs<T>)
@@ -745,9 +752,9 @@ public:
     }
 
     struct client_t {
-        u32 player_id;
-        u16 port;
-        u16 _last_ping_id = 0;
+        player_name_t     player_name;
+        u16               port;
+        u16               _last_ping_id = 0;
         avg_counter<long> ping{5, 0, 0};
 
         std::chrono::steady_clock::time_point _last_send = std::chrono::steady_clock::now();
@@ -779,36 +786,24 @@ public:
             if (now - client._last_send > 100ms && client._last_ping_id == 0) {
                 client._last_send = now;
                 client._last_ping_id = get_ping_packet_id();
-                send(client.player_id,
+                send(client.player_name,
                      a_srv_ping{client._last_ping_id, static_cast<u16>(client.ping.value())});
             }
         }
     }
 
-    auto get_ping(u32 player_id) {
-        return _clients.at(_player_id_to_ip.at(player_id).ip.toInteger()).ping.value();
+    auto get_ping(const player_name_t& player_name) {
+        return _clients.at(_player_name_to_ip.at(player_name).ip.toInteger()).ping.value();
     }
-
-private:
-    server_singleton(): sock(SERVER_DEFAULT_PORT) {
-        LOG("Server started at {}:{}",
-            sf::IpAddress::getLocalAddress().toString(),
-            SERVER_DEFAULT_PORT);
-    }
-    ~server_singleton() = default;
 
 private:
     act_socket sock;
 
-    std::map<u32, client_t>    _clients;
-    std::map<u64, client_t_ip> _player_id_to_ip;
+    std::map<u32, client_t>              _clients;
+    std::map<player_name_t, client_t_ip> _player_name_to_ip;
 
     u16 _ping_id = 0;
 };
 
-
-inline server_singleton& server() {
-    return server_singleton::instance();
-}
 }
 
