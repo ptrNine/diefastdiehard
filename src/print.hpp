@@ -4,6 +4,7 @@
 #include <sstream>
 #include <tuple>
 #include <optional>
+#include <chrono>
 
 #include "types.hpp"
 
@@ -108,14 +109,14 @@ struct printer<T> {
         }
     }
 
-    void operator()(std::ostream& os, const T& v) {
+    void operator()(std::ostream& os, const T& v) const {
         print(os, v, std::make_index_sequence<std::tuple_size_v<T>>());
     }
 };
 
 template <typename T>
 struct printer<std::optional<T>> {
-    void operator()(std::ostream& os, const std::optional<T>& v) {
+    void operator()(std::ostream& os, const std::optional<T>& v) const {
         print_any(os, v ? *v : "(null)");
     }
 };
@@ -196,5 +197,30 @@ std::string format(std::string_view format, const Ts&... args) {
     fprintf(ss, format, args...);
     return ss.str();
 }
+
+template <typename Rep, typename Period>
+struct printer<std::chrono::duration<Rep, Period>> {
+    inline static std::string nanotime_str(std::chrono::nanoseconds time_nano) {
+        auto time = time_nano.count();
+
+        if (time < 1000LL)
+            return format("{}ns", time);
+        else if (time < 1000000LL)
+            return format("{}us", time / 1000LL);
+        else if (time < 1000000000LL)
+            return format("{}ms", time / 1000000LL);
+        else if (time < 1000000000LL * 60)
+            return format("{}s", time / 1000000000LL);
+        else if (time < 1000000000LL * 60 * 60)
+            return format("{}minutes", time / (1000000000LL * 60));
+        else
+            return format("{}hours", time / (1000000000LL * 60 * 60));
+    }
+
+
+    void operator()(std::ostream& os, const std::chrono::duration<Rep, Period>& dur) const {
+        os << nanotime_str(std::chrono::duration_cast<std::chrono::nanoseconds>(dur));
+    }
+};
 
 } // namespace dfdh
