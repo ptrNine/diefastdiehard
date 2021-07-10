@@ -76,10 +76,14 @@ public:
         float min_timestep = 1.f / float(rps);
         _last_speed = speed;
         _last_rps   = rps;
-        if (_timer.getElapsedTime().asSeconds() > min_timestep) {
-            _timer.restart();
+        _update_accum += _timer.getElapsedTime().asSeconds();
+        _timer.restart();
+        if (_update_accum > min_timestep) {
+            _update_accum -= min_timestep;
             update_immediate(min_timestep * speed);
         }
+
+        _interpolation_factor = _update_accum / min_timestep;
     }
 
     void update_immediate(float timestep) {
@@ -316,6 +320,10 @@ public:
         _platforms.push_back(platform);
     }
 
+    void remove_all_platforms() {
+        _platforms.clear();
+    }
+
     template <typename F>
     void add_collide_callback(const std::string& name, F&& callback) {
         add_collide_callback_internal(name, std::function{callback});
@@ -388,6 +396,11 @@ public:
         return _current_update_time;
     }
 
+    [[nodiscard]]
+    float interpolation_factor() const {
+        return _interpolation_factor;
+    }
+
 private:
     template <CollideCallbackArg T1, CollideCallbackArg T2>
     void add_collide_callback_internal(const std::string&                            name,
@@ -415,13 +428,15 @@ private:
     std::vector<physic_platform>            _platforms;
     std::set<std::shared_ptr<physic_point>> _pointonly;
     std::set<std::shared_ptr<physic_point>> _lineonly;
-    u32 _steps = 20;
-    float _collide_dist = 0.001f;
-    sf::Vector2f _gravity = {0.f, 9.8f};
-    sf::Clock _timer;
-    float     _last_timestep = 1.f/60.f;
-    u32       _last_rps      = 60;
-    float     _last_speed    = 1.f;
+    u32                                     _steps        = 20;
+    float                                   _collide_dist = 0.001f;
+    sf::Vector2f                            _gravity      = {0.f, 9.8f};
+    sf::Clock                               _timer;
+    float                                   _last_timestep        = 1.f / 60.f;
+    u32                                     _last_rps             = 60;
+    float                                   _last_speed           = 1.f;
+    float                                   _update_accum         = 0.f;
+    float                                   _interpolation_factor = 0.f;
 
     std::chrono::steady_clock::time_point _current_update_time = std::chrono::steady_clock::now();
 
