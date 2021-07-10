@@ -4,6 +4,7 @@
 #include <string>
 
 #include "types.hpp"
+#include "print.hpp"
 
 namespace dfdh {
 
@@ -16,10 +17,11 @@ class fixed_str_t {
 public:
     static constexpr size_t max_size_w_nt = aligned_size(S + 1);
 
-    fixed_str_t(): _len(0) {}
+    constexpr fixed_str_t() = default;
+    constexpr ~fixed_str_t() = default;
 
     template <size_t SS>
-    fixed_str_t(const C(&str)[SS]): _len(std::min(SS - 1, max_size_w_nt - 1)) {
+    constexpr fixed_str_t(const C(&str)[SS]): _len(std::min(SS - 1, max_size_w_nt - 1)) {
         std::memcpy(_data.data(), str, _len - 1);
         _data[_len - 1] = C('\0');
     }
@@ -34,7 +36,7 @@ public:
         _data[_len] = C('\0');
     }
 
-    fixed_str_t(std::basic_string_view<C> str): _len(std::min(str.size(), max_size_w_nt - 1)) {
+    constexpr fixed_str_t(std::basic_string_view<C> str): _len(std::min(str.size(), max_size_w_nt - 1)) {
         std::memcpy(_data.data(), str.data(), _len);
         _data[_len] = C('\0');
     }
@@ -57,12 +59,17 @@ public:
 
     [[nodiscard]]
     bool operator==(const fixed_str_t& str) const {
-        return _len == str._len && std::memcmp(_data.data(), str._data, _len) == 0;
+        return _len == str._len && std::memcmp(_data.data(), str._data.data(), _len) == 0;
     }
 
     [[nodiscard]]
     bool operator==(std::string_view str) const {
         return _len == str.size() && std::memcmp(_data.data(), str.data(), _len) == 0;
+    }
+
+    [[nodiscard]]
+    bool operator<(const fixed_str_t& str) const {
+        return std::string_view(*this) < std::string_view(str);
     }
 
     [[nodiscard]]
@@ -81,11 +88,20 @@ public:
     }
 
 private:
-    u64                          _len;
-    std::array<C, max_size_w_nt> _data;
+    u64                          _len = {};
+    std::array<C, max_size_w_nt> _data = {};
 };
 
 template <size_t S>
 using fixed_str = fixed_str_t<char, S>;
+
+using player_name_t = fixed_str<23>;
+
+template <size_t S>
+struct printer<fixed_str<S>> {
+    void operator()(std::ostream& os, const fixed_str<S>& str) const {
+        os << std::string_view(str);
+    }
+};
 
 }
