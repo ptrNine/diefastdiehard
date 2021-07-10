@@ -59,8 +59,8 @@ public:
 
         for (auto& [sect_name, sect] : cfg().sections()) {
             if (sect_name.starts_with("wpn_")) {
-                auto wpn_class = sect.find("class");
-                if (wpn_class != sect.end() && wpn_class->second == "pistol")
+                auto wpn_class = sect.sects.find("class");
+                if (wpn_class != sect.sects.end() && wpn_class->second == "pistol")
                     result.push_back(sect_name);
             }
         }
@@ -380,6 +380,7 @@ public:
             _shot_flash.setOrigin({float(txtr.getSize().x) * 0.5f, float(txtr.getSize().y) * 0.5f});
             _shot_flash.setScale(0.55f, 0.55f);
             _shot_flash.setColor({255, 255, 255, 0});
+            _shot_flash_intensity = 0.f;
         }
     }
 
@@ -506,7 +507,11 @@ public:
         if (auto c = _shot_flash.getColor(); _wpn->_shot_flash && c.a != 0) {
             _shot_flash.setPosition(position + shot_displacement(sf::Vector2f(left_dir ? -1.f : 1.f, 0.f)));
             wnd.draw(_shot_flash);
-            c.a /= 2;
+            _shot_flash_intensity -= _shot_flash_timer.restart().asSeconds() * 18.f;
+            if (_shot_flash_intensity < 0.f)
+                _shot_flash_intensity = 0.f;
+
+            c.a = static_cast<u8>(_shot_flash_intensity * 255.f);
             _shot_flash.setColor(c);
         }
 
@@ -741,6 +746,8 @@ private:
         if (_wpn->_shot_flash) {
             _shot_flash.setRotation(rand_float(0.f, 360.f));
             _shot_flash.setColor({255, 255, 255, 255});
+            _shot_flash_intensity = 1.f;
+            _shot_flash_timer.restart();
             _shot_flash.setPosition(pos);
         }
 
@@ -769,6 +776,8 @@ private:
     sf::Color                  _last_tracer_color = {255, 255, 255};
 
     sf::Sprite                 _shot_flash;
+    sf::Clock                  _shot_flash_timer;
+    float                      _shot_flash_intensity = 0.f;
 
     std::list<shell_data>      _active_shells;
     bool                       _shell_ejected = false;
