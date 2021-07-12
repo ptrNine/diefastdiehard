@@ -4,8 +4,24 @@
 #include <cstring>
 
 #include "types.hpp"
+#include "log.hpp"
 
 namespace dfdh {
+
+inline uint64_t fnv1a64(const u8* ptr, size_t size) {
+    uint64_t hash = 0xcbf29ce484222325;
+
+    while (size--)
+        hash = (hash ^ *ptr++) * 0x100000001b3;
+
+    return hash;
+}
+
+inline u64 next_packet_id() {
+    static u64 id = 0;
+    return id++;
+}
+
 class packet_t {
 public:
     template <typename... Ts>
@@ -65,4 +81,62 @@ public:
 private:
     std::vector<u8> _data;
 };
+
+struct uniq_packet_info {
+    u32 ip;
+    u16 port;
+    u64 id;
+    u64 hash;
+
+    auto operator<=>(const uniq_packet_info&) const = default;
+};
+
+struct packet_spec_t {
+    /* Part of action data */
+    u32 act;
+
+    u32     transcontrol;
+    u64     id;
+    u64     hash;
+};
+
+
+inline bool validate_packet_size(const packet_t& packet) {
+    if (packet.size() < sizeof(packet_spec_t)) {
+        LOG_WARN("packet dropped: invalid size {}", packet.size());
+        return false;
+    }
+    return true;
+}
+
+inline bool validate_packet_hash(const packet_t& packet, u64 spec_hash) {
+    auto real_hash = fnv1a64(packet.data(), packet.size() - sizeof(u64));
+    if (spec_hash != real_hash) {
+        LOG_WARN("packet dropped: invalid hash {} (must be equal with {})", spec_hash, real_hash);
+        return false;
+    }
+    return true;
+}
+
+inline packet_spec_t get_packet_spec(const packet_t& packet) {
+    packet_spec_t spec;
+    auto spec_pos = packet.size() - sizeof(packet_spec_t);
+    std::memcpy(&spec,
+                reinterpret_cast<const u8*>(packet.data()) + spec_pos, // NOLINT
+                sizeof(packet_spec_t));
+    return spec;
+}
+
+inline std::optional<packet_spec_t> get_spec_if_valid_packet(const packet_t& packet) {
+    if (!validate_packet_size(packet))
+        return {};
+
+    auto spec = get_packet_spec(packet);
+
+    if (!validate_packet_hash(packet, spec.hash))
+        return {};
+
+    return spec;
+}
+
 }
