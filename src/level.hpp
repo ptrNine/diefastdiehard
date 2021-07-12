@@ -35,16 +35,28 @@ public:
     }
 
     void cfg_reload() {
-        _name = cfg().get_req<std::string>(_section, "name");
-        _gravity = cfg().get_req<sf::Vector2f>(_section, "gravity");
+        _name        = cfg().get_req<std::string>(_section, "name");
+        _gravity     = cfg().get_req<sf::Vector2f>(_section, "gravity");
         _platform_sz = cfg().get_req<float>(_section, "platform_height");
-        _view_size = cfg().get_req<sf::Vector2f>(_section, "view_size");
-        _level_size = cfg().get_req<sf::Vector2f>(_section, "level_size");
+        _view_size   = cfg().get_req<sf::Vector2f>(_section, "view_size");
+        _level_size  = cfg().get_req<sf::Vector2f>(_section, "level_size");
 
-        auto txtr_path = fs::current_path() / "data/textures/" / _name;
-        _end_platform_txtr.loadFromFile(txtr_path / "end_platform.png");
-        _platform_txtr.loadFromFile(txtr_path / "platform.png");
-        _background_txtr.loadFromFile(txtr_path / "background.png");
+        auto txtr_path              = fs::current_path() / "data/textures/" / _name;
+        auto end_platform_txtr_path = txtr_path / "end_platform.png";
+        auto platform_txtr_path     = txtr_path / "platform.png";
+        auto background_txtr_path   = txtr_path / "background.png";
+
+#define load_if_path_changed(txtr) \
+        if (_##txtr##_path != txtr##_path) { \
+            _##txtr.loadFromFile(txtr##_path); \
+            _##txtr##_path = txtr##_path; \
+        }
+
+        load_if_path_changed(end_platform_txtr);
+        load_if_path_changed(platform_txtr)
+        load_if_path_changed(background_txtr)
+
+#undef load_if_path_changed
 
         _end_platform.setTexture(_end_platform_txtr);
         _platform.setTexture(_platform_txtr);
@@ -82,7 +94,6 @@ public:
 
             ++pl;
         }
-
     }
 
     level(std::string section): _section(std::move(section)) {
@@ -121,6 +132,10 @@ private:
     sf::Texture _end_platform_txtr;
     sf::Texture _platform_txtr;
     sf::Texture _background_txtr;
+
+    std::string _end_platform_txtr_path;
+    std::string _platform_txtr_path;
+    std::string _background_txtr_path;
 
     float _platform_sz = 10.f;
     sf::Vector2f _view_size;
