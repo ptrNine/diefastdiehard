@@ -122,10 +122,12 @@ public:
                 } else {
                     auto found = l.find('=');
                     if (found == std::string_view::npos) {
-                        auto& sect = _sections.at(cur_sect);
-                        sect.section_name = cur_sect;
-                        sect.file_path = file;
-                        sect.sects[std::string(l)];
+                        if (!l.empty()) {
+                            auto& sect = _sections.at(cur_sect);
+                            sect.section_name = cur_sect;
+                            sect.file_path = file;
+                            sect.sects[std::string(l)];
+                        }
                     } else {
                         auto key = trim_spaces(l.substr(0, found));
                         auto value = trim_spaces(l.substr(found + 1));
