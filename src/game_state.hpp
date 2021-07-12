@@ -11,6 +11,7 @@
 #include "player_configurator_ui.hpp"
 #include "level.hpp"
 #include "ai.hpp"
+#include "cfg_value_control.hpp"
 
 namespace dfdh {
 
@@ -308,6 +309,35 @@ public:
             }
             */
         }
+
+        if (cfgval_ctrl) {
+            cfgval_ctrl->handle_event(evt);
+            cfgval_ctrl_update();
+        }
+    }
+
+    void cfgval_ctrl_update() {
+        if (auto sect = cfgval_ctrl->consume_update()) {
+            if (sect->starts_with("wpn_")) {
+                for (auto& [sect_name, section] : cfg().sections()) {
+                    if (sect->starts_with(sect_name) && section.sects.contains("class")) {
+                        weapon_mgr().reload(sect_name);
+                        return;
+                    }
+                }
+            }
+
+            if (sect->starts_with("lvl_")) {
+                auto found_lvl = levels.find(*sect);
+                if (found_lvl != levels.end()) {
+                    found_lvl->second->cfg_reload();
+                    if (cur_level == found_lvl->second) {
+                        cur_level->setup_to(sim);
+                        events.push(game_state_event::level_changed);
+                    }
+                }
+            }
+        }
     }
 
     void render_update(sf::RenderWindow& wnd) {
@@ -415,7 +445,7 @@ public:
                 }
             }
 
-            sim.update(60, 1.0f);
+            sim.update(60, game_speed);
 
             for (auto& [_, pl] : players) {
                 if (controlled_players.contains(pl->name()) || ai_operators.contains(pl->name())) {
@@ -750,6 +780,7 @@ public:
     bullet_mgr         blt_mgr;
     instant_kick_mgr   kick_mgr;
     adjustment_box_mgr adj_box_mgr;
+    float              game_speed = 1.f;
 
     struct controll_player_t {
         std::shared_ptr<player_controller> controller;
@@ -774,6 +805,8 @@ public:
 
     bool                          debug_physics = false;
     float                         this_ping     = 0.f;
+
+    std::optional<cfg_value_control> cfgval_ctrl;
 
     std::queue<game_state_event> events;
 

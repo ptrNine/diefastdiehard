@@ -10,13 +10,16 @@ class game_commands {
 public:
     game_commands(game_state& state): gs(state) {
         command_buffer().add_handler("player", &game_commands::cmd_player, this);
+        command_buffer().add_handler("player delete", &game_commands::cmd_player_delete, this);
         command_buffer().add_handler("cfg", &game_commands::cmd_cfg, this);
         command_buffer().add_handler("cfg set", &game_commands::cmd_cfg_set, this);
         command_buffer().add_handler("cfg reload", &game_commands::cmd_cfg_reload, this);
         command_buffer().add_handler("cfg list", &game_commands::cmd_cfg_list, this);
+        command_buffer().add_handler("cfg control", &game_commands::cmd_cfg_control, this);
         command_buffer().add_handler("help", &game_commands::cmd_help, this);
         command_buffer().add_handler("list", &game_commands::cmd_list, this);
         command_buffer().add_handler("game", &game_commands::cmd_game, this);
+        command_buffer().add_handler("game speed", &game_commands::cmd_game_speed, this);
         command_buffer().add_handler("level", &game_commands::cmd_level, this);
         command_buffer().add_handler("ai", &game_commands::cmd_ai, this);
         command_buffer().add_handler("ai difficulty", &game_commands::cmd_ai_difficulty, this);
@@ -38,6 +41,7 @@ public:
         std::string_view help;
         if (cmd == "player") {
             help = "available commands:\n"
+                   "  player delete [player_name]                - delete player\n"
                    "  player reload [player_name]?               - reload player(s) configuration\n"
                    "  player controller[N] [player_name]         - binds specified controller to player\n"
                    "  player controller[N] delete                - deletes specified controller\n"
@@ -55,10 +59,11 @@ public:
         else if (cmd == "cfg") {
             help = "shows loaded configs\n"
                    "available commands:\n"
-                   "  cfg [section_name] [key]?              - shows key/values for specified section\n"
-                   "  cfg reload [weapons|levels]?           - reloads config users\n"
-                   "  cfg list [prefix]?                     - show sections\n"
-                   "  cfg set [section_name] [key] [value]?  - setup value for specified section";
+                   "  cfg [section_name] [key]?                    - show key/values for specified section\n"
+                   "  cfg reload [weapons|levels]?                 - reload config users\n"
+                   "  cfg list [prefix]?                           - show sections\n"
+                   "  cfg set [section_name] [key] [value]?        - setup value for specified section\n"
+                   "  cfg control [section_name] [key] [dx] [dy]?  - enable control for config value";
         }
         else if (cmd == "level") {
             help = "level manipulations\n"
@@ -81,6 +86,23 @@ public:
 
         if (!help.empty())
             LOG("{}", help);
+    }
+
+    void cmd_player_delete(const std::string& player_name) {
+        auto found = gs.players.find(player_name);
+        if (found != gs.players.end()) {
+            auto found_ai = gs.ai_operators.find(player_name);
+            if (found_ai != gs.ai_operators.end()) {
+                gs.ai_operators.erase(found_ai);
+                LOG_INFO("ai operator {} deleted", player_name);
+            }
+
+            gs.players.erase(found);
+            LOG_INFO("player {} deleted", player_name);
+        }
+        else {
+            LOG_ERR("player {} not found", player_name);
+        }
     }
 
     void cmd_player(const std::string& cmd, const std::optional<std::string>& value) {
@@ -301,6 +323,23 @@ public:
         }
     }
 
+    void cmd_game_speed(const std::optional<std::string>& value) {
+        if (!value) {
+            LOG_INFO("game speed: {}", gs.game_speed);
+        }
+        else {
+            float v;
+            try {
+                v = ston<float>(*value);
+            }
+            catch (...) {
+                LOG_ERR("game speed: argument must be a number");
+                return;
+            }
+            gs.game_speed = v;
+        }
+    }
+
     void cmd_game(const std::optional<std::string>& value) {
         if (value) {
             if (*value == "on")
@@ -361,6 +400,39 @@ public:
         else {
             LOG_ERR("ai: unknown subcommand {}", cmd);
         }
+    }
+
+    void cmd_cfg_control(const std::string&                section,
+                         const std::string&                key,
+                         const std::string&                str_steps) {
+        if (!cfg().sections().contains(section)) {
+            LOG_ERR("cfg control: section [{}] was not found", section);
+            return;
+        }
+
+        if (!cfg().sections().at(section).sects.contains(key)) {
+            LOG_ERR("cfg control {}: key {} was not found", section, key);
+            return;
+        }
+
+        cfg_value_control::value_t steps;
+        try {
+            u32 idx = 0;
+            for (auto str_step_view : str_steps / split(' ', '\t')) {
+                steps[idx] = ston<float>(std::string(str_step_view.begin(), str_step_view.end()));
+                ++idx;
+            }
+        }
+        catch (...) {
+            LOG_ERR("cfg control {} {} {}: steps argument must contain numbers only",
+                    section,
+                    key,
+                    str_steps);
+            return;
+        }
+
+        gs.cfgval_ctrl = cfg_value_control(section, key, steps);
+        LOG_INFO("controlling [{}]:{} with steps {}", section, key, str_steps);
     }
 
     void cmd_list() {
