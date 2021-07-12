@@ -8,6 +8,7 @@
 #include "config.hpp"
 #include "texture_mgr.hpp"
 #include "instant_kick.hpp"
+#include "log.hpp"
 
 namespace dfdh
 {
@@ -60,7 +61,7 @@ public:
         for (auto& [sect_name, sect] : cfg().sections()) {
             if (sect_name.starts_with("wpn_")) {
                 auto wpn_class = sect.sects.find("class");
-                if (wpn_class != sect.sects.end() && wpn_class->second == "pistol")
+                if (wpn_class != sect.sects.end()/* && wpn_class->second == "pistol"*/)
                     result.push_back(sect_name);
             }
         }
@@ -344,6 +345,15 @@ public:
         }
     }
 
+    void reload(const std::string& wpn_section) {
+        auto found = _wpns.find(wpn_section);
+        if (found != _wpns.end()) {
+            found->second.cfg_set();
+            found->second.reload_layers();
+        }
+        /* TODO: log if section not found? */
+    }
+
     weapon_storage_singleton(const weapon_storage_singleton&) = delete;
     weapon_storage_singleton& operator=(const weapon_storage_singleton&) = delete;
 
@@ -529,7 +539,18 @@ public:
         for (bool repeat = true; repeat;) {
             repeat = false;
 
-            anim   = &_wpn->_animations.at(_current_anim->_name);
+            auto found_anim = _wpn->_animations.find(_current_anim->_name);
+            if (found_anim == _wpn->_animations.end()) {
+                LOG_ERR("Animation '{}' not found in weapon [{}]", _current_anim->_name, _wpn->_section);
+                _ammo_elapsed = _wpn->_mag_size;
+                if (_current_anim->_name == "shell")
+                    _current_anim = anim_spec_t{"load_end"};
+                else
+                    _current_anim.reset();
+                return make_return(position, _wpn, LF);
+            }
+            anim = &found_anim->second;
+
             frames = &anim->_frames;
 
             if (frames->empty()) {
