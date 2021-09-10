@@ -4,3 +4,6 @@
 [submodule "submodules/Nuklear"]
 	path = submodules/Nuklear
 	url = https://github.com/Immediate-Mode-UI/Nuklear
+[submodule "submodules/boost"]
+	path = submodules/boost
+	url = https://github.com/boostorg/boost
