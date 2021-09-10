@@ -110,11 +110,16 @@ inline void adjustment_box_hit_callback(physic_point* bullet_pnt,
                                         collision_result) {
     if (bullet_pnt->get_user_data() == 0xdeadbeef &&
         adjustment_box_grp->get_user_data() == 0xdeaddead && !bullet_pnt->ready_delete_later()) {
-        bullet_pnt->delete_later();
-        adjustment_box_grp->delete_later();
-
         auto adj_box = std::any_cast<adjustment_box*>(adjustment_box_grp->get_user_any());
+
         if (auto pl = adj_box->player_ptr().lock()) {
+            auto blt_group = std::any_cast<int>(bullet_pnt->get_user_any());
+            if (pl->get_group() != -1 && pl->get_group() == blt_group)
+                return;
+
+            bullet_pnt->delete_later();
+            adjustment_box_grp->delete_later();
+
             pl->collision_box()->apply_impulse(bullet_pnt->impulse());
             pl->reset_accel_f(bullet_pnt->get_direction().x < 0.f);
             pl->set_on_hit_event();

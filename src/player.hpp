@@ -144,47 +144,62 @@ public:
             _collision_box->unlock_y();
     }
 
-    void update_input(const player_controller& ks, sf::Event evt) {
+    bool update_input(const player_controller& ks, sf::Event evt) {
+        bool update_was = false;
+
         if (evt.type == sf::Event::KeyPressed) {
             auto c = evt.key.code;
             if (c == ks.up && !_jump_pressed) {
                 jump();
                 _jump_pressed = true;
+                update_was = true;
             }
             else if (c == ks.down && !_jump_down_pressed) {
                 jump_down();
                 _jump_down_pressed = true;
+                update_was = true;
             }
-            else if (c == ks.left) {
+            else if (c == ks.left && is_float_zero(_cur_x_accel_l)) {
                 _cur_x_accel_l = -_x_accel;
                 _dir = dir_left;
+                update_was = true;
             }
-            else if (c == ks.right) {
+            else if (c == ks.right && is_float_zero(_cur_x_accel_r)) {
                 _cur_x_accel_r = _x_accel;
                 _dir = dir_right;
+                update_was = true;
             }
             else if (c == ks.shot) {
-                shot();
+                update_was = shot();
             }
         }
         else if (evt.type == sf::Event::KeyReleased) {
             auto c = evt.key.code;
-            if (c == ks.left) {
+            if (c == ks.left && !is_float_zero(_cur_x_accel_l)) {
                 _cur_x_accel_l = 0.f;
+                update_was = true;
             }
-            else if (c == ks.right) {
+            else if (c == ks.right && !is_float_zero(_cur_x_accel_r)) {
                 _cur_x_accel_r = 0.f;
+                update_was = true;
             }
             else if (c == ks.shot) {
-                relax();
+                update_was = relax();
             }
-            else if (c == ks.up) {
+            else if (c == ks.up && _jump_pressed) {
                 _jump_pressed = false;
+                update_was = true;
             }
-            else if (c == ks.down) {
+            else if (c == ks.down && _jump_down_pressed) {
                 _jump_down_pressed = false;
+                update_was = true;
             }
         }
+
+        if (update_was)
+            ++_evt_counter;
+
+        return update_was;
     }
 
     void stop() {
@@ -204,14 +219,16 @@ public:
         _dir = dir_right;
     }
 
-    void shot() {
+    bool shot() {
         if (_pistol)
-            _pistol.pull_trigger(_tracer_color);
+            return _pistol.pull_trigger(_tracer_color);
+        return false;
     }
 
-    void relax() {
+    bool relax() {
         if (_pistol)
-            _pistol.relax_trigger();
+            return _pistol.relax_trigger();
+        return false;
     }
 
     static int player_group_getter(const physic_point* p) {
@@ -420,6 +437,9 @@ public:
     }
 
     void set_body(const std::string& path, const sf::Color& color = {255, 255, 255}) {
+        _body_txtr_path = path;
+        _body_color = color;
+
         set_some(path, _body_txtr, _body, _size, color);
         _left_hand.setFillColor(color);
         _right_hand.setFillColor(color);
@@ -428,6 +448,7 @@ public:
     }
 
     void set_face(const std::string& path, const sf::Color& color = {255, 255, 255}) {
+        _face_txtr_path = path;
         set_some(path, _face_txtr, _face, _size, color);
     }
 
@@ -437,6 +458,27 @@ public:
 
     void setup_pistol(const std::string& section) {
         _pistol = weapon_instance(section);
+        _pistol_section = section;
+    }
+
+    [[nodiscard]]
+    const std::string& pistol_section() const {
+        return _pistol_section;
+    }
+
+    [[nodiscard]]
+    const std::string& face_texture_path() const {
+        return _face_txtr_path;
+    }
+
+    [[nodiscard]]
+    const std::string& body_texture_path() const {
+        return _body_txtr_path;
+    }
+
+    [[nodiscard]]
+    const sf::Color& body_color() const {
+        return _body_color;
     }
 
     [[nodiscard]]
@@ -458,8 +500,8 @@ public:
         _tracer_color = value;
     }
 
-    player_states_t extract_client_input_state() const {
-        //std::cout << "Movleft: " << (_cur_x_accel_l < 0.f) << " movright: " << (_cur_x_accel_r > 0.f) << std::endl;
+    [[nodiscard]]
+    player_states_t client_input_state() const {
         return player_states_t{
             _cur_x_accel_l < 0.f,
             _cur_x_accel_r > 0.f,
@@ -468,6 +510,17 @@ public:
             _jump_down_pressed,
             _collision_box->is_lock_y()
         };
+    }
+
+    std::optional<player_states_t> try_extract_client_input_state() {
+        //std::cout << "Movleft: " << (_cur_x_accel_l < 0.f) << " movright: " << (_cur_x_accel_r > 0.f) << std::endl;
+        auto states = client_input_state();
+        if (_last_states == states)
+            return {};
+        else {
+            _last_states = states;
+            return states;
+        }
     }
 
     [[nodiscard]]
@@ -561,6 +614,10 @@ private:
 
 private:
     player_name_t _name;
+    std::string   _pistol_section;
+    std::string   _body_txtr_path;
+    std::string   _face_txtr_path;
+    sf::Color     _body_color;
 
     std::shared_ptr<physic_group> _collision_box;
     sf::Sprite  _body;
@@ -574,6 +631,7 @@ private:
     sf::CircleShape _left_leg;
     sf::CircleShape _right_leg;
 
+    player_states_t _last_states;
     std::deque<std::pair<std::chrono::steady_clock::time_point, sf::Vector2f>> _position_trace;
 
 //    rand_float_pool _rand_pool;
@@ -812,6 +870,7 @@ player_hit_callback(physic_point* bullet_pnt, physic_group* player_grp, collisio
         player_grp->apply_impulse(bullet_pnt->impulse());
         bullet_pnt->delete_later();
         auto pl = std::any_cast<player*>(player_grp->get_user_any());
+
         pl->reset_accel_f(bullet_pnt->get_direction().x < 0.f);
         pl->set_on_hit_event();
     }

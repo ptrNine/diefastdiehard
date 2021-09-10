@@ -489,14 +489,25 @@ public:
         return {};
     }
 
-    void pull_trigger(std::optional<sf::Color> tracer_color = std::nullopt) {
+    /* Returs false if trigger has been already held down */
+    bool pull_trigger(std::optional<sf::Color> tracer_color = std::nullopt) {
         if (tracer_color)
             _last_tracer_color = *tracer_color;
-        _on_shot = true;
+
+        if (_on_shot)
+            return false;
+        else
+            return _on_shot = true;
     }
 
-    void relax_trigger() {
-        _on_shot = false;
+    /* Returns false if trigger has been already relaxed */
+    bool relax_trigger() {
+        if (!_on_shot)
+            return false;
+        else {
+            _on_shot = false;
+            return true;
+        }
     }
 
     std::array<sf::Vector2f, 2> draw(const sf::Vector2f& position,

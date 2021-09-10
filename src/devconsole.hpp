@@ -175,10 +175,8 @@ public:
                 ui.window_set_scroll(_x_scroll, _y_scroll);
 
             if (ui.nk_ctx()->active && !ui.nk_ctx()->active->edit.active) {
-                ui.nk_ctx()->active->edit.active = _last_active;
+                ui.nk_ctx()->active->edit.active = 1;
                 ui.nk_ctx()->active->edit.cursor = _command_len;
-            } else {
-                _last_active = ui.nk_ctx()->active->edit.active;
             }
 
             _first_run = false;
@@ -411,7 +409,6 @@ private:
     std::array<char, COMMAND_LEN>     _command_edit;
     int                               _command_len = 0;
 
-    int                               _last_active = 0;
     std::optional<std::string>        _last_help;
 };
 }

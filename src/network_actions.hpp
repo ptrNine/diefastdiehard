@@ -17,13 +17,15 @@ enum net_act : u32 {
     act_cli_i_wanna_play,
     act_cli_player_params,
     act_cli_player_sync,
+    act_cli_load_player,
 
     act_srv_ping,
     act_srv_player_states,
     act_srv_player_physic_sync,
-//    act_srv_player_random_pool_init,
 
     act_spawn_bullet,
+    act_level_sync,
+    act_player_game_conf_sync,
 
     NET_ACT_COUNT
 };
@@ -104,6 +106,13 @@ struct a_cli_player_sync {
     net_act _act    = act_cli_player_sync;
 };
 
+struct a_cli_load_player {
+    player_name_t player_name;
+    i32           group;
+
+    net_act _act    = act_cli_load_player;
+};
+
 struct a_srv_player_states {
     player_states_t st;
     player_name_t   name;
@@ -124,11 +133,10 @@ struct a_srv_player_physic_sync {
 //    u64             random_pool_pos;
     u64             evt_counter;
     u32             ammo_elapsed;
+    i32             group;
     bool            on_left;
 
     u8      _dummy0[3] = {0};
-    u32     _dummy1    = 0;
-
     net_act _act       = act_srv_player_physic_sync;
 };
 
@@ -144,9 +152,30 @@ struct a_spawn_bullet {
     net_act _act    = act_spawn_bullet;
 };
 
+struct a_level_sync {
+    fixed_str<23> level_name;
+    float         game_speed;
+    bool          on_game;
+    u8            _dummy0[3] = {0};
+
+    u32     _dummy1 = 0;
+    net_act _act = act_level_sync;
+};
+
+struct a_player_game_conf_sync {
+    player_name_t  player_name;
+    fixed_str<23>  pistol;
+    fixed_str<23>  body_txtr;
+    fixed_str<23>  face_txtr;
+    sf::Color      body_color;
+    sf::Color      tracer_color;
+    i32            group;
+
+    net_act _act   = act_player_game_conf_sync;
+};
+
 template <typename T>
 concept PlayerActs = AnyOfType<T, a_cli_player_params, a_cli_player_sync, a_spawn_bullet>;
-
 
 template <typename T>
 packet_t create_packet(const T& act, u32 transcontrol = 0, u64* id = nullptr) {
@@ -222,10 +251,13 @@ void action_dispatch(const sf::IpAddress& ip, u16 port, u32 act, u64 id, const p
         overload(cli_i_wanna_play);
         overload(cli_player_params);
         overload(cli_player_sync);
+        overload(cli_load_player);
         overload(srv_ping);
         overload(srv_player_states);
         overload(srv_player_physic_sync);
         overload(spawn_bullet);
+        overload(level_sync);
+        overload(player_game_conf_sync);
     default: break;
     }
 }

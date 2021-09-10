@@ -54,6 +54,11 @@ void print_any(std::ostream& os, const T& value) {
 
 template <typename T, size_t S>
 void print_any(std::ostream& os, const T(&value)[S]) {
+    if constexpr (std::is_same_v<T, char>) {
+        os << value;
+        return;
+    }
+
     if constexpr (sizeof(S) == 0)
         os << "{}";
     if constexpr (sizeof(S) == 1)

@@ -14,9 +14,9 @@ namespace dfdh {
 using namespace std::chrono_literals;
 
 inline constexpr bool ENABLE_DEBUG_SEND_DELAY = true;
-inline constexpr auto DEBUG_SEND_DELAY        = 40ms;
+inline constexpr auto DEBUG_SEND_DELAY        = 200ms;
 inline constexpr bool VARIABLE_PING           = true;
-inline constexpr auto VARIABLE_PING_MAX_DELTA = 39ms;
+inline constexpr auto VARIABLE_PING_MAX_DELTA = 50ms;
 
 
 template <bool Enable>

@@ -23,6 +23,8 @@ public:
         command_buffer().add_handler("level", &game_commands::cmd_level, this);
         command_buffer().add_handler("ai", &game_commands::cmd_ai, this);
         command_buffer().add_handler("ai difficulty", &game_commands::cmd_ai_difficulty, this);
+        command_buffer().add_handler("connect", &game_commands::cmd_connect, this);
+        command_buffer().add_handler("srv init", &game_commands::cmd_srv_init, this);
         command_buffer().add_handler("shutdown", &game_commands::cmd_shutdown, this);
     }
 
@@ -34,6 +36,8 @@ public:
         command_buffer().remove_handler("game");
         command_buffer().remove_handler("level");
         command_buffer().remove_handler("ai");
+        command_buffer().remove_handler("connect");
+        command_buffer().remove_handler("srv init");
         command_buffer().remove_handler("shutdown");
     }
 
@@ -86,6 +90,14 @@ public:
 
         if (!help.empty())
             LOG("{}", help);
+    }
+
+    void cmd_connect(const std::string& ip, u16 port) {
+        gs.connect_to_server(ip, port);
+    }
+
+    void cmd_srv_init() {
+        gs.server_init();
     }
 
     void cmd_player_delete(const std::string& player_name) {
@@ -142,34 +154,35 @@ public:
                 return;
             }
 
-            if (gs.is_client()) {
-                // TODO: handle this
-            }
-            else {
-                auto params = *value / split(' ', '\t');
-                std::string name;
-                int group = 0;
-                for (auto param : params) {
-                    auto prm = std::string_view(param.begin(), param.end());
-                    if (prm.starts_with("name="))
-                        name = std::string(prm.substr("name="sv.size()));
-                    else if (prm.starts_with("group=")) {
-                        auto group_str = std::string(prm.substr("group="sv.size()));
-                        try {
-                            group = ston<int>(group_str);
-                        } catch (...) {
-                            LOG_WARN("player create: invalid group number in params");
-                        }
+            auto        params = *value / split(' ', '\t');
+            std::string name;
+            int         group = 0;
+            for (auto param : params) {
+                auto prm = std::string_view(param.begin(), param.end());
+                if (prm.starts_with("name="))
+                    name = std::string(prm.substr("name="sv.size()));
+                else if (prm.starts_with("group=")) {
+                    auto group_str = std::string(prm.substr("group="sv.size()));
+                    try {
+                        group = ston<int>(group_str);
                     }
-                    else {
-                        name = std::string(prm);
+                    catch (...) {
+                        LOG_WARN("player create: invalid group number in params");
                     }
                 }
-                if (name.empty())
-                    LOG_ERR("player create: missing name in params");
-                else if (auto plr = gs.player_create(name))
-                    plr->group(group);
+                else {
+                    name = std::string(prm);
+                }
             }
+            if (name.empty()) {
+                LOG_ERR("player create: missing name in params");
+                return;
+            }
+
+            if (gs.is_client())
+                gs.player_create_from_client(name, group);
+            else if (auto plr = gs.player_create(name))
+                plr->group(group);
         }
         else if (cmd == "conf") {
             if (!value) {

@@ -6,6 +6,7 @@
 #include "src/player_configurator_ui.hpp"
 #include "src/command_buffer.hpp"
 #include "src/game_commands.hpp"
+#include "src/serialization.hpp"
 
 #include "src/game_state.hpp"
 
@@ -80,6 +81,11 @@ public:
         command_buffer().push("level current lvl_aes");
         command_buffer().push("player create kek");
         command_buffer().push("player controller0 kek");
+        //command_buffer().push("cfg set lvl_aes view_size '700 400'");
+        //command_buffer().push("cfg reload levels");
+        //command_buffer().push("player create 'lel group=1'");
+        //command_buffer().push("ai bind lel");
+        //command_buffer().push("ai difficulty lel hard");
         command_buffer().push("game on");
     }
 

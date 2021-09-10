@@ -25,6 +25,7 @@ public:
         mass *= f_mass;
 
         _ph = physic_point::create(position, normalize(vel), s_vel, mass);
+        _ph->user_any(group);
         sim.add_primitive(_ph);
     }
 

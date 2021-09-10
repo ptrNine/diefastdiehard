@@ -16,6 +16,8 @@
 namespace dfdh {
 
 inline constexpr bool MP_MOVE_ADJUSTMENT = true;
+inline constexpr float MP_MOVE_ADJUSTMENT_VEL_THRESHOLD = 200.f;
+inline constexpr float MP_MOVE_ADJUSTMENT_POS_THRESHOLD = 200.f;
 
 enum class game_state_event {
     level_changed = 0,
@@ -23,8 +25,16 @@ enum class game_state_event {
 };
 
 struct client_state {
-    client_state(sf::IpAddress server_ip = "127.0.0.1", u16 server_port = SERVER_DEFAULT_PORT):
-        serv_ip(server_ip), serv_port(server_port) {
+    static std::unique_ptr<client_state> create(sf::IpAddress server_ip   = "127.0.0.1",
+                                                u16           server_port = SERVER_DEFAULT_PORT,
+                                                u16           client_port = CLIENT_DEFAULT_PORT) {
+        return std::make_unique<client_state>(server_ip, server_port, client_port);
+    }
+
+    client_state(sf::IpAddress server_ip   = "127.0.0.1",
+                 u16           server_port = SERVER_DEFAULT_PORT,
+                 u16           client_port = CLIENT_DEFAULT_PORT):
+        serv_ip(server_ip), serv_port(server_port), sock(client_port) {
         send(a_cli_i_wanna_play{}, [this](bool ok) {
             if (ok)
                 hello = true;
@@ -43,12 +53,11 @@ struct client_state {
         sock.receiver(overloaded);
     }
 
-    bool            hello = false;
-    player_states_t input_states;
+    bool hello = false;
 
     sf::IpAddress serv_ip;
     u16           serv_port;
-    act_socket    sock = act_socket(CLIENT_DEFAULT_PORT);
+    act_socket    sock;
 };
 
 class game_state {
@@ -82,6 +91,16 @@ public:
             found->second->set_from_config();
             LOG_INFO("reload player config {}", player_name);
         }
+    }
+
+    void player_create_from_client(const player_name_t& player_name, int group = 0) {
+        if (players.contains(player_name)) {
+            LOG_ERR("player {} already exists", player_name);
+            return;
+        }
+
+        if (client)
+            client->send(a_cli_load_player{player_name, group}, true);
     }
 
     player* player_create(const player_name_t& player_name) {
@@ -140,7 +159,7 @@ public:
             }
             else {
                 controlled_players.emplace(found_player->second->name(),
-                                           controll_player_t{controller, found_player->second, {}});
+                                           controll_player_t{controller, found_player->second});
             }
         }
 
@@ -260,6 +279,53 @@ public:
         return true;
     }
 
+    void connect_to_server(const std::string& str_ip, u16 port) {
+        if (server) {
+            LOG_ERR("can't connect to server: server running on this instance (destroy it?)");
+            return;
+        }
+
+        if (client) {
+            LOG_ERR("can't connect to server: already connected");
+            return;
+        }
+
+        cur_level = nullptr;
+        controlled_players.clear();
+        controllers.clear();
+        if (ai_mgr()._work)
+            ai_mgr().worker_stop();
+        ai_operators.clear();
+        players.clear();
+
+        auto ip = sf::IpAddress(str_ip);
+        auto cli_port = CLIENT_DEFAULT_PORT;
+
+        while (!client && cli_port < CLIENT_DEFAULT_PORT + 20) {
+            try {
+                client = client_state::create(ip, port, cli_port);
+            } catch (...) {
+                ++cli_port;
+            }
+        }
+        if (!client)
+            client = client_state::create(ip, port, cli_port);
+    }
+
+    void server_init() {
+        if (server) {
+            LOG_ERR("can't init server: already running");
+            return;
+        }
+
+        if (client) {
+            LOG_ERR("can't init server: client already running");
+            return;
+        }
+
+        server = std::make_unique<server_t>();
+    }
+
     //void ai_difficulty(const player_name_t& player_name, )
 
     /* Game updates */
@@ -269,31 +335,23 @@ public:
             return;
 
         for (auto& [_, control_data] : controlled_players) {
-            auto& [controller, this_player, this_states] = control_data;
-            this_player->update_input(*controller, evt);
+            auto& [controller, this_player] = control_data;
+            bool update_was = this_player->update_input(*controller, evt);
 
-            if (server) {
-                auto states = this_player->extract_client_input_state();
-                if (states != this_states) {
-                    this_player->increment_evt_counter();
-                    this_states = states;
-                    server->send_to_all(a_srv_player_states{this_states,
-                                                            this_player->name(),
-                                                            this_player->evt_counter(),
-                                                            this_player->get_position(),
-                                                            this_player->get_velocity()});
-                }
-            }
-            if (client) {
-                auto states = this_player->extract_client_input_state();
-                if (client->input_states != states) {
-                    this_player->increment_evt_counter();
-                    client->input_states = states;
-                    client->send(a_cli_player_sync{states,
+            if (update_was) {
+                if (server)
+                    server->send_to_all_except_client_player(
+                        this_player->name(),
+                        a_srv_player_states{this_player->client_input_state(),
+                                            this_player->name(),
+                                            this_player->evt_counter(),
+                                            this_player->get_position(),
+                                            this_player->get_velocity()});
+                if (client)
+                    client->send(a_cli_player_sync{this_player->client_input_state(),
                                                    this_player->evt_counter(),
                                                    this_player->get_position(),
                                                    this_player->get_velocity()});
-                }
             }
 
             /*
@@ -416,7 +474,7 @@ public:
                     server_sync_timer.restart();
                     for (auto& [_, control_data] : controlled_players) {
                         auto& this_player = control_data.this_player;
-                        client->send(a_cli_player_sync{this_player->extract_client_input_state(),
+                        client->send(a_cli_player_sync{this_player->client_input_state(),
                                                        this_player->evt_counter(),
                                                        this_player->get_position(),
                                                        this_player->get_velocity()});
@@ -432,14 +490,16 @@ public:
                     for (auto& [_, player] : players) {
                         auto& gun = player->get_gun();
 
-                        server->send_to_all(
+                        server->send_to_all_except_client_player(
+                            player->name(),
                             a_srv_player_physic_sync{player->name(),
                                                      player->get_position(),
                                                      player->get_velocity(),
-                                                     player->extract_client_input_state(),
+                                                     player->client_input_state(),
                                                      gun ? gun.get_weapon()->section() : "",
                                                      player->evt_counter(),
                                                      gun ? gun.ammo_elapsed() : 0,
+                                                     player->get_group(),
                                                      player->get_on_left()});
                     }
                 }
@@ -502,18 +562,13 @@ public:
 
             /* TODO: investigate this */
             if (server) {
-                for (auto& [_, control_data] : controlled_players) {
-                    auto& [__, this_player, this_states] = control_data;
-                    auto states = player->extract_client_input_state();
-                    if (states != this_states) {
-                        player->increment_evt_counter();
-                        this_states = states;
-                        server->send_to_all(a_srv_player_states{this_states,
-                                                                this_player->name(),
-                                                                player->evt_counter(),
-                                                                player->get_position(),
-                                                                player->get_velocity()});
-                    }
+                if (auto states = player->try_extract_client_input_state()) {
+                    player->increment_evt_counter();
+                    server->send_to_all(a_srv_player_states{*states,
+                                                            player->name(),
+                                                            player->evt_counter(),
+                                                            player->get_position(),
+                                                            player->get_velocity()});
                 }
             }
         }
@@ -575,47 +630,53 @@ public:
     /*========================== server side actions ============================*/
 
     struct act_from_client_overloaded {
-        void operator()(const player_name_t& player_name, u64 packet_id, const auto& act) {
+        void operator()(const act_from_client_t& info, const auto& act) {
             LOG_INFO("Action from client");
-            it->act_from_client(player_name, packet_id, act);
+            it->act_from_client(info, act);
         }
 
         game_state* it;
     };
 
-    void act_from_client(const player_name_t&, u64, const a_cli_i_wanna_play&) {
+    void act_from_client(const act_from_client_t&, const a_cli_i_wanna_play&) {
         /* TODO: */
     }
 
-    void act_from_client(const player_name_t& player_name, u64, const a_cli_player_params& params) {
-        auto found_plr = players.find(player_name);
-        if (found_plr == players.end())
+    void act_from_client(const act_from_client_t& info, const a_cli_player_params& params) {
+        auto found_plr = players.find(info.operated_player);
+        if (found_plr == players.end()) {
+            LOG_ERR("client player with name '{}' not found on server", info.operated_player);
             return;
+        }
         auto& plr = found_plr->second;
 
         plr->set_params_from_client(params);
     }
 
-    void act_from_client(const player_name_t& player_name, u64 packet_id, const a_cli_player_sync& states) {
-        auto found_plr = players.find(player_name);
-        if (found_plr == players.end())
+    void act_from_client(const act_from_client_t& info, const a_cli_player_sync& states) {
+        auto found_plr = players.find(info.operated_player);
+        if (found_plr == players.end()) {
+            LOG_ERR("client player with name '{}' not found on server", info.operated_player);
             return;
+        }
         auto& pl = found_plr->second;
 
-        LOG_UPDATE("packet_id: {}", packet_id);
-
         if constexpr (MP_MOVE_ADJUSTMENT) {
-            if (pl->last_state_packet_id > packet_id)
+            if (pl->last_state_packet_id > info.packet_id)
                 return;
-            pl->last_state_packet_id = packet_id;
+            pl->last_state_packet_id = info.packet_id;
 
             bool y_now_locked = !pl->collision_box()->is_lock_y() && states.st.lock_y;
             /* TODO: cheaters! */
-            if (y_now_locked)
+            if (y_now_locked || magnitude(states.position - pl->get_position()) > MP_MOVE_ADJUSTMENT_POS_THRESHOLD)
                 pl->position(states.position);
             else
                 pl->smooth_position_set(states.position);
-            pl->smooth_velocity_set(states.velocity);
+
+            if (magnitude(states.velocity - pl->get_velocity()) > MP_MOVE_ADJUSTMENT_VEL_THRESHOLD)
+                pl->velocity(states.velocity);
+            else
+                pl->smooth_velocity_set(states.velocity);
         }
         else {
             pl->position(states.position);
@@ -626,10 +687,59 @@ public:
         pl->evt_counter(states.evt_counter);
     }
 
-    void act_from_client(const player_name_t& player_name, u64, const a_spawn_bullet& act) {
-        client_server_side_shot_update(player_name, act);
+    void act_from_client(const act_from_client_t& info, const a_spawn_bullet& act) {
+        client_server_side_shot_update(info.operated_player, act);
     }
 
+    void act_from_client(const act_from_client_t& info, server_t::send_game_state_to_client_t) {
+        server->send(
+            info.ip,
+            info.port,
+            a_level_sync{
+                cur_level ? cur_level->section_name() : std::string(), game_speed, on_game},
+            [ip = info.ip, port = info.port](bool ok) {
+                if (!ok)
+                    LOG_ERR("Failed to send level init to client {}:{}", ip.toString(), port);
+            });
+
+        for (auto& [_, player] : players)
+            if (info.operated_player != player->name())
+                server->send(info.ip,
+                             info.port,
+                             a_player_game_conf_sync{player->name(),
+                                                     player->pistol_section(),
+                                                     player->body_texture_path(),
+                                                     player->face_texture_path(),
+                                                     player->body_color(),
+                                                     player->tracer_color(),
+                                                     player->get_group()},
+                             [pl_name = player->name(), ip = info.ip, port = info.port](bool ok) {
+                                 if (!ok)
+                                     LOG_ERR("Failed to send player {} init to client {}:{}",
+                                             pl_name,
+                                             ip,
+                                             port);
+                             });
+    }
+
+    void act_from_client(const act_from_client_t&, const a_cli_load_player& act) {
+        auto player = player_create(act.player_name);
+        player->group(act.group);
+        if (player) {
+            server->send_to_all(
+                a_player_game_conf_sync{player->name(),
+                                        player->pistol_section(),
+                                        player->body_texture_path(),
+                                        player->face_texture_path(),
+                                        player->body_color(),
+                                        player->tracer_color(),
+                                        player->get_group()},
+                [pl_name = player->name()](bool ok) {
+                    if (!ok)
+                        LOG_ERR("Failed to send player {} init to clients", pl_name);
+                });
+        }
+    }
 
     /*========================== client side actions ============================*/
 
@@ -647,7 +757,16 @@ public:
     }
 
     void act_from_server(u64 packet_id, const a_srv_player_states& player_states) {
-        auto& player = players.at(player_states.name);
+        auto found = players.find(player_states.name);
+        if (found == players.end()) {
+            LOG_ERR("client: can't update player '{}': player not found", player_states.name);
+            return;
+        }
+
+        auto& player = found->second;
+
+        if (player_states.evt_counter < player->evt_counter())
+            return;
 
         if constexpr (MP_MOVE_ADJUSTMENT) {
             if (player->last_state_packet_id > packet_id)
@@ -655,11 +774,17 @@ public:
             player->last_state_packet_id = packet_id;
 
             bool y_now_locked = !player->collision_box()->is_lock_y() && player_states.st.lock_y;
-            if (y_now_locked)
+            if (y_now_locked || magnitude(player_states.position - player->get_position()) >
+                                    MP_MOVE_ADJUSTMENT_POS_THRESHOLD)
                 player->position(player_states.position);
             else
                 player->smooth_position_set(player_states.position);
-            player->smooth_velocity_set(player_states.velocity);
+
+            if (magnitude(player_states.velocity - player->get_velocity()) >
+                MP_MOVE_ADJUSTMENT_VEL_THRESHOLD)
+                player->velocity(player_states.velocity);
+            else
+                player->smooth_velocity_set(player_states.velocity);
         }
         else {
             player->position(player_states.position);
@@ -671,45 +796,42 @@ public:
     }
 
     void act_from_server(u64 packet_id, const a_srv_player_physic_sync& sync_state) {
-        auto& player = players.at(sync_state.name);
+        auto found = players.find(sync_state.name);
+        if (found == players.end()) {
+            LOG_ERR("client: can't physic sync player '{}': player not found", sync_state.name);
+            return;
+        }
+
+        auto& player = found->second;
+
+        if (sync_state.evt_counter < player->evt_counter())
+            return;
 
         if constexpr (MP_MOVE_ADJUSTMENT) {
             if (player->last_state_packet_id > packet_id)
                 return;
             player->last_state_packet_id = packet_id;
-        }
 
-        if (controlled_players.size() > 2)
-            throw std::runtime_error("Client can has only one controlled player");
-
-        auto found_controlled_player = controlled_players.find(sync_state.name);
-        if (found_controlled_player != controlled_players.end()) {
-            if constexpr (MP_MOVE_ADJUSTMENT) {
-                bool y_now_locked = !player->collision_box()->is_lock_y() && sync_state.st.lock_y;
-
-                if (y_now_locked) {
-                    player->position(sync_state.position);
-                }
-                else {
-                    player->smooth_position_set(sync_state.position);
-                }
-                player->smooth_velocity_set(sync_state.velocity);
-            }
-            else {
+            bool y_now_locked = !player->collision_box()->is_lock_y() && sync_state.st.lock_y;
+            if (y_now_locked || magnitude(sync_state.position - player->get_position()) >
+                                    MP_MOVE_ADJUSTMENT_POS_THRESHOLD)
                 player->position(sync_state.position);
-                player->velocity(sync_state.velocity);
-            }
+            else
+                player->smooth_position_set(sync_state.position);
 
-            player->update_from_client(sync_state.st);
-            LOG_UPDATE("{} {}", sync_state.evt_counter, player->evt_counter());
-            if (sync_state.evt_counter < player->evt_counter())
-                return;
+            if (magnitude(sync_state.velocity - player->get_velocity()) > MP_MOVE_ADJUSTMENT_VEL_THRESHOLD)
+                player->velocity(sync_state.velocity);
+            else
+                player->smooth_velocity_set(sync_state.velocity);
         }
-        {
-            if (sync_state.evt_counter < player->evt_counter()) {
-                return;
-            }
+        else {
+            player->position(sync_state.position);
+            player->velocity(sync_state.velocity);
         }
+
+        player->update_from_client(sync_state.st);
+        player->group(sync_state.group);
+        //LOG_UPDATE("{} {}", sync_state.evt_counter, player->evt_counter());
 
         auto old_gun_name = player->get_gun() ? player->get_gun().get_weapon()->section() : "";
         if (old_gun_name != sync_state.cur_wpn_name) {
@@ -721,23 +843,52 @@ public:
         client_server_side_shot_update(act.name, act);
     }
 
+    void act_from_server(u64, const a_level_sync& act) {
+        level_current(act.level_name);
+
+        game_speed = act.game_speed;
+        on_game    = act.on_game;
+    }
+
+    void act_from_server(u64, const a_player_game_conf_sync& act) {
+        auto pl = player_create(act.player_name);
+        if (!pl) {
+            auto found = players.find(act.player_name);
+            if (found == players.end()) {
+                LOG_ERR("client: can't sync player {}", act.player_name);
+                return;
+            }
+            pl = found->second.get();
+        }
+
+        pl->set_body(act.body_txtr, act.body_color);
+        pl->set_face(act.face_txtr, act.body_color);
+        pl->tracer_color(act.tracer_color);
+        pl->setup_pistol(act.pistol);
+        pl->group(act.group);
+    }
+
     void act_from_server(u64, const auto&) {} /* dummy */
 
 
 
     /*====================== client/server side actions =========================*/
 
-    void client_server_side_shot_update(const player_name_t& player_name, const a_spawn_bullet& act) {
+    void client_server_side_shot_update(const player_name_t&  player_name,
+                                        const a_spawn_bullet& act) {
         auto found_player = players.find(player_name);
         if (found_player == players.end())
             return;
 
-        auto& pl = found_player->second;
-        float latency = 0.f;
-        if (client)
-            latency = this_ping;
-        if (server)
-            latency = static_cast<float>(server->get_ping(player_name)) * 0.001f;
+        auto& pl      = found_player->second;
+        auto  latency = !server ? 0.f : static_cast<float>(server->get_ping(player_name)) * 0.001f;
+
+        if (server) {
+            auto new_act = act;
+            for (auto& b : new_act.bullets)
+                b._position += b._velocity * latency;
+            server->send_to_all_except_client_player(player_name, new_act);
+        }
 
         for (auto& blt : act.bullets) {
             auto& b = blt_mgr.shot(sim,
@@ -748,6 +899,9 @@ public:
                                    pl->get_group(),
                                    player::player_group_getter);
 
+            if (client)
+                continue;
+
             kick_mgr.spawn(sim,
                            blt._position,
                            blt._position + blt._velocity * latency,
@@ -757,9 +911,6 @@ public:
                            b.physic());
 
             for (auto& [_, plr] : players) {
-                if (controlled_players.contains(plr->name()))
-                    continue;
-
                 auto plr_point = plr->get_position();
                 auto plr_size  = plr->get_size();
                 if (plr_point.x > blt._position.x)
@@ -785,7 +936,6 @@ public:
     struct controll_player_t {
         std::shared_ptr<player_controller> controller;
         std::shared_ptr<player>            this_player;
-        player_states_t                    states;
     };
 
     using controlled_players_t = std::map<player_name_t, controll_player_t>;
@@ -798,7 +948,7 @@ public:
     std::shared_ptr<level>                                cur_level;
     bool                                                  on_game;
 
-    std::shared_ptr<client_state> client;
+    std::unique_ptr<client_state> client;
     std::unique_ptr<server_t>     server;
     sf::Clock                     server_sync_timer;
     float                         server_sync_step = 0.06f;

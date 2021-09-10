@@ -6,6 +6,13 @@
 #include <vector>
 #include <string>
 
+#ifndef NDEBUG
+#define Expects(...) do { if (!(__VA_ARGS__)) std::terminate(); } while(0)
+#else
+#define Expects(...) void(0)
+#endif
+
+
 namespace dfdh {
 
 using namespace std::string_view_literals;
@@ -26,6 +33,8 @@ template<typename... Ts>
 struct overloaded : Ts... {
     using Ts::operator()...;
 };
+template<typename... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
 
 template <typename T>
 struct is_std_array : std::false_type {};
@@ -52,10 +61,19 @@ template <typename T>
 concept Unsigned = std::is_unsigned_v<T>;
 
 template <typename T>
+concept FloatingPoint = std::is_floating_point_v<T>;
+
+template <typename T>
 concept Number = Integral<T> || std::is_floating_point_v<T>;
 
 template<typename T, typename... ArgsT>
 concept AnyOfType = (std::is_same_v<T, ArgsT> || ...);
+
+template <typename T>
+concept Enum = std::is_enum_v<T>;
+
+template <typename... Ts>
+struct type_tuple {};
 
 template <typename... Ts>
 requires requires(const Ts&... s) {

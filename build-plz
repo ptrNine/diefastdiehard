@@ -174,6 +174,40 @@ build_executable() {
     fi
 }
 
+codegen_step() {
+    local builddir="$1"
+    local CXX_COMPILER="$2"
+
+    local deps_list="$builddir/.ezbld/net_actions_gen-list"
+    local new_deps_list="$builddir/.ezbld/new-net_actions_gen-list"
+
+    rm -f "$new_deps_list"
+    for f in $(include_scan 'src/net_actions_generator.cpp'); do
+        stat --printf="%Y:%n\n" "$f" >> "$new_deps_list"
+    done
+    stat --printf="%Y:%n\n" 'src/net_actions.hpp' >> "$new_deps_list"
+
+    if [ ! -f "$deps_list" ] || \
+        ! cmp --silent "$deps_list" "$new_deps_list"; then
+        rm -f "$deps_list"
+
+        build_executable \
+            net_actions_generator \
+            src/net_actions_generator.cpp \
+            "$builddir" \
+            "$CXX_COMPILER" \
+            false
+
+        local start_tm=$(mstime)
+        colored yellow "Generating src/net_actions_generated.hpp ... " n
+        $CXX_COMPILER -E 'src/net_actions.hpp' 2>/dev/null | "$builddir/net_actions_generator" > 'src/net_actions_generated.hpp' \
+            || fail "Generation of src/net_actions_generated.hpp failed"
+        colored lgreen "done! $(measure $start_tm)s"
+
+        mv -f "$new_deps_list" "$deps_list"
+    fi
+}
+
 make_pch() {
     local location="$1"
     local builddir="$2"
@@ -265,6 +299,9 @@ _build() {
     local compodb=false
     local debug=false
     local asan=false
+    local android_abi=
+    local android_platform=
+    local android_ndk=
     local run_args=
 
     while [ -n "$1" ]; do
@@ -297,6 +334,24 @@ _build() {
             shift
             run_args="LD_LIBRARY_PATH='$builddir/3rd/lib:$builddir/3rd/lib64' gdb --args $builddir/$@"
             break
+            ;;
+        --android)
+            android_abi=arm64-v8a
+            android_platform=29
+            android_ndk="$HOME/android-ndk-r23-beta6"
+            [[ ! $builddir =~ *-android ]] && builddir="$builddir-android"
+            ;;
+        --android-abi=*)
+            android_abi="${1#*=}"
+            [[ ! $builddir =~ *-android ]] && builddir="$builddir-android"
+            ;;
+        --android-platform=*)
+            android_platform="${1#*=}"
+            [[ ! $builddir =~ *-android ]] && builddir="$builddir-android"
+            ;;
+        --android-ndk=*)
+            android_ndk="${1#*=}"
+            [[ ! $builddir =~ *-android ]] && builddir="$builddir-android"
             ;;
         *)
             fail "Unknown argument $1"
@@ -334,7 +389,6 @@ $([ "$asan" == true ] && asan_flags)
     if [ ! -f "$builddir/submodules/SFML/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
         git submodule init submodules/SFML || fail ""
         git submodule update submodules/SFML || fail ""
-        rm -f "$builddir/.easybuild-list"
         rm -f "$builddir/submodules/SFML/.easybuild_done"
         cmake submodules/SFML/ -B "$builddir/submodules/SFML" \
             -DCMAKE_BUILD_TYPE=Release \
@@ -347,6 +401,36 @@ $([ "$asan" == true ] && asan_flags)
             || fail "SFML submodule build failed"
 
         touch "$builddir/submodules/SFML/.easybuild_done"
+    fi
+
+    if [ ! -f "$builddir/submodules/boost/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
+        git submodule init submodules/boost || fail
+        git submodule update --init --recursive submodules/boost || fail
+
+        mkdir -p "$builddir/submodules/boost"
+        rm -rf "$builddir/submodules/boost/*"
+        pushd 'submodules/boost' &> /dev/null
+
+        local variant=
+        [ $debug = true ] && variant=debug || variant=release
+
+        if [ ! -f ./b2 ]; then
+            ./bootstrap.sh || fail
+        fi
+        sed -i "s|using gcc .*|using gcc : : $(basename "$CXX_COMPILER") ;|g" ./project-config.jam
+        ./b2 \
+            variant=$variant \
+            link=static \
+                --with-fiber \
+                --with-coroutine \
+            install \
+                --no-cmake-config \
+                --prefix="../../$builddir/3rd/" \
+            || fail
+
+        popd &> /dev/null
+
+        touch "$builddir/submodules/boost/.easybuild_done"
     fi
 
     if [ ! -f "$builddir/3rd/include/nuklear.h" ]; then
@@ -371,6 +455,10 @@ $([ "$asan" == true ] && asan_flags)
         "$hardening_flags" \
         "-lsfml-system -lsfml-window -lsfml-graphics -lGL -lGLEW"
 
+    codegen_step \
+        "$builddir" \
+        "$CXX_COMPILER"
+
     build_executable \
         dfdh \
         diefastdiehard.cpp \
@@ -378,7 +466,16 @@ $([ "$asan" == true ] && asan_flags)
         "$CXX_COMPILER" \
         "$debug" \
         "$hardening_flags" \
-        "-lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread -lGL -lGLEW"
+        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread -lGL -lGLEW"
+
+    build_executable \
+        coro-test \
+        coro_test.cpp \
+        "$builddir" \
+        "$CXX_COMPILER" \
+        "$debug" \
+        "$hardening_flags" \
+        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread -lGL -lGLEW"
 
     build_executable \
         gui-test \

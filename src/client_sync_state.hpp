@@ -5,13 +5,20 @@
 
 namespace dfdh {
 
+
+enum class sync_state {
+    start = 0, send, ok, fail
+};
+
 struct client_sync_state {
     [[nodiscard]]
     bool on_game() const {
-        return !operated_player.empty() && init_sync_ok;
+        return !operated_player.empty()/* && init_sync == sync_state::ok*/;
     }
 
-    bool          init_sync_ok = false;
+    bool init_sended = false;
+    //sync_state init_sync;
+
     player_name_t operated_player;
 };
 

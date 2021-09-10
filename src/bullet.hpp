@@ -125,7 +125,13 @@ public:
     }
 
     template <typename F>
-    auto& shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color, int group, F player_group_getter) {
+    auto& shot(physic_simulation&  sim,
+               const sf::Vector2f& position,
+               float               mass,
+               const sf::Vector2f& velocity,
+               sf::Color           color,
+               int                 group,
+               F                   player_group_getter) {
         auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, group);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
@@ -140,7 +146,11 @@ public:
         return res;
     }
 
-    auto& shot(physic_simulation& sim, const sf::Vector2f& position, float mass, const sf::Vector2f& velocity, sf::Color color) {
+    auto& shot(physic_simulation&  sim,
+               const sf::Vector2f& position,
+               float               mass,
+               const sf::Vector2f& velocity,
+               sf::Color           color) {
         auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, -1);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
