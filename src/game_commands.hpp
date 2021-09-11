@@ -92,8 +92,8 @@ public:
             LOG("{}", help);
     }
 
-    void cmd_connect(const std::string& ip, u16 port) {
-        gs.connect_to_server(ip, port);
+    void cmd_connect(const std::string& address) {
+        gs.connect_to_server(address_t::str(address));
     }
 
     void cmd_srv_init() {

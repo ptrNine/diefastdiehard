@@ -4,9 +4,9 @@
 #include <cmath>
 #include <any>
 
-#include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics/Rect.hpp>
 
+#include "vec2.hpp"
 #include "vec_math.hpp"
 #include "types.hpp"
 
@@ -19,20 +19,20 @@ public:
     friend class physic_group;
     friend class physic_simulation;
 
-    static std::shared_ptr<physic_point> create(const sf::Vector2f& iposition        = {0.f, 0.f},
-                                                const sf::Vector2f& idir             = {1.f, 0.f},
-                                                float               iscalar_velocity = 0.f,
-                                                float               imass            = 1.f,
-                                                float               ielasticity      = 0.5f) {
+    static std::shared_ptr<physic_point> create(const vec2f& iposition        = {0.f, 0.f},
+                                                const vec2f& idir             = {1.f, 0.f},
+                                                float        iscalar_velocity = 0.f,
+                                                float        imass            = 1.f,
+                                                float        ielasticity      = 0.5f) {
         return std::make_shared<physic_point>(
             iposition, idir, iscalar_velocity, imass, ielasticity);
     }
 
-    physic_point(const sf::Vector2f& iposition        = {0.f, 0.f},
-                 const sf::Vector2f& idir             = {1.f, 0.f},
-                 float               iscalar_velocity = 0.f,
-                 float               imass            = 1.f,
-                 float               ielasticity      = 0.5f):
+    physic_point(const vec2f& iposition        = {0.f, 0.f},
+                 const vec2f& idir             = {1.f, 0.f},
+                 float        iscalar_velocity = 0.f,
+                 float        imass            = 1.f,
+                 float        ielasticity      = 0.5f):
         _position(iposition),
         _dir(idir),
         _scalar_velocity(iscalar_velocity),
@@ -74,37 +74,37 @@ public:
         _distance += magnitude(mov);
     }
 
-    virtual void apply_impulse(const sf::Vector2f& value) {
+    virtual void apply_impulse(const vec2f& value) {
         /* TODO: apply to group if it is child */
         velocity(get_velocity() + value / get_mass());
     }
 
     [[nodiscard]]
-    sf::Vector2f interpolated_pos(float timestep, float f) const {
+    vec2f interpolated_pos(float timestep, float f) const {
         return _position + _prev_dir * _prev_scalar_velocity * timestep * f;
     }
 
 protected:
-    sf::Vector2f                       _position;
-    sf::Vector2f                       _dir;
-    float                              _scalar_velocity;
-    float                              _mass;
-    float                              _elasticity;
-    std::weak_ptr<physic_group>        _group;
-    sf::FloatRect                      _bb;
-    bool                               _delete_later;
-    bool                               _fixed;
-    bool                               _enable_gravity;
-    bool                               _lock_y;
-    bool                               _allow_platform;
-    u64                                _user_data;
-    std::any                           _user_any;
+    vec2f                       _position;
+    vec2f                       _dir;
+    float                       _scalar_velocity;
+    float                       _mass;
+    float                       _elasticity;
+    std::weak_ptr<physic_group> _group;
+    sf::FloatRect               _bb;
+    bool                        _delete_later;
+    bool                        _fixed;
+    bool                        _enable_gravity;
+    bool                        _lock_y;
+    bool                        _allow_platform;
+    u64                         _user_data;
+    std::any                    _user_any;
+
     std::function<bool(const physic_point*)> _collide_allower;
-    float                              _distance;
+    float                                    _distance;
 
-    sf::Vector2f                       _prev_dir;
-    float                              _prev_scalar_velocity;
-
+    vec2f _prev_dir;
+    float _prev_scalar_velocity;
 
 public:
     virtual void user_any(std::any value) {
@@ -127,7 +127,7 @@ public:
     }
 
     [[nodiscard]]
-    const sf::Vector2f& prev_dir() const {
+    const vec2f& prev_dir() const {
         return _prev_dir;
     }
 
@@ -161,23 +161,23 @@ public:
                (pp->collide_allower() ? pp->collide_allower()(this) : true);
     }
 
-    virtual void position(const sf::Vector2f& value) {
+    virtual void position(const vec2f& value) {
         _position = value;
     }
 
     [[nodiscard]]
-    const sf::Vector2f& get_position() const {
+    const vec2f& get_position() const {
         return _position;
     }
 
-    virtual void direction(const sf::Vector2f& direction) {
+    virtual void direction(const vec2f& direction) {
         auto d = normalize(direction);
         if (!std::isnan(d.x) && !std::isnan(d.y))
             _dir = d;
     }
 
     [[nodiscard]]
-    const sf::Vector2f& get_direction() const {
+    const vec2f& get_direction() const {
         return _dir;
     }
 
@@ -192,26 +192,26 @@ public:
         return _scalar_velocity;
     }
 
-    virtual void velocity(const sf::Vector2f& value) {
+    virtual void velocity(const vec2f& value) {
         auto m = magnitude(value);
         _scalar_velocity = m;
         direction(value);
     }
 
     [[nodiscard]]
-    sf::Vector2f get_velocity() const {
+    vec2f get_velocity() const {
         auto vel = _dir * scalar_velocity();
         if (_lock_y)
             vel.y = 0.f;
         return vel;
     }
 
-    virtual void impulse(const sf::Vector2f& value) {
+    virtual void impulse(const vec2f& value) {
         velocity(value / get_mass());
     }
 
     [[nodiscard]]
-    sf::Vector2f impulse() const {
+    vec2f impulse() const {
         return get_velocity() * get_mass();
     }
 

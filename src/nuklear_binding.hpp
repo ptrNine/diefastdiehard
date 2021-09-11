@@ -2,8 +2,9 @@
 #pragma once
 
 #include "types.hpp"
+#include "vec2.hpp"
+
 #include <nuklear.h>
-#include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics/Color.hpp>
 
 NK_API nk_bool nk_selectable_image(struct nk_context* ctx, struct nk_image img, nk_bool* value);
@@ -50,7 +51,7 @@ public:
         return nk_input_button(_ctx, buttons, x, y, (down ? nk_true : nk_false));
     }
 
-    void input_scroll(sf::Vector2f val) {
+    void input_scroll(vec2f val) {
         return nk_input_scroll(_ctx, nk_vec2(val.x, val.y));
     }
 
@@ -98,12 +99,12 @@ public:
         return nk_window_get_bounds(_ctx);
     }
 
-    sf::Vector2f window_get_position() {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_window_get_position(_ctx));
+    vec2f window_get_position() {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_window_get_position(_ctx));
     }
 
-    sf::Vector2f window_get_size() {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_window_get_size(_ctx));
+    vec2f window_get_size() {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_window_get_size(_ctx));
     }
 
     float window_get_width() {
@@ -122,16 +123,16 @@ public:
         return nk_window_get_content_region(_ctx);
     }
 
-    sf::Vector2f window_get_content_region_min() {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_window_get_content_region_min(_ctx));
+    vec2f window_get_content_region_min() {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_window_get_content_region_min(_ctx));
     }
 
-    sf::Vector2f window_get_content_region_max() {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_window_get_content_region_max(_ctx));
+    vec2f window_get_content_region_max() {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_window_get_content_region_max(_ctx));
     }
 
-    sf::Vector2f window_get_content_region_size() {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_window_get_content_region_size(_ctx));
+    vec2f window_get_content_region_size() {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_window_get_content_region_size(_ctx));
     }
 
     struct nk_command_buffer* window_get_canvas() {
@@ -178,11 +179,11 @@ public:
         return nk_window_set_bounds(_ctx, name, bounds);
     }
 
-    void window_set_position(const char* name, sf::Vector2f pos) {
+    void window_set_position(const char* name, vec2f pos) {
         return nk_window_set_position(_ctx, name, nk_vec2(pos.x, pos.y));
     }
 
-    void window_set_size(const char* name, sf::Vector2f vec2) {
+    void window_set_size(const char* name, vec2f vec2) {
         return nk_window_set_size(_ctx, name, nk_vec2(vec2.x, vec2.y));
     }
 
@@ -290,12 +291,12 @@ public:
         return nk_layout_space_bounds(_ctx);
     }
 
-    sf::Vector2f layout_space_to_screen(sf::Vector2f vec2) {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_layout_space_to_screen(_ctx, nk_vec2(vec2.x, vec2.y)));
+    vec2f layout_space_to_screen(vec2f vec2) {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_layout_space_to_screen(_ctx, nk_vec2(vec2.x, vec2.y)));
     }
 
-    sf::Vector2f layout_space_to_local(sf::Vector2f vec2) {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_layout_space_to_local(_ctx, nk_vec2(vec2.x, vec2.y)));
+    vec2f layout_space_to_local(vec2f vec2) {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_layout_space_to_local(_ctx, nk_vec2(vec2.x, vec2.y)));
     }
 
     struct nk_rect layout_space_rect_to_screen(struct nk_rect rect) {
@@ -382,12 +383,12 @@ public:
         return nk_widget_bounds(_ctx);
     }
 
-    sf::Vector2f widget_position() {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_widget_position(_ctx));
+    vec2f widget_position() {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_widget_position(_ctx));
     }
 
-    sf::Vector2f widget_size() {
-        return [](struct nk_vec2 v) { return sf::Vector2f{v.x, v.y}; }(nk_widget_size(_ctx));
+    vec2f widget_size() {
+        return [](struct nk_vec2 v) { return vec2f{v.x, v.y}; }(nk_widget_size(_ctx));
     }
 
     float widget_width() {
@@ -766,71 +767,71 @@ public:
         return nk_popup_set_scroll(_ctx, offset_x, offset_y);
     }
 
-    int combo(const char** items, int count, int selected, int item_height, sf::Vector2f size) {
+    int combo(const char** items, int count, int selected, int item_height, vec2f size) {
         return nk_combo(_ctx, items, count, selected, item_height, nk_vec2(size.x, size.y));
     }
 
-    int combo_separator(const char* items_separated_by_separator, int separator, int selected, int count, int item_height, sf::Vector2f size) {
+    int combo_separator(const char* items_separated_by_separator, int separator, int selected, int count, int item_height, vec2f size) {
         return nk_combo_separator(_ctx, items_separated_by_separator, separator, selected, count, item_height, nk_vec2(size.x, size.y));
     }
 
-    int combo_string(const char* items_separated_by_zeros, int selected, int count, int item_height, sf::Vector2f size) {
+    int combo_string(const char* items_separated_by_zeros, int selected, int count, int item_height, vec2f size) {
         return nk_combo_string(_ctx, items_separated_by_zeros, selected, count, item_height, nk_vec2(size.x, size.y));
     }
 
-    int combo_callback(nkfunc<void(void*, int, const char**)> item_getter, void* userdata, int selected, int count, int item_height, sf::Vector2f size) {
+    int combo_callback(nkfunc<void(void*, int, const char**)> item_getter, void* userdata, int selected, int count, int item_height, vec2f size) {
         return nk_combo_callback(_ctx, item_getter, userdata, selected, count, item_height, nk_vec2(size.x, size.y));
     }
 
-    void combobox(const char** items, int count, int* selected, int item_height, sf::Vector2f size) {
+    void combobox(const char** items, int count, int* selected, int item_height, vec2f size) {
         return nk_combobox(_ctx, items, count, selected, item_height, nk_vec2(size.x, size.y));
     }
 
-    void combobox_string(const char* items_separated_by_zeros, int* selected, int count, int item_height, sf::Vector2f size) {
+    void combobox_string(const char* items_separated_by_zeros, int* selected, int count, int item_height, vec2f size) {
         return nk_combobox_string(_ctx, items_separated_by_zeros, selected, count, item_height, nk_vec2(size.x, size.y));
     }
 
-    void combobox_separator(const char* items_separated_by_separator, int separator, int* selected, int count, int item_height, sf::Vector2f size) {
+    void combobox_separator(const char* items_separated_by_separator, int separator, int* selected, int count, int item_height, vec2f size) {
         return nk_combobox_separator(_ctx, items_separated_by_separator, separator, selected, count, item_height, nk_vec2(size.x, size.y));
     }
 
-    void combobox_callback(nkfunc<void(void*, int, const char**)> item_getter, void* CHANGE_THIS_NAME, int* selected, int count, int item_height, sf::Vector2f size) {
+    void combobox_callback(nkfunc<void(void*, int, const char**)> item_getter, void* CHANGE_THIS_NAME, int* selected, int count, int item_height, vec2f size) {
         return nk_combobox_callback(_ctx, item_getter, CHANGE_THIS_NAME, selected, count, item_height, nk_vec2(size.x, size.y));
     }
 
-    bool combo_begin_text(const char* selected, int CHANGE_THIS_NAME, sf::Vector2f size) {
+    bool combo_begin_text(const char* selected, int CHANGE_THIS_NAME, vec2f size) {
         return nk_combo_begin_text(_ctx, selected, CHANGE_THIS_NAME, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_label(const char* selected, sf::Vector2f size) {
+    bool combo_begin_label(const char* selected, vec2f size) {
         return nk_combo_begin_label(_ctx, selected, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_color(sf::Color color, sf::Vector2f size) {
+    bool combo_begin_color(sf::Color color, vec2f size) {
         return nk_combo_begin_color(_ctx, nk_color{color.r, color.g, color.b, color.a}, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_symbol(enum nk_symbol_type symbol_type, sf::Vector2f size) {
+    bool combo_begin_symbol(enum nk_symbol_type symbol_type, vec2f size) {
         return nk_combo_begin_symbol(_ctx, symbol_type, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_symbol_label(const char* selected, enum nk_symbol_type symbol_type, sf::Vector2f size) {
+    bool combo_begin_symbol_label(const char* selected, enum nk_symbol_type symbol_type, vec2f size) {
         return nk_combo_begin_symbol_label(_ctx, selected, symbol_type, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_symbol_text(const char* selected, int CHANGE_THIS_NAME, enum nk_symbol_type symbol_type, sf::Vector2f size) {
+    bool combo_begin_symbol_text(const char* selected, int CHANGE_THIS_NAME, enum nk_symbol_type symbol_type, vec2f size) {
         return nk_combo_begin_symbol_text(_ctx, selected, CHANGE_THIS_NAME, symbol_type, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_image(struct nk_image img, sf::Vector2f size) {
+    bool combo_begin_image(struct nk_image img, vec2f size) {
         return nk_combo_begin_image(_ctx, img, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_image_label(const char* selected, struct nk_image image, sf::Vector2f size) {
+    bool combo_begin_image_label(const char* selected, struct nk_image image, vec2f size) {
         return nk_combo_begin_image_label(_ctx, selected, image, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool combo_begin_image_text(const char* selected, int CHANGE_THIS_NAME, struct nk_image image, sf::Vector2f size) {
+    bool combo_begin_image_text(const char* selected, int CHANGE_THIS_NAME, struct nk_image image, vec2f size) {
         return nk_combo_begin_image_text(_ctx, selected, CHANGE_THIS_NAME, image, nk_vec2(size.x, size.y)) == nk_true;
     }
 
@@ -866,7 +867,7 @@ public:
         return nk_combo_end(_ctx);
     }
 
-    bool contextual_begin(nk_flags flags, sf::Vector2f vec2, struct nk_rect trigger_bounds) {
+    bool contextual_begin(nk_flags flags, vec2f vec2, struct nk_rect trigger_bounds) {
         return nk_contextual_begin(_ctx, flags, nk_vec2(vec2.x, vec2.y), trigger_bounds) == nk_true;
     }
 
@@ -922,35 +923,35 @@ public:
         return nk_menubar_end(_ctx);
     }
 
-    bool menu_begin_text(const char* title, int title_len, nk_flags align, sf::Vector2f size) {
+    bool menu_begin_text(const char* title, int title_len, nk_flags align, vec2f size) {
         return nk_menu_begin_text(_ctx, title, title_len, align, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool menu_begin_label(const char* str, nk_flags align, sf::Vector2f size) {
+    bool menu_begin_label(const char* str, nk_flags align, vec2f size) {
         return nk_menu_begin_label(_ctx, str, align, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool menu_begin_image(const char* str, struct nk_image image, sf::Vector2f size) {
+    bool menu_begin_image(const char* str, struct nk_image image, vec2f size) {
         return nk_menu_begin_image(_ctx, str, image, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool menu_begin_image_text(const char* str, int CHANGE_THIS_NAME, nk_flags align, struct nk_image image, sf::Vector2f size) {
+    bool menu_begin_image_text(const char* str, int CHANGE_THIS_NAME, nk_flags align, struct nk_image image, vec2f size) {
         return nk_menu_begin_image_text(_ctx, str, CHANGE_THIS_NAME, align, image, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool menu_begin_image_label(const char* str, nk_flags align, struct nk_image image, sf::Vector2f size) {
+    bool menu_begin_image_label(const char* str, nk_flags align, struct nk_image image, vec2f size) {
         return nk_menu_begin_image_label(_ctx, str, align, image, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool menu_begin_symbol(const char* str, enum nk_symbol_type symbol_type, sf::Vector2f size) {
+    bool menu_begin_symbol(const char* str, enum nk_symbol_type symbol_type, vec2f size) {
         return nk_menu_begin_symbol(_ctx, str, symbol_type, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool menu_begin_symbol_text(const char* str, int CHANGE_THIS_NAME, nk_flags align, enum nk_symbol_type symbol_type, sf::Vector2f size) {
+    bool menu_begin_symbol_text(const char* str, int CHANGE_THIS_NAME, nk_flags align, enum nk_symbol_type symbol_type, vec2f size) {
         return nk_menu_begin_symbol_text(_ctx, str, CHANGE_THIS_NAME, align, symbol_type, nk_vec2(size.x, size.y)) == nk_true;
     }
 
-    bool menu_begin_symbol_label(const char* str, nk_flags align, enum nk_symbol_type symbol_type, sf::Vector2f size) {
+    bool menu_begin_symbol_label(const char* str, nk_flags align, enum nk_symbol_type symbol_type, vec2f size) {
         return nk_menu_begin_symbol_label(_ctx, str, align, symbol_type, nk_vec2(size.x, size.y)) == nk_true;
     }
 
@@ -1026,7 +1027,7 @@ public:
         return nk_style_push_float(_ctx, CHANGE_THIS_NAME, CHANGE_THIS_NAME1) == nk_true;
     }
 
-    bool style_push_vec2(struct nk_vec2* vec2, sf::Vector2f vec21) {
+    bool style_push_vec2(struct nk_vec2* vec2, vec2f vec21) {
         return nk_style_push_vec2(_ctx, vec2, nk_vec2(vec21.x, vec21.y)) == nk_true;
     }
 

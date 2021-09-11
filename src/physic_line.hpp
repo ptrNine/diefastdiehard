@@ -16,26 +16,26 @@ class physic_group;
 
 class physic_line : public physic_point {
 public:
-    physic_line(const sf::Vector2f& iposition        = {0.f, 0.f},
-                const sf::Vector2f& idisplacement    = {1.f, 1.f},
-                const sf::Vector2f& idir             = {1.f, 0.f},
-                float               iscalar_velocity = 0.f,
-                float               imass            = 1.f,
-                float               ielasticity      = 0.5f):
+    physic_line(const vec2f& iposition        = {0.f, 0.f},
+                const vec2f& idisplacement    = {1.f, 1.f},
+                const vec2f& idir             = {1.f, 0.f},
+                float        iscalar_velocity = 0.f,
+                float        imass            = 1.f,
+                float        ielasticity      = 0.5f):
         physic_point(iposition, idir, iscalar_velocity, imass, ielasticity),
         displacement(idisplacement) {}
 
-    static std::shared_ptr<physic_line> create(const sf::Vector2f& iposition        = {0.f, 0.f},
-                                               const sf::Vector2f& idisplacement    = {1.f, 1.f},
-                                               const sf::Vector2f& idir             = {1.f, 0.f},
-                                               float               iscalar_velocity = 0.f,
-                                               float               imass            = 1.f,
-                                               float               ielasticity      = 0.5f) {
+    static std::shared_ptr<physic_line> create(const vec2f& iposition        = {0.f, 0.f},
+                                               const vec2f& idisplacement    = {1.f, 1.f},
+                                               const vec2f& idir             = {1.f, 0.f},
+                                               float        iscalar_velocity = 0.f,
+                                               float        imass            = 1.f,
+                                               float        ielasticity      = 0.5f) {
         return std::make_shared<physic_line>(
             iposition, idisplacement, idir, iscalar_velocity, imass, ielasticity);
     }
 
-    sf::Vector2f displacement = {1.f, 1.f};
+    vec2f displacement = {1.f, 1.f};
 
 public:
     void update_bb(float timestep) override {
@@ -70,7 +70,7 @@ public:
     }
 
     [[nodiscard]]
-    std::pair<sf::Vector2f, sf::Vector2f> interpolated_pos2(float timestep, float f) const {
+    std::pair<vec2f, vec2f> interpolated_pos2(float timestep, float f) const {
         auto displ = _prev_dir * _prev_scalar_velocity * timestep * f;
         return std::pair{_position + displ, _position + displacement + displ};
     }

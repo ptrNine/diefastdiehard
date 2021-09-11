@@ -1,9 +1,9 @@
 #pragma once
 
-#include "types.hpp"
-#include <SFML/System/Vector2.hpp>
 #include <vector>
 #include <map>
+
+#include "types.hpp"
 #include "physic_point.hpp"
 
 namespace dfdh {
@@ -12,18 +12,18 @@ class physic_group : public physic_point, public std::enable_shared_from_this<ph
 public:
     friend class group_tree_iterator;
 
-    physic_group(const sf::Vector2f& iposition        = {0.f, 0.f},
-                 const sf::Vector2f& idir             = {1.f, 0.f},
-                 float               iscalar_velocity = 0.f,
-                 float               imass            = 1.f,
-                 float               ielasticity      = 0.5f):
+    physic_group(const vec2f& iposition        = {0.f, 0.f},
+                 const vec2f& idir             = {1.f, 0.f},
+                 float        iscalar_velocity = 0.f,
+                 float        imass            = 1.f,
+                 float        ielasticity      = 0.5f):
         physic_point(iposition, idir, iscalar_velocity, imass, ielasticity) {}
 
-    static std::shared_ptr<physic_group> create(const sf::Vector2f& iposition        = {0.f, 0.f},
-                                                const sf::Vector2f& idir             = {1.f, 0.f},
-                                                float               iscalar_velocity = 0.f,
-                                                float               imass            = 1.f,
-                                                float               ielasticity      = 0.5f) {
+    static std::shared_ptr<physic_group> create(const vec2f& iposition        = {0.f, 0.f},
+                                                const vec2f& idir             = {1.f, 0.f},
+                                                float        iscalar_velocity = 0.f,
+                                                float        imass            = 1.f,
+                                                float        ielasticity      = 0.5f) {
         return std::make_shared<physic_group>(
             iposition, idir, iscalar_velocity, imass, ielasticity);
     }
@@ -60,7 +60,7 @@ public:
     }
 
 private:
-    using element_t = std::pair<std::shared_ptr<physic_point>, sf::Vector2f>;
+    using element_t = std::pair<std::shared_ptr<physic_point>, vec2f>;
     std::vector<element_t> _elements;
 
 public:
@@ -82,13 +82,13 @@ public:
             e->record_dir_and_velocity();
     }
 
-    void position(const sf::Vector2f& value) override {
+    void position(const vec2f& value) override {
         physic_point::position(value);
         for (auto& [e, displ] : _elements)
             e->position(_position + displ);
     }
 
-    void direction(const sf::Vector2f& value) override {
+    void direction(const vec2f& value) override {
         physic_point::direction(value);
         for (auto& [e, _] : _elements)
             e->direction(value);
@@ -100,7 +100,7 @@ public:
             e->scalar_velocity(value);
     }
 
-    void velocity(const sf::Vector2f& value) override {
+    void velocity(const vec2f& value) override {
         physic_point::velocity(value);
         for (auto& [e, _] : _elements)
             e->velocity(value);
@@ -112,7 +112,7 @@ public:
             e->scalar_impulse(value);
     }
 
-    void impulse(const sf::Vector2f& value) override {
+    void impulse(const vec2f& value) override {
         physic_point::impulse(value);
         for (auto& [e, _] : _elements)
             e->impulse(value);

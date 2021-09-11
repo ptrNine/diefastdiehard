@@ -54,7 +54,7 @@ public:
         }
     }
 
-    void provide_physic_sim(const sf::Vector2f& gravity, float time_speed, u32 last_rps) {
+    void provide_physic_sim(const vec2f& gravity, float time_speed, u32 last_rps) {
         std::lock_guard lock{mtx};
 
         physic_sim.gravity = gravity;
@@ -62,7 +62,7 @@ public:
         physic_sim.last_rps = last_rps;
     }
 
-    void provide_level(const sf::Vector2f& level_size) {
+    void provide_level(const vec2f& level_size) {
         std::lock_guard lock{mtx};
 
         level.level_size = level_size;
@@ -144,11 +144,11 @@ private:
 
 public:
     struct player_t {
-        sf::Vector2f  pos;
-        sf::Vector2f  dir;
-        sf::Vector2f  size;
-        sf::Vector2f  vel;
-        sf::Vector2f  barrel_pos;
+        vec2f         pos;
+        vec2f         dir;
+        vec2f         size;
+        vec2f         vel;
+        vec2f         barrel_pos;
         player_name_t name;
         u32           available_jumps;
         float         x_accel;
@@ -165,28 +165,28 @@ public:
     };
 
     struct physic_sim_t {
-        sf::Vector2f gravity;
-        float        time_speed;
-        u32          last_rps;
+        vec2f gravity;
+        float time_speed;
+        u32   last_rps;
     };
 
     struct level_t {
-        sf::Vector2f level_size;
+        vec2f level_size;
     };
 
     struct bullet_t {
-        sf::Vector2f pos;
-        sf::Vector2f vel;
-        float        hit_mass;
-        int          group;
+        vec2f pos;
+        vec2f vel;
+        float hit_mass;
+        int   group;
     };
 
     struct platform_t {
-        sf::Vector2f pos1;
-        sf::Vector2f pos2;
+        vec2f pos1;
+        vec2f pos2;
     };
 
-    using plat_dist_t       = sf::Vector2f;
+    using plat_dist_t       = vec2f;
     using plat_neighbours_t = std::vector<plat_dist_t>;
     using ai_plat_map_t     = std::vector<plat_neighbours_t>;
 
@@ -232,7 +232,7 @@ private:
                     continue;
                 }
 
-                sf::Vector2f dist{0.f, 0.f};
+                vec2f dist{0.f, 0.f};
 
                 auto& current   = platforms[i];
                 auto& neighbour = platforms[j];
@@ -247,9 +247,9 @@ private:
                 if ((cl <= nr && cr > nl) || (cl < nr && cr >= nl))
                     dist.y = neighbour.pos1.y - current.pos1.y;
                 else if (cl > nr)
-                    dist = sf::Vector2f{nr - cl, ny - cy};
+                    dist = vec2f{nr - cl, ny - cy};
                 else
-                    dist = sf::Vector2f{nl - cr, ny - cy};
+                    dist = vec2f{nl - cr, ny - cy};
 
                 neighbours[j] = dist;
             }
@@ -485,17 +485,17 @@ inline bool i_see_you(const ai_mgr_singleton::player_t& it, const ai_mgr_singlet
     return overlap(it.pos.y, it.pos.y + it.size.y, pl.pos.y, pl.pos.y + pl.size.y);
 }
 
-inline std::optional<std::pair<player_name_t, sf::Vector2f>>
+inline std::optional<std::pair<player_name_t, vec2f>>
 easy_ai_find_nearest(const ai_mgr_singleton::player_t&                          it,
                      const std::map<player_name_t, ai_mgr_singleton::player_t>& players,
                      const ai_mgr_singleton::level_t&                           level,
                      ai_operator&                                               oper) {
-    static constexpr auto cmp = [](const std::pair<player_name_t, sf::Vector2f>& lhs,
-                                   const std::pair<player_name_t, sf::Vector2f>& rhs) {
+    static constexpr auto cmp = [](const std::pair<player_name_t, vec2f>& lhs,
+                                   const std::pair<player_name_t, vec2f>& rhs) {
         return magnitude2(lhs.second) < magnitude2(rhs.second);
     };
 
-    std::set<std::pair<player_name_t, sf::Vector2f>, decltype(cmp)> nearests;
+    std::set<std::pair<player_name_t, vec2f>, decltype(cmp)> nearests;
     for (auto& [_, pl] : players) {
         auto iseeyou = oper.difficulty() == ai_hard ? hard_i_see_you(it, pl, level, it.gun_dispersion)
                                                       : i_see_you(it, pl);
@@ -516,13 +516,13 @@ inline auto calc_dist_to_platform(const ai_mgr_singleton::platform_t& plat,
     else if (plr.pos.x < plat.pos1.x)
         return plat.pos1 - plr.pos;
     else
-        return sf::Vector2f(0.f, plat.pos1.y - plr.pos.y);
+        return vec2f(0.f, plat.pos1.y - plr.pos.y);
 }
 
 inline platform_res_t find_platform(const std::vector<ai_mgr_singleton::platform_t>& platforms,
                                     const ai_mgr_singleton::player_t&                player) {
     platform_res_t res;
-    sf::Vector2f nearest_dist;
+    vec2f nearest_dist;
     float nearest_dist_sc = std::numeric_limits<float>::max();
 
     auto& p = player.pos;
@@ -720,7 +720,7 @@ inline void dodge_ai(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
             return;
 
         auto afterjump_pos =
-            player.pos + sf::Vector2f(player.vel.x, -player.jump_speed) * 0.5f + physic_sim.gravity * 0.125f;
+            player.pos + vec2f(player.vel.x, -player.jump_speed) * 0.5f + physic_sim.gravity * 0.125f;
         auto afterjump_player = player;
         afterjump_player.pos  = afterjump_pos;
 

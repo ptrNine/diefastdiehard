@@ -1,5 +1,6 @@
-#include <SFML/System/Vector2.hpp>
+#pragma once
 
+#include "vec2.hpp"
 #include "vec_math.hpp"
 
 namespace dfdh {
@@ -19,9 +20,9 @@ public:
     };
 
     struct key_data {
-        sf::Vector2f pos;
-        sf::Vector2f scale;
-        float        rot;
+        vec2f pos;
+        vec2f scale;
+        float rot;
     };
 
     struct anim_key {

@@ -35,7 +35,7 @@ public:
                     continue;
                 if (!back.trgt_created) {
                     auto size = layer.getTexture()->getSize();
-                    auto sizef = sf::Vector2f(float(size.x), float(size.y));
+                    auto sizef = vec2f(float(size.x), float(size.y));
                     size_factor = wpn_icon_h / sizef.y;
                     target->create(u32(sizef.x * size_factor), u32(sizef.y * size_factor));
                     target->setView(sf::View(sf::FloatRect{0.f,
@@ -56,7 +56,7 @@ public:
 
         for (auto& face : faces) {
             auto img         = load_nk_image(face.path);
-            auto sz          = sf::Vector2f(float(img.w), float(img.h));
+            auto sz          = vec2f(float(img.w), float(img.h));
             img.region[0]    = u16(sz.x * 0.13f);
             img.region[1]    = u16(sz.y * 0.03f);
             img.region[2]    = u16(sz.x * 0.85f);
@@ -226,18 +226,18 @@ private:
     player_configurator pconf;
     std::string         wnd_title;
 
-    struct nk_rect      wnd_rect{200, 100, 500, 500};
-    bool                wnd_show = false;
+    struct nk_rect wnd_rect{200, 100, 500, 500};
+    bool           wnd_show = false;
 
-    sf::Sprite          sprt_body, sprt_face;
-    sf::CircleShape     hand_or_leg;
-    sf::Texture         txtr_body, txtr_face;
-    sf::RenderTexture   player_icon;
-    struct nk_image     player_icon_img;
-    sf::Vector2f        player_size;
-    weapon*             wpn            = nullptr;
-    float               wpn_icon_h     = 70.f;
-    float               face_icon_size = 80.f;
+    sf::Sprite        sprt_body, sprt_face;
+    sf::CircleShape   hand_or_leg;
+    sf::Texture       txtr_body, txtr_face;
+    sf::RenderTexture player_icon;
+    struct nk_image   player_icon_img;
+    vec2f             player_size;
+    weapon*           wpn            = nullptr;
+    float             wpn_icon_h     = 70.f;
+    float             face_icon_size = 80.f;
 
     struct face_param {
         std::string     path;

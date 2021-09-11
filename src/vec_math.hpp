@@ -2,7 +2,6 @@
 
 #include <SFML/System/Clock.hpp>
 #include <cmath>
-#include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/Graphics/Color.hpp>
 #include <iostream>
@@ -10,17 +9,22 @@
 #include <random>
 #include <cstring>
 
+#include "vec2.hpp"
+
 namespace dfdh {
 
-inline float magnitude2(const sf::Vector2f& v) {
+template <typename T>
+float magnitude2(const vec2<T>& v) {
     return v.x * v.x + v.y * v.y;
 }
 
-inline float magnitude(const sf::Vector2f& v) {
+template <typename T>
+float magnitude(const vec2<T>& v) {
     return std::sqrt(magnitude2(v));
 }
 
-inline sf::Vector2f normalize(const sf::Vector2f& v) {
+template <typename T>
+vec2<T> normalize(const vec2<T>& v) {
     return v / magnitude(v);
 }
 
@@ -28,7 +32,13 @@ inline float lerp(float v0, float v1, float t) {
     return v0 * (1.f - t) + v1 * t;
 }
 
-inline sf::Vector2f lerp(const sf::Vector2f& v0, const sf::Vector2f& v1, float t) {
+template <typename T>
+vec2<T> lerp(const vec2<T>& v0, const vec2<T>& v1, float t) {
+    return v0 * (1.f - t) + v1 * t;
+}
+
+template <typename T>
+sf::Vector2<T> lerp(const sf::Vector2<T>& v0, const sf::Vector2<T>& v1, float t) {
     return v0 * (1.f - t) + v1 * t;
 }
 
@@ -153,8 +163,8 @@ struct bounding_box {
         max.y = std::max(max.y, bb.max.y);
     }
 
-    sf::Vector2f min;
-    sf::Vector2f max;
+    vec2f min;
+    vec2f max;
 };
 
 inline bool is_power_of_two(auto v) {
@@ -184,26 +194,28 @@ private:
 };
 
 
-inline sf::Vector2f randomize_dir(const sf::Vector2f& dir, float angle) {
+template <typename T>
+vec2<T> randomize_dir(const vec2<T>& dir, float angle) {
     auto angl = std::atan2(dir.y, dir.x);
     auto urd = std::uniform_real_distribution<float>(-angle * 0.5f, angle * 0.5f);
     auto new_angl = angl + urd(rand_gen_singleton::instance().mt());
     return {std::cos(new_angl), std::sin(new_angl)};
 }
 
-template <typename F>
-inline sf::Vector2f randomize_dir(const sf::Vector2f& dir, float angle, F&& rand_gen) {
+template <typename T, typename F>
+vec2<T> randomize_dir(const vec2<T>& dir, float angle, F&& rand_gen) {
     auto angl = std::atan2(dir.y, dir.x);
     auto new_angl = angl + rand_gen(-angle * 0.5f, angle * 0.5f);
     return {std::cos(new_angl), std::sin(new_angl)};
 }
 
-inline sf::Vector2f rotate_vec(const sf::Vector2f& vec, float angle) {
+template <typename T>
+vec2<T> rotate_vec(const vec2<T>& vec, float angle) {
     auto norm = normalize(vec);
     auto magn = magnitude(vec);
     auto angl = std::atan2(norm.y, norm.x);
     auto new_angl = angl + angle;
-    auto new_dir = sf::Vector2f(std::cos(new_angl), std::sin(new_angl));
+    auto new_dir = vec2(std::cos(new_angl), std::sin(new_angl));
     return new_dir * magn;
 }
 

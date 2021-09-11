@@ -41,7 +41,7 @@ public:
     }
 
     [[nodiscard]]
-    sf::Vector2f scale_f() const {
+    vec2f scale_f() const {
         return {_xf, _yf};
     }
 
@@ -76,12 +76,13 @@ inline bullet_sprite_cache& bullet_sprite() {
 
 class bullet {
 public:
-    bullet(physic_simulation&  sim,
-           const sf::Vector2f& position,
-           float               mass,
-           const sf::Vector2f& velocity,
-           sf::Color           color,
-           int                 group) : _color(color), _group(group) {
+    bullet(physic_simulation& sim,
+           const vec2f&       position,
+           float              mass,
+           const vec2f&       velocity,
+           sf::Color          color,
+           int                group):
+        _color(color), _group(group) {
         _ph = physic_point::create(position, normalize(velocity), magnitude(velocity), mass);
         sim.add_primitive(_ph);
     }
@@ -125,13 +126,13 @@ public:
     }
 
     template <typename F>
-    auto& shot(physic_simulation&  sim,
-               const sf::Vector2f& position,
-               float               mass,
-               const sf::Vector2f& velocity,
-               sf::Color           color,
-               int                 group,
-               F                   player_group_getter) {
+    auto& shot(physic_simulation& sim,
+               const vec2f&       position,
+               float              mass,
+               const vec2f&       velocity,
+               sf::Color          color,
+               int                group,
+               F                  player_group_getter) {
         auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, group);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);
@@ -146,11 +147,11 @@ public:
         return res;
     }
 
-    auto& shot(physic_simulation&  sim,
-               const sf::Vector2f& position,
-               float               mass,
-               const sf::Vector2f& velocity,
-               sf::Color           color) {
+    auto& shot(physic_simulation& sim,
+               const vec2f&       position,
+               float              mass,
+               const vec2f&       velocity,
+               sf::Color          color) {
         auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, -1);
         auto& blt = _bullets.back();
         blt.physic()->user_data(0xdeadbeef);

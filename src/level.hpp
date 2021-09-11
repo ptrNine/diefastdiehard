@@ -36,10 +36,10 @@ public:
 
     void cfg_reload() {
         _name        = cfg().get_req<std::string>(_section, "name");
-        _gravity     = cfg().get_req<sf::Vector2f>(_section, "gravity");
+        _gravity     = cfg().get_req<vec2f>(_section, "gravity");
         _platform_sz = cfg().get_req<float>(_section, "platform_height");
-        _view_size   = cfg().get_req<sf::Vector2f>(_section, "view_size");
-        _level_size  = cfg().get_req<sf::Vector2f>(_section, "level_size");
+        _view_size   = cfg().get_req<vec2f>(_section, "view_size");
+        _level_size  = cfg().get_req<vec2f>(_section, "level_size");
 
         auto txtr_path              = fs::current_path() / "data/textures/" / _name;
         auto end_platform_txtr_path = txtr_path / "end_platform.png";
@@ -68,7 +68,7 @@ public:
 
         _background.setTexture(_background_txtr);
         auto background_size = _background_txtr.getSize();
-        _background.setScale(sf::Vector2f(_level_size.x / float(background_size.x),
+        _background.setScale(vec2f(_level_size.x / float(background_size.x),
                                           _level_size.y / float(background_size.y)));
 
         _background.setPosition(0.f, 0.f);
@@ -84,7 +84,7 @@ public:
 
             p.start_pl.setPosition(p.ph.get_position());
 
-            p.pl.setPosition(p.ph.get_position() + sf::Vector2f{_platform_sz, 0.f});
+            p.pl.setPosition(p.ph.get_position() + vec2f{_platform_sz, 0.f});
             float pl_len = p.ph.length() - _platform_sz * 2.f;
             p.pl.scale(pl_len / _platform_sz, 1.f);
 
@@ -138,9 +138,9 @@ private:
     std::string _background_txtr_path;
 
     float _platform_sz = 10.f;
-    sf::Vector2f _view_size;
-    sf::Vector2f _level_size;
-    sf::Vector2f _gravity;
+    vec2f _view_size;
+    vec2f _level_size;
+    vec2f _gravity;
 
     std::vector<platform_t> _platforms;
 
@@ -148,12 +148,12 @@ private:
 
 public:
     [[nodiscard]]
-    const sf::Vector2f& level_size() const {
+    const vec2f& level_size() const {
         return _level_size;
     }
 
     [[nodiscard]]
-    const sf::Vector2f& view_size() const {
+    const vec2f& view_size() const {
         return _view_size;
     }
 

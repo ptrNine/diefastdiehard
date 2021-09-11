@@ -96,21 +96,24 @@ concept PrintableTuple = requires {
 
 template <PrintableTuple T>
 struct printer<T> {
+
     template <size_t... S>
     static void print_by_idxs(std::ostream& os, const T& v, std::index_sequence<S...>) {
-        ((os << std::get<S>(v) << ", "), ...);
+        using std::get;
+        ((os << get<S>(v) << ", "), ...);
     }
 
     template <size_t... S>
     static void print(std::ostream& os, const T& v, std::index_sequence<S...>) {
+        using std::get;
         if constexpr (sizeof...(S) == 0)
             os << "{}";
         if constexpr (sizeof...(S) == 1)
-            os << '{' << std::get<0>(v) << '}';
+            os << '{' << get<0>(v) << '}';
         if constexpr (sizeof...(S) > 1) {
             os << '{';
             print_by_idxs(os, v, std::make_index_sequence<sizeof...(S) - 1>());
-            os << std::get<sizeof...(S) - 1>(v) << '}';
+            os << get<sizeof...(S) - 1>(v) << '}';
         }
     }
 

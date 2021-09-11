@@ -22,7 +22,7 @@ public:
 
     global_ctx() {
         cfg().try_parse("data/settings/window.cfg");
-        wnd_size = cfg().get_or_write_default("window", "size", sf::Vector2f(800.f, 600.f), "data/settings/window.cfg", true);
+        wnd_size = cfg().get_or_write_default("window", "size", vec2f(800.f, 600.f), "data/settings/window.cfg", true);
     }
 
     [[nodiscard]]
@@ -37,7 +37,7 @@ public:
 
 private:
     sf::ContextSettings settings{24, 8, 4, 3, 3};
-    sf::Vector2f wnd_size;
+    vec2f wnd_size;
 };
 
 class engine {
@@ -149,7 +149,7 @@ end:
     virtual void post_command_update() = 0;
 
     virtual void on_window_resize(u32 width, u32 height) {
-        cfg().try_write("window", "size", sf::Vector2f(float(width), float(height)), true, true);
+        cfg().try_write("window", "size", vec2f(float(width), float(height)), true, true);
     }
 
 private:

@@ -308,7 +308,7 @@ private:
         }
         else if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>)
             return std::to_string(value);
-        else if constexpr (std::is_same_v<T, sf::Vector2f>) {
+        else if constexpr (std::is_same_v<T, sf::Vector2f> || std::is_same_v<T, vec2f>) {
             return std::to_string(value.x) + " " + std::to_string(value.y);
         }
         else if constexpr (StdVector<T> || StdArray<T>) {
@@ -340,14 +340,14 @@ private:
             return static_cast<T>(std::stoll(raw));
         else if constexpr (std::is_floating_point_v<T>)
             return static_cast<T>(std::stod(raw));
-        else if constexpr (std::is_same_v<T, sf::Vector2f>) {
+        else if constexpr (std::is_same_v<T, sf::Vector2f> || std::is_same_v<T, vec2f>) {
             auto found = raw.find(' ');
             if (found == std::string::npos) {
-                return sf::Vector2f(std::stof(std::string(trim_spaces(raw))), 0.f);
+                return T(std::stof(std::string(trim_spaces(raw))), 0.f);
             }
             else {
-                return sf::Vector2f(std::stof(std::string(trim_spaces(raw.substr(0, found)))),
-                                    std::stof(std::string(trim_spaces(raw.substr(found + 1)))));
+                return T(std::stof(std::string(trim_spaces(raw.substr(0, found)))),
+                         std::stof(std::string(trim_spaces(raw.substr(found + 1)))));
             }
         }
         else if constexpr (StdVector<T>) {

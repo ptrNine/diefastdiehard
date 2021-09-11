@@ -9,7 +9,6 @@
 #include <SFML/Window/Event.hpp>
 #include <SFML/Graphics/CircleShape.hpp>
 
-#include "networking.hpp"
 //#include "rand_pool.hpp"
 #include "bullet.hpp"
 #include "types.hpp"
@@ -19,49 +18,50 @@
 #include "avg_counter.hpp"
 #include "player_configurator.hpp"
 #include "player_controller.hpp"
+#include "net_actions.hpp"
 
 namespace dfdh {
 
 class player {
 public:
-    static sf::Vector2f default_size() {
+    static vec2f default_size() {
         return {50.f, 90.f};
     }
 
-    static sf::Vector2f sprite_size_adjust_factors() {
+    static vec2f sprite_size_adjust_factors() {
         return {1.25f, 1.08f};
 
     }
 
-    static sf::Vector2f default_sprite_size() {
+    static vec2f default_sprite_size() {
         auto adj = sprite_size_adjust_factors();
         auto sz = default_size();
         return {sz.x * adj.x, sz.y * adj.y};
     }
 
-    static void default_hand_setup(sf::CircleShape& hand, const sf::Vector2f& size) {
+    static void default_hand_setup(sf::CircleShape& hand, const vec2f& size) {
         hand.setOutlineColor(sf::Color(0, 0, 0));
         hand.setOutlineThickness(size.x * 0.045f);
         hand.setRadius(size.x * 0.14f);
         hand.setOrigin(size.x * 0.14f, size.x * 0.14f);
     }
 
-    static void default_leg_setup(sf::CircleShape& leg, const sf::Vector2f& size) {
+    static void default_leg_setup(sf::CircleShape& leg, const vec2f& size) {
         leg.setOutlineColor(sf::Color(0, 0, 0));
         leg.setOutlineThickness(size.x * 0.045f);
         leg.setRadius(size.x * 0.2f);
         leg.setOrigin(size.x * 0.2f, size.x * 0.35f);
     }
 
-    static std::shared_ptr<player> create(const player_name_t& name, physic_simulation& sim, const sf::Vector2f& size) {
+    static std::shared_ptr<player> create(const player_name_t& name, physic_simulation& sim, const vec2f& size) {
         return std::make_shared<player>(name, sim, size);
     }
 
-    static std::shared_ptr<player> create(physic_simulation& sim, const sf::Vector2f& size) {
+    static std::shared_ptr<player> create(physic_simulation& sim, const vec2f& size) {
         return std::make_shared<player>(player_name_t{}, sim, size);
     }
 
-    player(const player_name_t& name, physic_simulation& sim, const sf::Vector2f& size):
+    player(const player_name_t& name, physic_simulation& sim, const vec2f& size):
         _name(name), _size(size) {
         _collision_box = physic_group::create();
         _collision_box->append(physic_line::create({0.f, 0.f}, {0.f, -size.y}));
@@ -84,18 +84,19 @@ public:
         jumps_left = max_jumps;
     }
 
-    player(physic_simulation& sim, const sf::Vector2f& size): player({}, sim, size) {}
+    player(physic_simulation& sim, const vec2f& size): player({}, sim, size) {}
 
     ~player() {
         _collision_box->delete_later();
     }
 
-    void set_params_from_client(const a_cli_player_params& act) {
-        set_body(act.body_txtr, act.body_color);
-        set_face(act.face_txtr);
+    void set_params_from_client(const player_skin_params_t& params) {
+        set_body(params.body_txtr, params.body_color);
+        set_face(params.face_txtr);
+        tracer_color(params.tracer_color);
     }
 
-    void update_from_client(const player_states_t& st) {
+    void update_from_client(const player_move_states_t& st) {
         if (st.jump) {
             if (!_jump_pressed) {
                 jump();
@@ -235,13 +236,13 @@ public:
         return std::any_cast<player*>(p->get_user_any())->get_group();
     }
 
-    template <typename F = void(*)(const sf::Vector2f&, const sf::Vector2f&, float)>
+    template <typename F = void(*)(const vec2f&, const vec2f&, float)>
     void game_update(physic_simulation& sim, bullet_mgr& bm, bool spawn_bullet = true, F&& bullet_spawn_callback = nullptr) {
         if (_pistol) {
-            auto dir       = _on_left ? sf::Vector2f{-1.f, 0.f} : sf::Vector2f{1.f, 0.f};
+            auto dir       = _on_left ? vec2f{-1.f, 0.f} : vec2f{1.f, 0.f};
             auto pos       = collision_box()->get_position();
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
-            pos += sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
+            pos += vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
 
             if (auto recoil = _pistol.update(pos,
                                              dir,
@@ -313,7 +314,7 @@ public:
     }
 
     static void draw_to_texture_target(sf::RenderTexture&  target,
-                                       const sf::Vector2f& size,
+                                       const vec2f& size,
                                        float               scale,
                                        sf::Sprite&         body,
                                        sf::Sprite&         face,
@@ -378,7 +379,7 @@ public:
         pos = lerp(pos, next_pos, interpolation_factor);
 
         auto adj = sprite_size_adjust_factors();
-        auto dif = sf::Vector2f((_size.x * adj.x - _size.x) * 0.5f, _size.y * adj.y);
+        auto dif = vec2f((_size.x * adj.x - _size.x) * 0.5f, _size.y * adj.y);
 
         if (_dir == dir_left && !_on_left) {
             _body.setScale(-_body.getScale().x, _body.getScale().y);
@@ -406,20 +407,21 @@ public:
         wnd.draw(_face);
         wnd.draw(_hat);
 
-        static constexpr auto draw_leg_lerp = [](auto&& wnd, float timestep, float factor, auto&& leg, const sf::Vector2f& vel) {
-            auto pos = leg.getPosition();
-            auto next_pos = pos + vel * timestep;
-            leg.setPosition(lerp(pos, next_pos, factor));
-            wnd.draw(leg);
-            leg.setPosition(pos);
-        };
+        static constexpr auto draw_leg_lerp =
+            [](auto&& wnd, float timestep, float factor, auto&& leg, const vec2f& vel) {
+                vec2f pos      = leg.getPosition();
+                auto  next_pos = pos + vel * timestep;
+                leg.setPosition(lerp(pos, next_pos, factor));
+                wnd.draw(leg);
+                leg.setPosition(pos);
+            };
         draw_leg_lerp(wnd, timestep, interpolation_factor, _left_leg, _collision_box->get_velocity());
         draw_leg_lerp(wnd, timestep, interpolation_factor, _right_leg, _collision_box->get_velocity());
 
         if (_pistol) {
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
             auto [lh, rh] =
-                _pistol.draw(pos + sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y),
+                _pistol.draw(pos + vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y),
                              _on_left,
                              wnd,
                              _collision_box->get_velocity());
@@ -501,8 +503,8 @@ public:
     }
 
     [[nodiscard]]
-    player_states_t client_input_state() const {
-        return player_states_t{
+    player_move_states_t client_input_state() const {
+        return player_move_states_t{
             _cur_x_accel_l < 0.f,
             _cur_x_accel_r > 0.f,
             _pistol ? _pistol.on_shot() : false,
@@ -512,7 +514,7 @@ public:
         };
     }
 
-    std::optional<player_states_t> try_extract_client_input_state() {
+    std::optional<player_move_states_t> try_extract_client_input_state() {
         //std::cout << "Movleft: " << (_cur_x_accel_l < 0.f) << " movright: " << (_cur_x_accel_r > 0.f) << std::endl;
         auto states = client_input_state();
         if (_last_states == states)
@@ -524,7 +526,7 @@ public:
     }
 
     [[nodiscard]]
-    std::optional<sf::Vector2f> position_trace_lookup(std::chrono::steady_clock::time_point now, float latency_offset) const {
+    std::optional<vec2f> position_trace_lookup(std::chrono::steady_clock::time_point now, float latency_offset) const {
         auto time_dur = [](auto now, auto last) {
             return std::chrono::duration_cast<std::chrono::duration<float>>(now - last).count();
         };
@@ -558,7 +560,7 @@ public:
     }
 
 private:
-    void leg_animation_update(float timestep, const sf::Vector2f& pos, const sf::Vector2f& vel) {
+    void leg_animation_update(float timestep, const vec2f& pos, const vec2f& vel) {
         auto vx = vel.x;
         float jump_f = 0.2f;
         if (!_collision_box->is_lock_y()) {
@@ -598,7 +600,7 @@ private:
     void set_some(const std::string&  path,
                   sf::Texture&        txtr,
                   sf::Sprite&         sprite,
-                  const sf::Vector2f& size,
+                  const vec2f& size,
                   const sf::Color&    color) {
         txtr = texture_mgr().load(path);
         txtr.setSmooth(true);
@@ -631,8 +633,8 @@ private:
     sf::CircleShape _left_leg;
     sf::CircleShape _right_leg;
 
-    player_states_t _last_states;
-    std::deque<std::pair<std::chrono::steady_clock::time_point, sf::Vector2f>> _position_trace;
+    player_move_states_t _last_states;
+    std::deque<std::pair<std::chrono::steady_clock::time_point, vec2f>> _position_trace;
 
 //    rand_float_pool _rand_pool;
 
@@ -640,7 +642,7 @@ private:
 
     float _leg_timer = 0.f;
 
-    sf::Vector2f _size;
+    vec2f _size;
 
     bool  _accel_left_reset = false;
     float _accel_f    = 1.f;
@@ -682,13 +684,13 @@ public:
     }
 
     [[nodiscard]]
-    sf::Vector2f barrel_pos() const {
+    vec2f barrel_pos() const {
         if (_pistol) {
             auto pos       = collision_box()->get_position();
             auto arm_pos_f = _pistol.arm_position_factors(_on_left);
-            pos += sf::Vector2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
-            return pos + _pistol.shot_displacement(_on_left ? sf::Vector2f{-1.f, 0.f}
-                                                            : sf::Vector2f{1.f, 0.f});
+            pos += vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
+            return pos + _pistol.shot_displacement(_on_left ? vec2f{-1.f, 0.f}
+                                                            : vec2f{1.f, 0.f});
         }
         else
             return _collision_box->get_position();
@@ -726,36 +728,36 @@ public:
         _accel_left_reset = left_only;
     }
 
-    void smooth_velocity_set(const sf::Vector2f& value, float smooth_factor = 0.25f) {
+    void smooth_velocity_set(const vec2f& value, float smooth_factor = 0.25f) {
         auto vel = get_velocity();
         velocity(vel + (value - vel) * smooth_factor);
     }
 
-    void smooth_position_set(const sf::Vector2f& value, float smooth_factor = 0.25f) {
+    void smooth_position_set(const vec2f& value, float smooth_factor = 0.25f) {
         auto pos = get_position();
         position(pos + (value - pos) * smooth_factor);
     }
 
-    void position(const sf::Vector2f& value) {
+    void position(const vec2f& value) {
         _collision_box->position(value);
     }
 
     [[nodiscard]]
-    const sf::Vector2f& get_position() const {
+    const vec2f& get_position() const {
         return _collision_box->get_position();
     }
 
-    void velocity(const sf::Vector2f& value) {
+    void velocity(const vec2f& value) {
         _collision_box->velocity(value);
     }
 
     [[nodiscard]]
-    sf::Vector2f get_velocity() const {
+    vec2f get_velocity() const {
         return _collision_box->get_velocity();
     }
 
     [[nodiscard]]
-    const sf::Vector2f& get_size() const {
+    const vec2f& get_size() const {
         return _size;
     }
 

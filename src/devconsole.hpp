@@ -3,6 +3,7 @@
 #include "log.hpp"
 #include "nuklear.hpp"
 #include "command_buffer.hpp"
+#include "vec2.hpp"
 
 namespace dfdh {
 class devconsole {
@@ -325,7 +326,7 @@ public:
         ui.style_pop_style_item();
     }
 
-    void set_size(ui_ctx& ui, const sf::Vector2f& window_size) {
+    void set_size(ui_ctx& ui, const vec2f& window_size) {
         auto sz_x = std::max(window_size.x - 40.f, 20.f);
         auto sz_y = std::max(window_size.y - 40.f, 20.f);
         _pos = {20.f, 20.f};
@@ -333,7 +334,7 @@ public:
         ui.window_set_size("devconsole", _size);
     }
 
-    void update_size(ui_ctx& ui, const sf::Vector2f& window_size) {
+    void update_size(ui_ctx& ui, const vec2f& window_size) {
         if (_size.x > window_size.x || _size.y > window_size.y)
             set_size(ui, window_size);
     }
@@ -395,15 +396,15 @@ private:
     size_t                            _history_pos = HISTORY_LEN;
 
     float                             _row_height = 15;
-    sf::Vector2f                      _pos;
-    sf::Vector2f                      _size;
+    vec2f                             _pos;
+    vec2f                             _size;
     u32                               _lines_count_last = 0;
-    u32                               _x_scroll = 0;
-    u32                               _y_scroll = 0;
-    bool                              _show = false;
-    bool                              _first_run = true;
-    bool                              _show_time = false;
-    bool                              _show_level = false;
+    u32                               _x_scroll         = 0;
+    u32                               _y_scroll         = 0;
+    bool                              _show             = false;
+    bool                              _first_run        = true;
+    bool                              _show_time        = false;
+    bool                              _show_level       = false;
 
     std::string                       _current_command;
     std::array<char, COMMAND_LEN>     _command_edit;

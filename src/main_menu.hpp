@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.hpp"
+#include "vec2.hpp"
 #include "nuklear.hpp"
 
 namespace dfdh {
@@ -32,12 +33,12 @@ public:
         ui.style_pop_style_item();
     }
 
-    void set_size(const sf::Vector2f& size) {
+    void set_size(const vec2f& size) {
         _size = size;
     }
 
 private:
-    sf::Vector2f _size;
+    vec2f _size;
 };
 
 }

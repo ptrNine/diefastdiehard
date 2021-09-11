@@ -91,7 +91,7 @@ public:
         _last_timestep = timestep;
 
         constexpr auto update_move =
-            [](auto& primitives, auto& i, float timestep, const sf::Vector2f& _gravity) {
+            [](auto& primitives, auto& i, float timestep, const vec2f& _gravity) {
                 auto& prim = *i;
                 if (prim->ready_delete_later()) {
                     primitives.erase(i++);
@@ -202,7 +202,7 @@ public:
             c(*this, timestep);
     }
 
-    static float distance(const sf::Vector3f& line, const sf::Vector2f& point) {
+    static float distance(const sf::Vector3f& line, const vec2f& point) {
         return line.x * point.x + line.y * point.y + line.z;
     }
 
@@ -363,7 +363,7 @@ public:
     }
 
     [[nodiscard]]
-    const sf::Vector2f& gravity() const {
+    const vec2f& gravity() const {
         return _gravity;
     }
 
@@ -372,7 +372,7 @@ public:
         return _platforms;
     }
 
-    void gravity(const sf::Vector2f& value) {
+    void gravity(const vec2f& value) {
         _gravity = value;
     }
 
@@ -430,7 +430,7 @@ private:
     std::set<std::shared_ptr<physic_point>> _lineonly;
     u32                                     _steps        = 20;
     float                                   _collide_dist = 0.001f;
-    sf::Vector2f                            _gravity      = {0.f, 9.8f};
+    vec2f                                   _gravity      = {0.f, 9.8f};
     sf::Clock                               _timer;
     float                                   _last_timestep        = 1.f / 60.f;
     u32                                     _last_rps             = 60;

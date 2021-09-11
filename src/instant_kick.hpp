@@ -10,8 +10,8 @@ namespace dfdh {
 class instant_kick {
 public:
     instant_kick(physic_simulation&          sim,
-                 const sf::Vector2f&         position,
-                 const sf::Vector2f&         end_point,
+                 const vec2f&                position,
+                 const vec2f&                end_point,
                  float                       mass,
                  float                       velocity,
                  int                         group,
@@ -68,8 +68,8 @@ public:
     }
 
     void spawn(physic_simulation&          sim,
-               const sf::Vector2f&         position,
-               const sf::Vector2f&         end_point,
+               const vec2f&                position,
+               const vec2f&                end_point,
                float                       mass,
                float                       velocity,
                int                         group,

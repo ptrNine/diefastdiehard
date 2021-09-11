@@ -2,7 +2,6 @@
 
 #include <iostream>
 #include "src/engine.hpp"
-#include "src/networking.hpp"
 #include "src/player_configurator_ui.hpp"
 #include "src/command_buffer.hpp"
 #include "src/game_commands.hpp"
@@ -81,12 +80,13 @@ public:
         command_buffer().push("level current lvl_aes");
         command_buffer().push("player create kek");
         command_buffer().push("player controller0 kek");
+        command_buffer().push("srv init");
         //command_buffer().push("cfg set lvl_aes view_size '700 400'");
         //command_buffer().push("cfg reload levels");
         //command_buffer().push("player create 'lel group=1'");
         //command_buffer().push("ai bind lel");
         //command_buffer().push("ai difficulty lel hard");
-        command_buffer().push("game on");
+        //command_buffer().push("game on");
     }
 
     void on_destroy() final {
@@ -109,16 +109,16 @@ public:
     }
 
     struct bullet_spawn_callback {
-        void operator()(const sf::Vector2f& position, const sf::Vector2f& velocity, float imass) {
+        void operator()(const vec2f& position, const vec2f& velocity, float imass) {
             *mass = imass;
-            bullets->push_back(a_spawn_bullet::bullet_data_t{position, velocity});
+            bullets->push_back(bullet_data_t{position, velocity});
         }
 
         constexpr operator bool() const {
             return true;
         }
 
-        std::vector<a_spawn_bullet::bullet_data_t>* bullets;
+        std::vector<bullet_data_t>* bullets;
         float* mass;
     };
 
@@ -174,7 +174,7 @@ private:
 
         auto& level = *gs.cur_level;
         auto f = (level.view_size().x / float(width)) * (float(height) / level.view_size().y);
-        sf::Vector2f view_size {
+        vec2f view_size {
             level.view_size().x,
             f * level.view_size().y
         };
@@ -209,10 +209,9 @@ private:
             }
         }
 
-        sf::Vector2f center_min = {std::numeric_limits<float>::max(),
-                                   std::numeric_limits<float>::max()};
-        sf::Vector2f center_max = {std::numeric_limits<float>::lowest(),
-                                   std::numeric_limits<float>::lowest()};
+        vec2f center_min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+        vec2f center_max = {std::numeric_limits<float>::lowest(),
+                            std::numeric_limits<float>::lowest()};
         for (auto& [_, pl] : gs.players) {
             auto pos = pl->collision_box()->get_position();
             center_min.x = std::min(center_min.x, pos.x);
@@ -259,11 +258,10 @@ private:
     sf::RectangleShape point_shape;
     sf::RectangleShape line_shape;
 
-    timer cam_timer;
+    timer    cam_timer;
     sf::View _view;
-    sf::Vector2f _cam_pos = {0.f, 0.f};
+    vec2f    _cam_pos = {0.f, 0.f};
 };
-
 }
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {

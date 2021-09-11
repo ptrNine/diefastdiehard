@@ -200,7 +200,7 @@ codegen_step() {
 
         local start_tm=$(mstime)
         colored yellow "Generating src/net_actions_generated.hpp ... " n
-        $CXX_COMPILER -E 'src/net_actions.hpp' 2>/dev/null | "$builddir/net_actions_generator" > 'src/net_actions_generated.hpp' \
+        $CXX_COMPILER -E -isystem "$(pwd)/$builddir/3rd/include" 'src/net_actions.hpp' 2>/dev/null | "$builddir/net_actions_generator" > 'src/net_actions_generated.hpp' \
             || fail "Generation of src/net_actions_generated.hpp failed"
         colored lgreen "done! $(measure $start_tm)s"
 

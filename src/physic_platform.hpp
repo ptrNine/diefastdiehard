@@ -1,16 +1,16 @@
 #pragma once
 
-#include <SFML/System/Vector2.hpp>
+#include "vec2.hpp"
 
 namespace dfdh {
 
 class physic_platform {
 public:
-    physic_platform(const sf::Vector2f& position, float length):
+    physic_platform(const vec2f& position, float length):
         _pos(position), _length(length) {}
 
     [[nodiscard]]
-    const sf::Vector2f& get_position() const {
+    const vec2f& get_position() const {
         return _pos;
     }
 
@@ -20,8 +20,7 @@ public:
     }
 
 private:
-    sf::Vector2f _pos;
-    float        _length;
+    vec2f _pos;
+    float _length;
 };
-
 }

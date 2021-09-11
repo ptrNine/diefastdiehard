@@ -30,9 +30,9 @@ struct weapon_anim_frame {
     }
 
     struct key_t {
-        sf::Vector2f position = {0.f, 0.f};
-        sf::Vector2f scale = {1.f, 1.f};
-        float        angle = 0.f;
+        vec2f position = {0.f, 0.f};
+        vec2f scale    = {1.f, 1.f};
+        float angle    = 0.f;
     };
 
     std::vector<key_t>   _layers;
@@ -96,27 +96,27 @@ public:
         _recoil        = cfg().get_req<float>(_section, "recoil");
         _buckshot      = cfg().get_req<u32>(_section, "buckshot");
         _mag_size      = cfg().get_req<u32>(_section, "mag_size");
-        _size          = cfg().get_req<sf::Vector2f>(_section, "size");
-        _arm_joint     = cfg().get_req<sf::Vector2f>(_section, "arm_joint");
+        _size          = cfg().get_req<vec2f>(_section, "size");
+        _arm_joint     = cfg().get_req<vec2f>(_section, "arm_joint");
         _arm_bone      = cfg().get_req<u32>(_section, "arm_bone");
         _arm2_bone     = cfg().get_req<u32>(_section, "arm2_bone");
-        _arm_idle_pos  = cfg().get_req<sf::Vector2f>(_section, "arm_idle_pos");
-        _arm2_idle_pos = cfg().get_req<sf::Vector2f>(_section, "arm2_idle_pos");
-        _arm_pos_f     = cfg().get_req<sf::Vector2f>(_section, "arm_pos_f");
-        _barrel        = cfg().get_req<sf::Vector2f>(_section, "barrel");
+        _arm_idle_pos  = cfg().get_req<vec2f>(_section, "arm_idle_pos");
+        _arm2_idle_pos = cfg().get_req<vec2f>(_section, "arm2_idle_pos");
+        _arm_pos_f     = cfg().get_req<vec2f>(_section, "arm_pos_f");
+        _barrel        = cfg().get_req<vec2f>(_section, "barrel");
         _shot_flash    = cfg().get_default<bool>(_section, "shot_flash", false);
         _eject_shell   = cfg().get_default<bool>(_section, "eject_shell", false);
         _wpn_class     = weapon_class_from_str(cfg().get_req<std::string>(_section, "class"));
         _bullet_vel_tier = cfg().get_req<u32>(_section, "bullet_velocity_tier");
 
         if (_eject_shell) {
-            _shell_pos   = cfg().get_req<sf::Vector2f>(_section, "shell_pos");
-            _shell_dir   = normalize(cfg().get_req<sf::Vector2f>(_section, "shell_dir"));
+            _shell_pos   = cfg().get_req<vec2f>(_section, "shell_pos");
+            _shell_dir   = normalize(cfg().get_req<vec2f>(_section, "shell_dir"));
             _shell_frame = cfg().get_req<u32>(_section, "shell_frame");
             auto& txtr   = texture_mgr().load(cfg().get_req<std::string>(_section, "shell_txtr"));
             _shell_sprite.setTexture(txtr);
             _shell_sprite.setOrigin(float(txtr.getSize().x) * 0.5f, float(txtr.getSize().y) * 0.5f);
-            auto sz = cfg().get_req<sf::Vector2f>(_section, "shell_size");
+            auto sz = cfg().get_req<vec2f>(_section, "shell_size");
             _shell_sprite.setScale(sz.x / float(txtr.getSize().x), sz.y / float(txtr.getSize().y));
             _shell_vel = cfg().get_req<float>(_section, "shell_vel");
         }
@@ -161,12 +161,12 @@ public:
     }
 
      [[nodiscard]]
-    sf::Vector2f arm_position_factors(bool lefty) const {
-            return lefty ? sf::Vector2f{1.f - _arm_pos_f.x, _arm_pos_f.y} : _arm_pos_f;
+    vec2f arm_position_factors(bool lefty) const {
+            return lefty ? vec2f{1.f - _arm_pos_f.x, _arm_pos_f.y} : _arm_pos_f;
     }
 
 public:
-    void draw(const sf::Vector2f& start_pos, bool left_dir, sf::RenderTarget& wnd, float scale = 1.f) {
+    void draw(const vec2f& start_pos, bool left_dir, sf::RenderTarget& wnd, float scale = 1.f) {
         float invert = left_dir ? -1.f : 1.f;
         for (auto& sprite : _layers) {
             sprite.setPosition(start_pos);
@@ -204,8 +204,8 @@ private:
 
             for (size_t layer = 0; layer < layers; ++layer) {
                 auto layer_str = "_layer" + std::to_string(layer) + "_";
-                auto pos_key   = cfg().get_default<sf::Vector2f>(section, frame_str + layer_str + "pos", {0.f, 0.0001f});
-                auto scale_key = cfg().get_default<sf::Vector2f>(section, frame_str + layer_str + "scale", {1.f, 1.f});
+                auto pos_key   = cfg().get_default<vec2f>(section, frame_str + layer_str + "pos", {0.f, 0.0001f});
+                auto scale_key = cfg().get_default<vec2f>(section, frame_str + layer_str + "scale", {1.f, 1.f});
                 auto rot_key   = cfg().get_default<float>(section, frame_str + layer_str + "rot", 0.f);
 
                 fr._layers.push_back(weapon_anim_frame::key_t{pos_key, scale_key, rot_key});
@@ -231,17 +231,17 @@ private:
 
     float _xf, _yf;
 
-    sf::Vector2f _arm_joint;
-    sf::Vector2f _arm_pos_f;
-    sf::Vector2f _size;
-    sf::Vector2f _arm_idle_pos;
-    sf::Vector2f _arm2_idle_pos;
-    sf::Vector2f _barrel;
-    sf::Vector2f _shell_pos;
-    sf::Vector2f _shell_dir;
-    float        _shell_vel;
-    u32          _shell_frame;
-    sf::Sprite   _shell_sprite;
+    vec2f      _arm_joint;
+    vec2f      _arm_pos_f;
+    vec2f      _size;
+    vec2f      _arm_idle_pos;
+    vec2f      _arm2_idle_pos;
+    vec2f      _barrel;
+    vec2f      _shell_pos;
+    vec2f      _shell_dir;
+    float      _shell_vel;
+    u32        _shell_frame;
+    sf::Sprite _shell_sprite;
 
     weapon_class _wpn_class;
     bool         _shot_flash;
@@ -282,17 +282,17 @@ public:
     }
 
     [[nodiscard]]
-    const sf::Vector2f& arm_idle_pos() const {
+    const vec2f& arm_idle_pos() const {
         return _arm_idle_pos;
     }
 
     [[nodiscard]]
-    const sf::Vector2f& arm2_idle_pos() const {
+    const vec2f& arm2_idle_pos() const {
         return _arm2_idle_pos;
     }
 
     [[nodiscard]]
-    const sf::Vector2f& barrel_pos() const {
+    const vec2f& barrel_pos() const {
         return _barrel;
     }
 
@@ -406,11 +406,11 @@ public:
         return _wpn == nullptr;
     }
 
-    sf::Vector2f arm_position_factors(bool lefty) const {
+    vec2f arm_position_factors(bool lefty) const {
         if (_wpn)
             return _wpn->arm_position_factors(lefty);
         else
-            return lefty ? sf::Vector2f(0.f, -0.4f) : sf::Vector2f(1.f, -0.4f);
+            return lefty ? vec2f(0.f, -0.4f) : vec2f(1.f, -0.4f);
     }
 
     operator bool() const {
@@ -430,16 +430,16 @@ public:
         _current_anim = anim_spec_t{name, {}};
     }
 
-    template <typename F = int, typename F2 = void(*)(const sf::Vector2f&, const sf::Vector2f&, float)>
-    std::optional<float> update(const sf::Vector2f& position,
-                                const sf::Vector2f& direction,
-                                bullet_mgr&         bm,
-                                physic_simulation&  sim,
-                                bool                spawn_bullet = true,
-                                F2&&                bullet_spawn_callback = nullptr,
-                                int                 group               = -1,
-                                F                   player_group_getter = -1,
-                                rand_float_pool*    rand_pool           = nullptr) {
+    template <typename F = int, typename F2 = void (*)(const vec2f&, const vec2f&, float)>
+    std::optional<float> update(const vec2f&       position,
+                                const vec2f&       direction,
+                                bullet_mgr&        bm,
+                                physic_simulation& sim,
+                                bool               spawn_bullet          = true,
+                                F2&&               bullet_spawn_callback = nullptr,
+                                int                group                 = -1,
+                                F                  player_group_getter   = -1,
+                                rand_float_pool*   rand_pool             = nullptr) {
         if (!_wpn)
             return {};
 
@@ -510,23 +510,23 @@ public:
         }
     }
 
-    std::array<sf::Vector2f, 2> draw(const sf::Vector2f& position,
-                                     bool                left_dir,
-                                     sf::RenderWindow&   wnd,
-                                     const sf::Vector2f& shell_additional_vel = {0.f, 0.f}) {
+    std::array<vec2f, 2> draw(const vec2f&      position,
+                              bool              left_dir,
+                              sf::RenderWindow& wnd,
+                              const vec2f&      shell_additional_vel = {0.f, 0.f}) {
         float                 LF       = left_dir ? -1.f : 1.f;
-        static constexpr auto leftyfix = [](const sf::Vector2f& v, float invert) {
-            return sf::Vector2f(v.x * invert, v.y);
+        static constexpr auto leftyfix = [](const vec2f& v, float invert) {
+            return vec2f(v.x * invert, v.y);
         };
 
-        static constexpr auto make_return = [](const sf::Vector2f& pos, weapon* wpn, float LF) {
-            return std::array<sf::Vector2f, 2>{pos + leftyfix(wpn->_arm_idle_pos, LF),
+        static constexpr auto make_return = [](const vec2f& pos, weapon* wpn, float LF) {
+            return std::array<vec2f, 2>{pos + leftyfix(wpn->_arm_idle_pos, LF),
                                                pos + leftyfix(wpn->_arm_idle_pos, LF) +
                                                    leftyfix(wpn->_arm2_idle_pos, LF)};
         };
 
         if (auto c = _shot_flash.getColor(); _wpn->_shot_flash && c.a != 0) {
-            _shot_flash.setPosition(position + shot_displacement(sf::Vector2f(left_dir ? -1.f : 1.f, 0.f)));
+            _shot_flash.setPosition(position + shot_displacement(vec2f(left_dir ? -1.f : 1.f, 0.f)));
             wnd.draw(_shot_flash);
             _shot_flash_intensity -= _shot_flash_timer.restart().asSeconds() * 18.f;
             if (_shot_flash_intensity < 0.f)
@@ -613,7 +613,7 @@ public:
             _shell_ejected = true;
 
             auto vel = _wpn->_shell_vel + rand_float(-_wpn->_shell_vel * 0.1f, _wpn->_shell_vel * 0.1f);
-            auto dir = left_dir ? sf::Vector2f{-_wpn->_shell_dir.x, _wpn->_shell_dir.y} : _wpn->_shell_dir;
+            auto dir = left_dir ? vec2f{-_wpn->_shell_dir.x, _wpn->_shell_dir.y} : _wpn->_shell_dir;
 
             _active_shells.push_back(shell_data{
                 vel * dir + shell_additional_vel,
@@ -658,7 +658,7 @@ public:
             }
             else {
                 auto addition =
-                    i == _wpn->_arm2_bone ? _wpn->_arm2_idle_pos : sf::Vector2f(0.f, 0.f);
+                    i == _wpn->_arm2_bone ? _wpn->_arm2_idle_pos : vec2f(0.f, 0.f);
                 layers[i].setPosition(position + leftyfix(main_layer_keys.position, LF) +
                                       rotate_vec(leftyfix(keys[i].position, LF) + leftyfix(addition, LF),
                                                  M_PIf32 * main_layer_keys.angle * LF / 180.f));
@@ -676,8 +676,8 @@ public:
     }
 
     [[nodiscard]]
-    sf::Vector2f shot_displacement(const sf::Vector2f& direction) const {
-        return direction.x < 0.f ? sf::Vector2f(-_wpn->_barrel.x, _wpn->_barrel.y) : _wpn->_barrel;
+    vec2f shot_displacement(const vec2f& direction) const {
+        return direction.x < 0.f ? vec2f(-_wpn->_barrel.x, _wpn->_barrel.y) : _wpn->_barrel;
     }
 
 private:
@@ -705,21 +705,21 @@ private:
     }
 
     [[nodiscard]]
-    sf::Vector2f shell_displacement(bool on_left) {
-        return on_left ? sf::Vector2f(-_wpn->_shell_pos.x, _wpn->_shell_pos.y) : _wpn->_shell_pos;
+    vec2f shell_displacement(bool on_left) {
+        return on_left ? vec2f(-_wpn->_shell_pos.x, _wpn->_shell_pos.y) : _wpn->_shell_pos;
     }
 
-    template <typename F = int, typename F2 = void(*)(const sf::Vector2f&, const sf::Vector2f&, float)>
-    void shot(const sf::Vector2f& position,
-              const sf::Vector2f& direction,
-              bullet_mgr&         bm,
-              physic_simulation&  sim,
-              sf::Color           tracer_color,
-              bool                spawn_bullet = true,
-              F2&&                bullet_spawn_callback = nullptr,
-              int                 group = -1,
-              F                   player_group_getter = -1,
-              rand_float_pool*    rand_pool = nullptr) {
+    template <typename F = int, typename F2 = void (*)(const vec2f&, const vec2f&, float)>
+    void shot(const vec2f&       position,
+              const vec2f&       direction,
+              bullet_mgr&        bm,
+              physic_simulation& sim,
+              sf::Color          tracer_color,
+              bool               spawn_bullet          = true,
+              F2&&               bullet_spawn_callback = nullptr,
+              int                group                 = -1,
+              F                  player_group_getter   = -1,
+              rand_float_pool*   rand_pool             = nullptr) {
         auto pos  = position + shot_displacement(direction);
         auto angl = _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f;
 
@@ -791,13 +791,13 @@ private:
     }
 
     struct shell_data {
-        sf::Vector2f _vel;
-        sf::Vector2f _pos;
-        float        _angle;
-        float        _angle_vel;
-        bool         _left;
-        float        _last_time = 0.f;
-        timer        _timer     = {};
+        vec2f _vel;
+        vec2f _pos;
+        float _angle;
+        float _angle_vel;
+        bool  _left;
+        float _last_time = 0.f;
+        timer _timer     = {};
     };
 
 private:
@@ -807,18 +807,18 @@ private:
 
     sf::Color                  _last_tracer_color = {255, 255, 255};
 
-    sf::Sprite                 _shot_flash;
-    sf::Clock                  _shot_flash_timer;
-    float                      _shot_flash_intensity = 0.f;
+    sf::Sprite _shot_flash;
+    sf::Clock  _shot_flash_timer;
+    float      _shot_flash_intensity = 0.f;
 
-    std::list<shell_data>      _active_shells;
-    bool                       _shell_ejected = false;
-    sf::Vector2f               _last_gravity = {0.f, 0.f};
-    float                      _last_time_speed = 1.f;
+    std::list<shell_data> _active_shells;
+    bool                  _shell_ejected   = false;
+    vec2f                 _last_gravity    = {0.f, 0.f};
+    float                 _last_time_speed = 1.f;
 
-    bool                       _on_shot = false;
-    bool                       _on_reload = false;
-    timer                      _shot_timer;
+    bool  _on_shot   = false;
+    bool  _on_reload = false;
+    timer _shot_timer;
 
 public:
     [[nodiscard]]

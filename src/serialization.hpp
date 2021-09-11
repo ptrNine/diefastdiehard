@@ -463,7 +463,7 @@ inline void deserialize(T& vec, std::span<const std::byte>& in) {
     for (decltype(size) i = 0; i < size; ++i) {
         std::decay_t<decltype(*begin(vec))> v;
         deserialize(v, in);
-        inserter = move(v);
+        inserter = std::move(v);
     }
 }
 

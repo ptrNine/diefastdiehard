@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.hpp"
+#include "vec2.hpp"
 #include "physic_simulation.hpp"
 #include "player.hpp"
 
@@ -34,8 +35,8 @@ class adjustment_box {
 public:
     adjustment_box(std::weak_ptr<player> player,
                    physic_simulation&    sim,
-                   const sf::Vector2f&   pos,
-                   const sf::Vector2f&   size):
+                   const vec2f&          pos,
+                   const vec2f&          size):
         _player(std::move(player)) {
         _box = physic_group::create();
         _box->append(physic_line::create({0.f, 0.f}, {0.f, -size.y}));
@@ -85,7 +86,8 @@ private:
 
 class adjustment_box_mgr {
 public:
-    void add(std::weak_ptr<player> player, physic_simulation& sim, const sf::Vector2f& pos, const sf::Vector2f& size) {
+    void
+    add(std::weak_ptr<player> player, physic_simulation& sim, const vec2f& pos, const vec2f& size) {
         _boxes.emplace_back(std::move(player), sim, pos, size);
     }
 
