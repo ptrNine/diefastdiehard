@@ -23,8 +23,6 @@ public:
         command_buffer().add_handler("level", &game_commands::cmd_level, this);
         command_buffer().add_handler("ai", &game_commands::cmd_ai, this);
         command_buffer().add_handler("ai difficulty", &game_commands::cmd_ai_difficulty, this);
-        command_buffer().add_handler("connect", &game_commands::cmd_connect, this);
-        command_buffer().add_handler("srv init", &game_commands::cmd_srv_init, this);
         command_buffer().add_handler("shutdown", &game_commands::cmd_shutdown, this);
     }
 
@@ -90,14 +88,6 @@ public:
 
         if (!help.empty())
             LOG("{}", help);
-    }
-
-    void cmd_connect(const std::string& address) {
-        gs.connect_to_server(address_t::str(address));
-    }
-
-    void cmd_srv_init() {
-        gs.server_init();
     }
 
     void cmd_player_delete(const std::string& player_name) {
@@ -179,9 +169,7 @@ public:
                 return;
             }
 
-            if (gs.is_client())
-                gs.player_create_from_client(name, group);
-            else if (auto plr = gs.player_create(name))
+            if (auto plr = gs.player_create(name))
                 plr->group(group);
         }
         else if (cmd == "conf") {
