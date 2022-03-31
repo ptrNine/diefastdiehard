@@ -16,7 +16,6 @@
 #include "physic_line.hpp"
 #include "physic_group.hpp"
 #include "physic_platform.hpp"
-#include "config.hpp"
 #include "fixed_string.hpp"
 #include "rand_pool.hpp"
 #include "avg_counter.hpp"

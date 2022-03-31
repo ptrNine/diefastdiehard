@@ -5,7 +5,8 @@
 
 #include "fixed_string.hpp"
 #include "log.hpp"
-#include "config.hpp"
+#include "cfg.hpp"
+#include "color.hpp"
 
 namespace dfdh {
 class player_configurator {
@@ -21,33 +22,33 @@ public:
 
     void read() {
         auto cfgpath = "data/settings/players_settings.cfg"s;
-        cfg().try_parse(cfgpath);
+        auto conf = cfg(cfgpath, cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy);
 
-        auto sect = "player_settings_" + std::string(name);
+        auto  sect_name = cfg_section_name{"player_settings_" + std::string(name)};
+        auto& sect      = conf.get_or_create(sect_name);
 
-        pistol       = cfg().get_or_write_default<std::string>(sect, "pistol", "wpn_glk17", cfgpath);
-        face_id      = cfg().get_or_write_default<u32>(sect, "face_id", 0, cfgpath);
-        body_id      = cfg().get_or_write_default<u32>(sect, "body_id", 0, cfgpath);
-        body_color   = cfg().get_or_write_default<sf::Color>(sect, "body_color", sf::Color(255, 255, 255), cfgpath);
-        tracer_color = cfg().get_or_write_default<sf::Color>(sect, "tracer_color", sf::Color(255, 255, 255), cfgpath);
+        pistol = sect.value_or_default_and_set("pistol", "wpn_glk17"s);
 
-        cfg().try_refresh_file(sect);
+        face_id    = sect.value_or_default_and_set<u32>("face_id", 0);
+        body_id    = sect.value_or_default_and_set<u32>("body_id", 0);
+        /* XXX: write better color serialization */
+        body_color = rgba_t::from(
+            sect.value_or_default_and_set<std::string>("body_color", rgba_t{sf::Color(255, 255, 255)}.to_string()));
+        tracer_color = rgba_t::from(
+            sect.value_or_default_and_set<std::string>("tracer_color", rgba_t{sf::Color(255, 255, 255)}.to_string()));
     }
 
     void write() {
-        auto  sect = "player_settings_" + std::string(name);
-        auto& s    = cfg()
-                      .sections()
-                      .emplace(sect, cfg_section(sect, "data/settings/players_settings.cfg"))
-                      .first->second;
+        auto  cfgpath   = "data/settings/players_settings.cfg"s;
+        auto  sect_name = "player_settings_" + std::string(name);
+        auto  conf      = cfg(cfgpath, cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy);
+        auto& sect      = conf.get_or_create(sect_name);
 
-        s.sects["pistol"] = pistol;
-        s.sects["face_id"] = std::to_string(face_id);
-        s.sects["body_id"] = std::to_string(body_id);
-        s.sects["body_color"] = format("{}", body_color);
-        s.sects["tracer_color"] = format("{}", tracer_color);
-
-        cfg().try_refresh_file(sect);
+        sect.set("pistol", pistol);
+        sect.set("face_id", face_id);
+        sect.set("body_id", body_id);
+        sect.set("body_color", format("{}", body_color));
+        sect.set("tracer_color", format("{}", tracer_color));
     }
 
     [[nodiscard]]

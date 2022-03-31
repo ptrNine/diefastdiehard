@@ -1,25 +1,52 @@
 #pragma once
 
-#include <SFML/Window/Keyboard.hpp>
-
 #include "types.hpp"
-#include "config.hpp"
+#include "cfg.hpp"
 #include "fixed_string.hpp"
+#include "key_generated.hpp"
 
 namespace dfdh {
 
+struct key_str_map_t {
+    key_str_map_t() {
+        for (int i = sf::Keyboard::A; i < sf::Keyboard::KeyCount; ++i)
+            str_to_key[sfml_key_to_str(sf::Keyboard::Key(i))] = i;
+    }
+
+    [[nodiscard]]
+    std::string to_str(int key) const {
+        return sfml_key_to_str(sf::Keyboard::Key(key));
+    }
+
+    [[nodiscard]]
+    int to_key(const std::string& str) const {
+        auto found = str_to_key.find(str);
+        if (found != str_to_key.end())
+            return found->second;
+        return -1;
+    }
+
+    std::map<std::string, int> str_to_key;
+};
+
+static inline key_str_map_t& key_str_map() {
+    static key_str_map_t inst;
+    return inst;
+}
+
 struct player_controller {
     player_controller(u32 id): _id(id) {
-        auto sect = "player_controller_" + std::to_string(_id);
-        auto path = "data/settings/players_settings.cfg"s;
+        auto sect_name = cfg_section_name{"player_controller_" + std::to_string(_id)};
+        auto path      = "data/settings/players_settings.cfg"s;
+        auto conf      = cfg(path, cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy);
+        auto sect      = conf.get_or_create(sect_name);
 
-        up    = cfg().get_or_write_default<int>(sect, "key_up", sf::Keyboard::Up, path);
-        down  = cfg().get_or_write_default<int>(sect, "key_down", sf::Keyboard::Down, path);
-        left  = cfg().get_or_write_default<int>(sect, "key_left", sf::Keyboard::Left, path);
-        right = cfg().get_or_write_default<int>(sect, "key_right", sf::Keyboard::Right, path);
-        shot    = cfg().get_or_write_default<int>(sect, "key_shot", sf::Keyboard::Comma, path);
-        grenade = cfg().get_or_write_default<int>(sect, "key_grenade", sf::Keyboard::Dash, path);
-        cfg().try_refresh_file(sect);
+        up      = key_str_map().to_key(sect.value_or_default_and_set("key_up", "Up"s));
+        down    = key_str_map().to_key(sect.value_or_default_and_set("key_down", "Down"s));
+        left    = key_str_map().to_key(sect.value_or_default_and_set("key_left", "Left"s));
+        right   = key_str_map().to_key(sect.value_or_default_and_set("key_right", "Right"s));
+        shot    = key_str_map().to_key(sect.value_or_default_and_set("key_shot", "Comma"s));
+        grenade = key_str_map().to_key(sect.value_or_default_and_set("key_grenade", "Dash"s));
     }
 
     /*
@@ -41,7 +68,8 @@ struct player_controller {
     */
 
     void save() {
-        cfg().try_refresh_file("player_controller_" + std::to_string(_id));
+        // XXX: wtf
+        //cfg().try_refresh_file("player_controller_" + std::to_string(_id));
     }
 
     int up, down, left, right, shot, grenade;

@@ -2,7 +2,7 @@
 
 #include <SFML/Window/Event.hpp>
 
-#include "config.hpp"
+#include "cfg.hpp"
 #include "log.hpp"
 #include "ston.hpp"
 
@@ -51,7 +51,7 @@ public:
 
     void update(size_t idx, float step) {
         try {
-            auto value_opt = cfg().get<std::string>(section, key);
+            auto value_opt = cfg::mutable_global().get_section(section).try_get<std::string>(key);
             if (!value_opt) {
                 LOG_WARN("cfg_value_control: key {} was not found in section [{}]", key, section);
                 return;
@@ -60,7 +60,7 @@ public:
             u32 value_idx = 0;
             value_t values;
 
-            for (auto str_value_view : *value_opt / split(' ', '\t')) {
+            for (auto str_value_view : value_opt->value() / split(' ', '\t')) {
                 if (value_idx > 2){
                     LOG_WARN("cfg_value_control: only 3 values supported");
                     return;
@@ -90,7 +90,8 @@ public:
                 if (!new_value.empty() && new_value.back() == ' ')
                     new_value.pop_back();
 
-                cfg().sections().at(section).sects.at(key) = new_value;
+                value_opt->set(new_value);
+                cfg::mutable_global().commit();
                 LOG_INFO_UPDATE("cfg_value_control: updated [{}]:{} = {}", section, key, new_value);
                 updated = true;
             }

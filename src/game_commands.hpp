@@ -192,12 +192,12 @@ public:
     void cmd_cfg_list(const std::optional<std::string>& value) {
         std::string sects;
         if (value) {
-            for (auto& [sect, _] : cfg().sections())
+            for (auto& [sect, _] : cfg::global().get_sections())
                 if (sect.starts_with(*value))
                     sects += "\n" + sect;
         }
         else {
-            for (auto& [sect, _] : cfg().sections()) sects += "\n" + sect;
+            for (auto& [sect, _] : cfg::global().get_sections()) sects += "\n" + sect;
         }
         LOG("Sections:{}", sects);
         return;
@@ -236,23 +236,23 @@ public:
             return;
         }
 
-        auto found_sect = cfg().sections().find(sect);
-        if (found_sect == cfg().sections().end()) {
+        auto optsect = cfg::global().try_get_section(sect);
+        if (!optsect) {
             LOG_ERR("cfg: section [{}] not found", sect);
             return;
         }
 
         if (value) {
-            auto found_key = found_sect->second.sects.find(*value);
-            if (found_key == found_sect->second.sects.end()) {
+            auto optkey = optsect->try_get<std::string>(*value);
+            if (!optkey) {
                 LOG_ERR("cfg {}: key '{}' not found", sect, *value);
                 return;
             }
 
-            LOG("{} = {}", *value, found_key->second);
+            LOG("{} = {}", *value, optkey->value());
         }
         else {
-            LOG("{}", found_sect->second.content());
+            LOG("{}", *optsect);
             /*
             size_t spaces = 0;
             std::string to_print;
@@ -272,19 +272,20 @@ public:
     }
 
     void cmd_cfg_set(const std::string& sect, const std::string& key, const std::optional<std::string>& value) {
-        auto found_sect = cfg().sections().find(sect);
-        if (found_sect == cfg().sections().end()) {
+        auto optsect = cfg::mutable_global().try_get_section(sect);
+        if (!optsect) {
             LOG_ERR("cfgset: section [{}] not found", sect);
             return;
         }
 
-        auto found_key = found_sect->second.sects.find(key);
-        if (found_key == found_sect->second.sects.end()) {
+        auto optkey = optsect->try_get<std::string>(key);
+        if (!optkey) {
             LOG_ERR("cfgset {}: key '{}' not found", sect, key);
             return;
         }
 
-        found_key->second = value ? *value : "";
+        optkey->set(value ? *value : "");
+        cfg::mutable_global().commit();
         LOG_INFO("[{}] {} = {}", sect, key, value ? *value : "");
     }
 
@@ -406,12 +407,13 @@ public:
     void cmd_cfg_control(const std::string&                section,
                          const std::string&                key,
                          const std::string&                str_steps) {
-        if (!cfg().sections().contains(section)) {
+        auto sect = cfg::global().try_get_section(section);
+        if (!sect) {
             LOG_ERR("cfg control: section [{}] was not found", section);
             return;
         }
 
-        if (!cfg().sections().at(section).sects.contains(key)) {
+        if (!sect->has_key(key)) {
             LOG_ERR("cfg control {}: key {} was not found", section, key);
             return;
         }

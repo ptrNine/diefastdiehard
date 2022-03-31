@@ -8,21 +8,22 @@
 #include "main_menu.hpp"
 #include "args_view.hpp"
 #include "command_buffer.hpp"
-#include "config.hpp"
+#include "cfg.hpp"
 #include "profiler.hpp"
 
 namespace dfdh {
 
 class global_ctx {
 public:
-    static global_ctx& init() {
+    static global_ctx& instance() {
         static global_ctx inst;
         return inst;
     }
 
     global_ctx() {
-        cfg().try_parse("data/settings/window.cfg");
-        wnd_size = cfg().get_or_write_default("window", "size", vec2f(800.f, 600.f), "data/settings/window.cfg", true);
+        auto sect = conf.get_or_create("window"_sect);
+        wnd_size  = sect.value_or_default_and_set("size", vec2f(800.f, 600.f));
+        conf.commit();
     }
 
     [[nodiscard]]
@@ -35,9 +36,16 @@ public:
         return u32(wnd_size.y);
     }
 
+    void on_resize(u32 w, u32 h) {
+        wnd_size = vec2f{float(w), float(h)};
+        auto sect = conf.get_or_create("window"_sect);
+        sect.set("size", wnd_size);
+    }
+
 private:
     sf::ContextSettings settings{24, 8, 4, 3, 3};
     vec2f wnd_size;
+    cfg conf{"data/settings/window.cfg", cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy};
 };
 
 class engine {
@@ -149,11 +157,11 @@ end:
     virtual void post_command_update() = 0;
 
     virtual void on_window_resize(u32 width, u32 height) {
-        cfg().try_write("window", "size", vec2f(float(width), float(height)), true, true);
+        _ctx_init__.on_resize(width, height);
     }
 
 private:
-    global_ctx& _ctx_init__ = global_ctx::init();
+    global_ctx& _ctx_init__ = global_ctx::instance();
 
 protected:
     ui_ctx ui;

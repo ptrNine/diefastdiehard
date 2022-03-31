@@ -5,7 +5,7 @@
 
 #include "rand_pool.hpp"
 #include "bullet.hpp"
-#include "config.hpp"
+#include "cfg.hpp"
 #include "texture_mgr.hpp"
 #include "instant_kick.hpp"
 #include "log.hpp"
@@ -58,10 +58,10 @@ public:
     static std::vector<std::string> get_pistol_sections() {
         std::vector<std::string> result;
 
-        for (auto& [sect_name, sect] : cfg().sections()) {
+        for (auto& [sect_name, sect] : cfg::global().get_sections()) {
             if (sect_name.starts_with("wpn_")) {
-                auto wpn_class = sect.sects.find("class");
-                if (wpn_class != sect.sects.end()/* && wpn_class->second == "pistol"*/)
+                auto wpn_class = static_cast<const cfg_section<true>&>(sect).try_get<std::string>("class");
+                if (!wpn_class /* && wpn_class->second == "pistol"*/)
                     result.push_back(sect_name);
             }
         }
@@ -90,35 +90,37 @@ public:
     }
 
     void cfg_set() {
-        _hit_mass      = cfg().get_req<float>(_section, "hit_mass");
-        _dispersion    = cfg().get_req<float>(_section, "dispersion");
-        _fire_rate     = cfg().get_req<float>(_section, "fire_rate");
-        _recoil        = cfg().get_req<float>(_section, "recoil");
-        _buckshot      = cfg().get_req<u32>(_section, "buckshot");
-        _mag_size      = cfg().get_req<u32>(_section, "mag_size");
-        _size          = cfg().get_req<vec2f>(_section, "size");
-        _arm_joint     = cfg().get_req<vec2f>(_section, "arm_joint");
-        _arm_bone      = cfg().get_req<u32>(_section, "arm_bone");
-        _arm2_bone     = cfg().get_req<u32>(_section, "arm2_bone");
-        _arm_idle_pos  = cfg().get_req<vec2f>(_section, "arm_idle_pos");
-        _arm2_idle_pos = cfg().get_req<vec2f>(_section, "arm2_idle_pos");
-        _arm_pos_f     = cfg().get_req<vec2f>(_section, "arm_pos_f");
-        _barrel        = cfg().get_req<vec2f>(_section, "barrel");
-        _shot_flash    = cfg().get_default<bool>(_section, "shot_flash", false);
-        _eject_shell   = cfg().get_default<bool>(_section, "eject_shell", false);
-        _wpn_class     = weapon_class_from_str(cfg().get_req<std::string>(_section, "class"));
-        _bullet_vel_tier = cfg().get_req<u32>(_section, "bullet_velocity_tier");
+        auto& sect = cfg::global().get_section(cfg_section_name{_section});
+
+        _hit_mass        = sect.value<float>("hit_mass");
+        _dispersion      = sect.value<float>("dispersion");
+        _fire_rate       = sect.value<float>("fire_rate");
+        _recoil          = sect.value<float>("recoil");
+        _buckshot        = sect.value<u32>("buckshot");
+        _mag_size        = sect.value<u32>("mag_size");
+        _size            = sect.value<vec2f>("size");
+        _arm_joint       = sect.value<vec2f>("arm_joint");
+        _arm_bone        = sect.value<u32>("arm_bone");
+        _arm2_bone       = sect.value<u32>("arm2_bone");
+        _arm_idle_pos    = sect.value<vec2f>("arm_idle_pos");
+        _arm2_idle_pos   = sect.value<vec2f>("arm2_idle_pos");
+        _arm_pos_f       = sect.value<vec2f>("arm_pos_f");
+        _barrel          = sect.value<vec2f>("barrel");
+        _shot_flash      = sect.value_or_default("shot_flash", false);
+        _eject_shell     = sect.value_or_default("eject_shell", false);
+        _wpn_class       = weapon_class_from_str(sect.value<std::string>("class"));
+        _bullet_vel_tier = sect.value<u32>("bullet_velocity_tier");
 
         if (_eject_shell) {
-            _shell_pos   = cfg().get_req<vec2f>(_section, "shell_pos");
-            _shell_dir   = normalize(cfg().get_req<vec2f>(_section, "shell_dir"));
-            _shell_frame = cfg().get_req<u32>(_section, "shell_frame");
-            auto& txtr   = texture_mgr().load(cfg().get_req<std::string>(_section, "shell_txtr"));
+            _shell_pos   = sect.value<vec2f>("shell_pos");
+            _shell_dir   = normalize(sect.get<vec2f>("shell_dir").value());
+            _shell_frame = sect.value<u32>("shell_frame");
+            auto& txtr   = texture_mgr().load(sect.get<std::string>("shell_txtr").value());
             _shell_sprite.setTexture(txtr);
             _shell_sprite.setOrigin(float(txtr.getSize().x) * 0.5f, float(txtr.getSize().y) * 0.5f);
-            auto sz = cfg().get_req<vec2f>(_section, "shell_size");
+            auto sz = sect.value<vec2f>("shell_size");
             _shell_sprite.setScale(sz.x / float(txtr.getSize().x), sz.y / float(txtr.getSize().y));
-            _shell_vel = cfg().get_req<float>(_section, "shell_vel");
+            _shell_vel = sect.value<float>("shell_vel");
         }
     }
 
@@ -127,14 +129,16 @@ public:
         _animations.clear();
 
         int i = 0;
-        while (auto layer_txtr = cfg().get<std::string>(_section, "layer" + std::to_string(i))) {
-            if (layer_txtr->empty()) {
+        while (auto layer_txtr = cfg::global()
+                                     .get_section(cfg_section_name(_section))
+                                     .try_get<std::string>("layer" + std::to_string(i))) {
+            if (!layer_txtr->has_value()) {
                 _layers.push_back(sf::Sprite());
                 ++i;
                 continue;
             }
 
-            auto& txtr = texture_mgr().load(*layer_txtr);
+            auto& txtr = texture_mgr().load(layer_txtr->value());
             sf::Sprite sprite;
             sprite.setTexture(txtr);
             auto txtr_sz = txtr.getSize();
@@ -178,7 +182,7 @@ public:
 
 private:
     void load_animations(const std::string& section) {
-        auto anims = cfg().get_req<std::vector<std::string>>(section, "animations");
+        auto anims = cfg::global().get_section(section).get<std::vector<std::string>>("animations").value();
 
         if (anims.empty())
             throw std::runtime_error("Weapon " + section + " must have at least one animation");
@@ -188,25 +192,27 @@ private:
     }
 
     weapon_anim load_anim(const std::string& section) {
-        auto frames = cfg().get_req<u32>(section, "frames");
+        auto sect = cfg::global().get_section(section);
+
+        auto frames = sect.value<u32>("frames");
         auto layers = _layers.size();
 
         std::vector<weapon_anim_frame> _animation;
 
-        auto duration = cfg().get_req<float>(section, "duration");
+        auto duration = sect.value<float>("duration");
 
         for (u32 frame = 0; frame < frames; ++frame) {
             auto frame_str = std::to_string(frame);
             weapon_anim_frame fr;
-            fr._time   = cfg().get_req<float>(section, frame_str + "_time");
+            fr._time   = sect.value<float>(frame_str + "_time");
             fr._intrpl = weapon_anim_frame::interpl_from_str(
-                cfg().get_req<std::string>(section, frame_str + "_intrpl"));
+                sect.value<std::string>(frame_str + "_intrpl"));
 
             for (size_t layer = 0; layer < layers; ++layer) {
                 auto layer_str = "_layer" + std::to_string(layer) + "_";
-                auto pos_key   = cfg().get_default<vec2f>(section, frame_str + layer_str + "pos", {0.f, 0.0001f});
-                auto scale_key = cfg().get_default<vec2f>(section, frame_str + layer_str + "scale", {1.f, 1.f});
-                auto rot_key   = cfg().get_default<float>(section, frame_str + layer_str + "rot", 0.f);
+                auto pos_key   = sect.value_or_default<vec2f>(frame_str + layer_str + "pos", {0.f, 0.0001f});
+                auto scale_key = sect.value_or_default<vec2f>(frame_str + layer_str + "scale", {1.f, 1.f});
+                auto rot_key   = sect.value_or_default<float>(frame_str + layer_str + "rot", 0.f);
 
                 fr._layers.push_back(weapon_anim_frame::key_t{pos_key, scale_key, rot_key});
             }

@@ -236,7 +236,7 @@ public:
 
         for (auto& [_, control_data] : controlled_players) {
             auto& [controller, this_player] = control_data;
-            bool update_was = this_player->update_input(*controller, evt);
+            this_player->update_input(*controller, evt);
         }
 
         if (cfgval_ctrl) {
@@ -248,8 +248,8 @@ public:
     void cfgval_ctrl_update() {
         if (auto sect = cfgval_ctrl->consume_update()) {
             if (sect->starts_with("wpn_")) {
-                for (auto& [sect_name, section] : cfg().sections()) {
-                    if (sect->starts_with(sect_name) && section.sects.contains("class")) {
+                for (auto& [sect_name, section] : cfg::global().get_sections()) {
+                    if (sect->starts_with(sect_name) && section.has_key("class")) {
                         weapon_mgr().reload(sect_name);
                         return;
                     }
@@ -357,7 +357,12 @@ public:
             kick_mgr.update();
             adj_box_mgr.update(sim);
         }
+        else {
+            sim.update_pass();
+        }
     }
+
+    /* AI operators */
 
     void ai_operators_consume() {
         for (auto& [name, ai_op] : ai_operators) {
@@ -449,19 +454,12 @@ public:
     std::map<u32, std::shared_ptr<player_controller>>     controllers;
     std::map<player_name_t, std::shared_ptr<ai_operator>> ai_operators;
     std::shared_ptr<level>                                cur_level;
-    bool                                                  on_game       = false;
-    bool                                                  debug_physics = false;
+    std::queue<game_state_event>                          events;
+    std::unique_ptr<player_configurator_ui>               pconf_ui;
+    std::optional<cfg_value_control>                      cfgval_ctrl;
 
-    //std::unique_ptr<client_state> client;
-    //std::unique_ptr<server_t>     server;
-    //sf::Clock                     server_sync_timer;
-    //float                         server_sync_step = 0.06f;
-
-    //float                         this_ping     = 0.f;
-
-    std::optional<cfg_value_control>        cfgval_ctrl;
-    std::queue<game_state_event>            events;
-    std::unique_ptr<player_configurator_ui> pconf_ui;
+    bool on_game       = false;
+    bool debug_physics = false;
 };
 
 } // namespace dfdh

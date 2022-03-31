@@ -5,7 +5,7 @@
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Texture.hpp>
 #include "vec_math.hpp"
-#include "config.hpp"
+#include "cfg.hpp"
 #include "physic_simulation.hpp"
 #include <vector>
 
@@ -28,18 +28,19 @@ public:
 
     static std::vector<std::string> list_available_levels() {
         std::vector<std::string> res;
-        for (auto& [sect, _] : cfg().sections())
+        for (auto& [sect, _] : cfg::global().get_sections())
             if (sect.starts_with("lvl_"))
                 res.push_back(sect);
         return res;
     }
 
     void cfg_reload() {
-        _name        = cfg().get_req<std::string>(_section, "name");
-        _gravity     = cfg().get_req<vec2f>(_section, "gravity");
-        _platform_sz = cfg().get_req<float>(_section, "platform_height");
-        _view_size   = cfg().get_req<vec2f>(_section, "view_size");
-        _level_size  = cfg().get_req<vec2f>(_section, "level_size");
+        auto& sect = cfg::global().get_section(_section);
+        _name        = sect.value<std::string>("name");
+        _gravity     = sect.value<vec2f>("gravity");
+        _platform_sz = sect.value<float>("platform_height");
+        _view_size   = sect.value<vec2f>("view_size");
+        _level_size  = sect.value<vec2f>("level_size");
 
         auto txtr_path              = fs::current_path() / "data/textures/" / _name;
         auto end_platform_txtr_path = txtr_path / "end_platform.png";
@@ -75,10 +76,13 @@ public:
 
         _platforms.clear();
         u32 pl = 0;
-        while (auto pl_data = cfg().get<std::array<float, 3>>(_section, "pl" + std::to_string(pl))) {
+
+        while (auto pl_data = cfg::global().get_section(_section).try_get<std::array<float, 3>>("pl" + std::to_string(pl))) {
             _platforms.push_back(
-                platform_t{physic_platform({(*pl_data)[0], (*pl_data)[1]}, (*pl_data)[2]),
-                _end_platform, _end_platform, _platform});
+                platform_t{physic_platform({(pl_data->value())[0], (pl_data->value())[1]}, (pl_data->value())[2]),
+                           _end_platform,
+                           _end_platform,
+                           _platform});
             auto& p = _platforms.back();
             //sim.add_platform(p.ph);
 

@@ -1456,12 +1456,29 @@ cfg_file_path operator "" _file(const char* str, size_t size) {
     return {{str, size}};
 }
 
+using cfg_mode_int = unsigned int;
+enum class cfg_mode : cfg_mode_int { none = 0, create_if_not_exists = 1 << 0, commit_at_destroy = 1 << 1 };
+
+cfg_mode operator|(cfg_mode lhs, cfg_mode rhs) {
+    return cfg_mode(cfg_mode_int(lhs) | cfg_mode_int(rhs));
+}
+
 class cfg {
 public:
-    cfg(const fs::path& entry_config_path) {
+    cfg(const fs::path& entry_config_path, cfg_mode mode = cfg_mode::none) {
+        if (cfg_mode_int(mode | cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path))
+            [[maybe_unused]] auto of = std::ofstream(entry_config_path);
+
+        commit_at_destroy = cfg_mode_int(mode | cfg_mode::commit_at_destroy);
+
         head = cfg_node::create(cfg_token_t::HEAD_NODE, {});
         cfg_node* tail = head.get();
         parse(entry_config_path, tail);
+    }
+
+    ~cfg() {
+        if (commit_at_destroy)
+            commit();
     }
 
     void parse(const fs::path& config_path) {
@@ -1539,6 +1556,21 @@ public:
         return found != file_nodes.end() ? found->second.get() : nullptr;
     }
 
+    enum class insert_mode {
+        at_the_end = 0,
+        at_the_start,
+        lexicographicaly
+    };
+
+    cfg_section<false>& get_or_create(const cfg_section_name& sect_name,
+                                      const cfg_file_path&    preffered_file_path = {},
+                                      insert_mode             insert_mode_v       = insert_mode::lexicographicaly) {
+        auto found = sections.find(sect_name.name);
+        if (found != sections.end())
+            return found->second;
+        return create_section(sect_name, preffered_file_path, insert_mode_v);
+    }
+
     cfg_section<false>& operator[](const cfg_section_name& sect_name) {
         return sections.find(sect_name.name)->second;
     }
@@ -1595,12 +1627,6 @@ public:
         if (!try_remove_section(section_name))
             throw cfg_section_not_found(section_name.name);
     }
-
-    enum class insert_mode {
-        at_the_end = 0,
-        at_the_start,
-        lexicographicaly
-    };
 
     void skip_include(cfg_node*& p, cfg_file_node* file_node) {
         p       = p->next.get();
@@ -1676,9 +1702,9 @@ public:
     /* Creates new section
      * if file_path is empty, the section was created somewhere in the whole config
      */
-    cfg_section<false> create_section(const cfg_section_name& section_name,
-                                      const cfg_file_path&    file_path     = {},
-                                      insert_mode             insert_mode_v = insert_mode::lexicographicaly) {
+    cfg_section<false>& create_section(const cfg_section_name& section_name,
+                                       const cfg_file_path&    file_path     = {},
+                                       insert_mode             insert_mode_v = insert_mode::lexicographicaly) {
         auto [pos, was_insert] = sections.emplace(section_name.name, cfg_section<false>{nullptr});
         if (!was_insert)
             throw cfg_section_already_exists(section_name.name);
@@ -1848,6 +1874,8 @@ private:
     cfg_node*           current_key     = nullptr;
     cfg_node*           current_value   = nullptr;
     cfg_node*           current_eq      = nullptr;
+
+    bool commit_at_destroy = false;
 };
 
 } // namespace dfdh
