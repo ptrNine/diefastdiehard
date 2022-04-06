@@ -233,7 +233,7 @@ public:
                 ui.layout_row_dynamic(_row_height * 2.f, 1);
             }
 
-            auto edit_state = ui.edit_string(NK_EDIT_FIELD | NK_EDIT_SIG_ENTER,
+            auto edit_state = ui.edit_string(NK_EDIT_FIELD | nk_edit_types(NK_EDIT_SIG_ENTER),
                                              _command_edit.data(),
                                              &_command_len,
                                              int(_command_edit.size()),
