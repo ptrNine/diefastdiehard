@@ -6,6 +6,8 @@
 
 #include <SFML/Graphics/Texture.hpp>
 
+#include "log.hpp"
+
 namespace dfdh {
 
 class texture_mgr_singleton {
@@ -19,7 +21,11 @@ public:
         auto p = std::string(std::filesystem::current_path() / "data/textures" / path);
         auto [pos, was_insert] = _textures.emplace(p, sf::Texture());
         if (was_insert) {
-            pos->second.loadFromFile(p);
+            if (!pos->second.loadFromFile(p)) {
+                LOG_ERR("Cannot load texture {}", p);
+                _textures.erase(pos);
+                return _textures.emplace("!!/dummy/!!", sf::Texture()).first->second;
+            }
             pos->second.setSmooth(true);
         }
         return pos->second;
