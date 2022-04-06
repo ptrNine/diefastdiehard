@@ -139,6 +139,10 @@ build_executable() {
     local flags="$6"
     local libs="$7"
 
+    if [ ! -z "$TARGET" ] && [ "$TARGET" != "$name" ]; then
+        return
+    fi
+
     local list="$builddir/.ezbld/$name-list" newlist="$builddir/.ezbld/new-$name-list"
 
     rm -f "$newlist"
@@ -177,31 +181,35 @@ build_executable() {
 codegen_step() {
     local builddir="$1"
     local CXX_COMPILER="$2"
+    local input_header="$3"
+    local generator_name="$4"
+    local generator_cpp="$5"
+    local output_header="$6"
 
-    local deps_list="$builddir/.ezbld/net_actions_gen-list"
-    local new_deps_list="$builddir/.ezbld/new-net_actions_gen-list"
+    local deps_list="$builddir/.ezbld/$generator_name-codegen-list"
+    local new_deps_list="$builddir/.ezbld/new-$generator_name-codegen-list"
 
     rm -f "$new_deps_list"
-    for f in $(include_scan 'src/net_actions_generator.cpp'); do
+    for f in $(include_scan "$generator_cpp"); do
         stat --printf="%Y:%n\n" "$f" >> "$new_deps_list"
     done
-    stat --printf="%Y:%n\n" 'src/net_actions.hpp' >> "$new_deps_list"
+    stat --printf="%Y:%n\n" "$input_header" >> "$new_deps_list"
 
     if [ ! -f "$deps_list" ] || \
         ! cmp --silent "$deps_list" "$new_deps_list"; then
         rm -f "$deps_list"
 
         build_executable \
-            net_actions_generator \
-            src/net_actions_generator.cpp \
+            "$generator_name" \
+            "$generator_cpp" \
             "$builddir" \
             "$CXX_COMPILER" \
             false
 
         local start_tm=$(mstime)
-        colored yellow "Generating src/net_actions_generated.hpp ... " n
-        $CXX_COMPILER -E -isystem "$(pwd)/$builddir/3rd/include" 'src/net_actions.hpp' 2>/dev/null | "$builddir/net_actions_generator" > 'src/net_actions_generated.hpp' \
-            || fail "Generation of src/net_actions_generated.hpp failed"
+        colored yellow "Generating $output_header ... " n
+        $CXX_COMPILER -E -isystem "$(pwd)/$builddir/3rd/include" "$input_header" 2>/dev/null | "$builddir/$generator_name" > "$output_header" \
+            || fail "Generation of $output_header failed"
         colored lgreen "done! $(measure $start_tm)s"
 
         mv -f "$new_deps_list" "$deps_list"
@@ -257,6 +265,38 @@ make_pch() {
     fi
 }
 
+build_cmake_submodule() {
+    local builddir="$1"; shift
+    local rebuild_submodules="$1"; shift
+    local submodule="$1"; shift
+
+    mkdir -p "$builddir/submodules/$submodule"
+
+    if [ ! -f "$builddir/submodules/$submodule/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
+        git submodule init "submodules/$submodule" || fail
+        git submodule update --init --recursive "submodules/$submodule" || fail
+        rm -f "$builddir/submodules/$submodule/.easybuild_done"
+        cmake "submodules/$submodule/" -B "$builddir/submodules/$submodule" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="$C_COMPILER" \
+            -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+            -DCMAKE_INSTALL_PREFIX="$builddir/3rd" \
+            "$@" \
+            || fail "CMake failed in submodule $submodule"
+
+        make -j "$(nproc)" -C "$builddir/submodules/$submodule" install \
+            || fail "$submodule submodule build failed"
+
+        touch "$builddir/submodules/$submodule/.easybuild_done"
+    fi
+
+}
+
+install_headers() {
+    mkdir -p "$builddir/3rd"
+    cp "$@" "$builddir/3rd/"
+}
+
 gen_compodb() {
     local builddir="$1"
 
@@ -292,8 +332,8 @@ EOF
 }
 
 _build() {
-    local CXX_COMPILER="${CXX_COMPILER:=/usr/bin/g++-10}"
-    local C_COMPILER="${C_COMPILER:=/usr/bin/gcc-10}"
+    local CXX_COMPILER="${CXX_COMPILER:=/usr/bin/g++-11}"
+    local C_COMPILER="${C_COMPILER:=/usr/bin/gcc-11}"
     local builddir='./easybuild'
     local rebuild_submodules=false
     local compodb=false
@@ -354,7 +394,8 @@ _build() {
             [[ ! $builddir =~ *-android ]] && builddir="$builddir-android"
             ;;
         *)
-            fail "Unknown argument $1"
+            TARGET+="$1"
+            #fail "Unknown argument $1"
             ;;
         esac
         shift
@@ -384,24 +425,9 @@ $([ "$asan" == true ] && asan_flags)
 
     mkdir -p "$builddir/3rd"
     mkdir -p "$builddir/.ezbld"
-    mkdir -p "$builddir/submodules/SFML"
 
-    if [ ! -f "$builddir/submodules/SFML/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
-        git submodule init submodules/SFML || fail ""
-        git submodule update submodules/SFML || fail ""
-        rm -f "$builddir/submodules/SFML/.easybuild_done"
-        cmake submodules/SFML/ -B "$builddir/submodules/SFML" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER="$C_COMPILER" \
-            -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
-            -DCMAKE_INSTALL_PREFIX="$builddir/3rd" \
-            || fail "SFML submodule cmake run failed"
-
-        make -j "$(nproc)" -C "$builddir/submodules/SFML" install \
-            || fail "SFML submodule build failed"
-
-        touch "$builddir/submodules/SFML/.easybuild_done"
-    fi
+    build_cmake_submodule "$builddir" $rebuild_submodules SFML
+    build_cmake_submodule "$builddir" $rebuild_submodules Catch2 -DCATCH_INSTALL_DOCS=OFF
 
     if [ ! -f "$builddir/submodules/boost/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
         git submodule init submodules/boost || fail
@@ -457,7 +483,19 @@ $([ "$asan" == true ] && asan_flags)
 
     codegen_step \
         "$builddir" \
-        "$CXX_COMPILER"
+        "$CXX_COMPILER" \
+        src/net_actions.hpp \
+        net_actions_generator \
+        src/net_actions_generator.cpp \
+        src/net_actions_generated.hpp
+
+    codegen_step \
+        "$builddir" \
+        "$CXX_COMPILER" \
+        "$builddir/3rd/include/SFML/Window/Keyboard.hpp" \
+        sfml_key_generator \
+        src/key_generator.cpp \
+        src/key_generated.hpp
 
     build_executable \
         dfdh \
@@ -469,22 +507,23 @@ $([ "$asan" == true ] && asan_flags)
         "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread -lGL -lGLEW"
 
     build_executable \
-        coro-test \
-        coro_test.cpp \
+        cfg_test \
+        tests/cfg_test.cpp \
         "$builddir" \
         "$CXX_COMPILER" \
         "$debug" \
         "$hardening_flags" \
-        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread -lGL -lGLEW"
+        "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2"
 
-    build_executable \
-        gui-test \
-        gui_test.cpp \
-        "$builddir" \
-        "$CXX_COMPILER" \
-        "$debug" \
-        "$hardening_flags" \
-        "-lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lGL -lGLEW"
+
+#    build_executable \
+#        gui-test \
+#        gui_test.cpp \
+#        "$builddir" \
+#        "$CXX_COMPILER" \
+#        "$debug" \
+#        "$hardening_flags" \
+#        "-lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lGL -lGLEW"
 
     [ "$compodb" = true ] && gen_compodb "$builddir"
 
