@@ -12,6 +12,8 @@
 #define Expects(...) void(0)
 #endif
 
+#define DFDH_STRLINE(line) #line
+#define DFDH_SOURCELINE __FILE__ ":" DFDH_STRLINE(__LINE__)
 
 namespace dfdh {
 
