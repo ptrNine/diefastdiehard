@@ -12,6 +12,10 @@
 
 namespace dfdh {
 
+struct user_data_type {
+    enum : u64 { player = 0xdeadf00d, adjustment_box = 0xdeaddead, bullet = 0xdeadbeef };
+};
+
 class physic_group;
 
 class physic_point {

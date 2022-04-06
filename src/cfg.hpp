@@ -6,6 +6,10 @@
 #include <memory>
 #include <set>
 #include <filesystem>
+#include <thread>
+
+#include <poll.h>
+#include <sys/inotify.h>
 
 #include "split_view.hpp"
 #include "log.hpp"
@@ -81,31 +85,36 @@ auto enum_name(T enum_value) {
 namespace dfdh
 {
 
-class cfg_not_found : public std::runtime_error {
+class cfg_exception : public std::runtime_error {
+public:
+    cfg_exception(const std::string& msg): std::runtime_error(msg) {}
+};
+
+class cfg_not_found : public cfg_exception {
 public:
     cfg_not_found(const std::string& fname):
-        std::runtime_error("Config file " + fname + " was not found") {}
+        cfg_exception("Config file " + fname + " was not found") {}
 };
 
-class cfg_duplicate_section : public std::runtime_error {
+class cfg_duplicate_section : public cfg_exception {
 public:
     cfg_duplicate_section(const std::string& section):
-        std::runtime_error("Duplicate section [" + section + "]") {}
+        cfg_exception("Duplicate section [" + section + "]") {}
 };
 
-class cfg_invalid_section : public std::runtime_error {
+class cfg_invalid_section : public cfg_exception {
 public:
     cfg_invalid_section(const std::string& section):
-        std::runtime_error("Invalid section declaration: " + section) {}
+        cfg_exception("Invalid section declaration: " + section) {}
 };
 
-class cfg_file_commit_error : public std::runtime_error {
+class cfg_file_commit_error : public cfg_exception {
 public:
     cfg_file_commit_error(const std::string& filepath, const std::string& msg):
-        std::runtime_error("Failed to commit file \"" + filepath + "\": " + msg) {}
+        cfg_exception("Failed to commit file \"" + filepath + "\": " + msg) {}
 };
 
-enum class cfg_token_t {
+enum class cfg_token_t : uint16_t {
     sect_declaration = 0,
     key,
     value,
@@ -117,8 +126,9 @@ enum class cfg_token_t {
 };
 
 struct cfg_token {
-    cfg_token_t type;
     std::string value;
+    cfg_token_t type;
+    bool        resync_section = false;
 };
 
 template <typename I, typename EndI>
@@ -346,7 +356,7 @@ struct cfg_node {
         return std::make_unique<cfg_node>(type, std::move(value));
     }
 
-    cfg_node(cfg_token_t type, std::string value): tk{type, std::move(value)} {}
+    cfg_node(cfg_token_t type, std::string value): tk{std::move(value), type} {}
 
     cfg_node* insert_after(std::unique_ptr<cfg_node> node, bool commit_required = true) {
         if (file && commit_required)
@@ -793,10 +803,10 @@ std::string cfg_str_cast(const U& val) {
     }
 }
 
-class cfg_no_value_exception : public std::runtime_error {
+class cfg_no_value_exception : public cfg_exception {
 public:
     cfg_no_value_exception(const std::string& section, const std::string& key):
-        std::runtime_error("Key '" + key + "' in section [" + section +
+        cfg_exception("Key '" + key + "' in section [" + section +
                            "] does not contain a value") {}
 };
 
@@ -911,6 +921,9 @@ public:
     }
 };
 
+template <bool Const>
+class cfg_value<const char*, Const> : public cfg_value<std::string, Const> {};
+
 struct cfg_key {
     [[nodiscard]]
     bool operator<(const cfg_key*& node) const {
@@ -935,15 +948,16 @@ struct cfg_key_cmp {
     }
 };
 
-class cfg_key_not_found : public std::runtime_error {
+class cfg_key_not_found : public cfg_exception {
 public:
-    cfg_key_not_found(const std::string& section, const std::string& key):
-        std::runtime_error("Key '" + key + "' not found in section [" + section + "]") {}
+    cfg_key_not_found(std::string_view section, const std::string& key):
+        cfg_exception("Key '" + key + "' not found in section [" + std::string(section) + ']') {}
 };
 
 template <bool Const>
 class cfg_section {
 public:
+    friend class cfg_section<false>;
     cfg_section(cfg_node* isection_start): start(isection_start) {}
 
     [[nodiscard]]
@@ -961,6 +975,11 @@ public:
     }
 
     template <typename T>
+    auto value(const std::string& key) const {
+        return get<T>(key).value();
+    }
+
+    template <typename T>
     std::optional<cfg_value<T, true>> try_get(const std::string& key) const {
         auto found = values.find(key);
         if (found != values.end())
@@ -975,7 +994,7 @@ public:
     }
 
     template <typename T>
-    T value_or_default(const std::string& key, T default_value) const {
+    auto value_or_default(const std::string& key, T default_value) const {
         if (auto v = try_get<T>(key))
             return *v ? v->value() : default_value;
         else
@@ -991,8 +1010,8 @@ public:
     }
 
     [[nodiscard]]
-    const std::string& section_name() const {
-        return start->tk.value;
+    std::string_view section_name() const {
+        return std::string_view(start->tk.value).substr(1, start->tk.value.size() - 2);
     }
 
     [[nodiscard]]
@@ -1147,7 +1166,7 @@ public:
     }
 
     template <typename T>
-    T value_or_default_and_set(const std::string& key, const T& default_value) {
+    auto value_or_default_and_set(const std::string& key, const T& default_value) {
         if (auto v = try_get<T>(key)) {
             if (*v)
                 return v->value();
@@ -1155,7 +1174,7 @@ public:
             return default_value;
         }
         else {
-            set(key, default_value).value();
+            return set(key, default_value).value();
         }
     }
 
@@ -1225,6 +1244,38 @@ public:
         start->prev->remove_after();
         start = nullptr;
         values.clear();
+    }
+
+    template <bool Const2>
+    void replace_by(cfg_section<Const2>&& sect, cfg_node* tail = nullptr) {
+        auto prev = start->prev;
+        auto old_cur = std::move(prev->next);
+
+        auto old_end = start->next.get();
+        for (; old_end && old_end->tk.type != cfg_token_t::sect_declaration;
+             old_end = old_end->next.get());
+
+        auto cur  = std::move(sect.start->prev->next);
+        auto last = tail;
+        if (!tail) {
+            last = cur.get();
+            for (; last->next && last->next->tk.type != cfg_token_t::sect_declaration;
+                last = last->next.get());
+        }
+
+        prev->next       = std::move(cur);
+        prev->next->prev = prev;
+
+        if (old_end) {
+            last->next = std::move(old_end->prev->next);
+            last->next->prev = last;
+        }
+        else {
+            last->next = nullptr;
+        }
+
+        start = sect.start;
+        values = std::move(sect.values);
     }
 
 private:
@@ -1383,45 +1434,45 @@ private:
 
 namespace fs = std::filesystem;
 
-class cfg_already_parsed : public std::runtime_error {
+class cfg_already_parsed : public cfg_exception {
 public:
-    cfg_already_parsed(const std::string& path): std::runtime_error("File '" + path + "' already parsed") {}
+    cfg_already_parsed(const std::string& path): cfg_exception("File '" + path + "' already parsed") {}
 };
 
-class cfg_key_without_eq : public std::runtime_error {
+class cfg_key_without_eq : public cfg_exception {
 public:
-    cfg_key_without_eq(const std::string& section, const std::string& key):
-        std::runtime_error("Invalid key '" + key + "' in section [" + section + "]") {}
+    cfg_key_without_eq(std::string_view section, const std::string& key):
+        cfg_exception("Invalid key '" + key + "' in section [" + std::string(section) + ']') {}
 };
 
-class cfg_key_already_exists : public std::runtime_error {
+class cfg_key_already_exists : public cfg_exception {
 public:
-    cfg_key_already_exists(const std::string& section, const std::string& key):
-        std::runtime_error("Key '" + key + "' already exists in section [" + section + "]") {}
+    cfg_key_already_exists(std::string_view section, const std::string& key):
+        cfg_exception("Key '" + key + "' already exists in section [" + std::string(section) + ']') {}
 };
 
-class cfg_section_already_exists : public std::runtime_error {
+class cfg_section_already_exists : public cfg_exception {
 public:
-    cfg_section_already_exists(const std::string& section):
-        std::runtime_error("Section [" + section + "] already exists") {}
+    cfg_section_already_exists(std::string_view section):
+        cfg_exception("Section [" + std::string(section) + "] already exists") {}
 };
 
-class cfg_section_not_found : public std::runtime_error {
+class cfg_section_not_found : public cfg_exception {
 public:
-    cfg_section_not_found(const std::string& section_name):
-        std::runtime_error("Section [" + section_name + "] not found") {}
+    cfg_section_not_found(std::string_view section_name):
+        cfg_exception("Section [" + std::string(section_name) + "] not found") {}
 };
 
-class cfg_file_not_parsed : public std::runtime_error {
+class cfg_file_not_parsed : public cfg_exception {
 public:
     cfg_file_not_parsed(const std::string& file_path):
-        std::runtime_error("File '" + file_path + "' not parsed") {}
+        cfg_exception("File '" + file_path + "' not parsed") {}
 };
 
-class cfg_cannot_insert_section : public std::runtime_error {
+class cfg_cannot_insert_section : public cfg_exception {
 public:
     cfg_cannot_insert_section(const std::string& section_name):
-        std::runtime_error("Cannot insert section [" + section_name + "]") {}
+        cfg_exception("Cannot insert section [" + section_name + "]") {}
 };
 
 inline fs::path parse_include(const std::string& include) {
@@ -1463,11 +1514,69 @@ cfg_mode operator|(cfg_mode lhs, cfg_mode rhs) {
     return cfg_mode(cfg_mode_int(lhs) | cfg_mode_int(rhs));
 }
 
+template <typename T>
+struct cfg_section_replace_helper {
+    cfg_section_replace_helper() = default;
+    ~cfg_section_replace_helper() = default;
+
+    cfg_section_replace_helper(const cfg_section_replace_helper& csrh) noexcept {
+        std::lock_guard lock{csrh.mtx};
+        queue = csrh.queue; // NOLINT
+    }
+
+    cfg_section_replace_helper(cfg_section_replace_helper&& csrh) noexcept {
+        std::lock_guard lock{csrh.mtx};
+        queue = std::move(csrh.queue); // NOLINT
+    }
+
+    cfg_section_replace_helper& operator=(cfg_section_replace_helper&& csrh) noexcept {
+        if (&csrh == this)
+            return *this;
+
+        std::lock_guard lock1{csrh.mtx};
+        std::lock_guard lock2{mtx};
+        queue = std::move(csrh.queue); // NOLINT
+
+        return *this;
+    }
+
+    cfg_section_replace_helper& operator=(const cfg_section_replace_helper& csrh) noexcept {
+        if (&csrh == this)
+            return *this;
+
+        std::lock_guard lock1{csrh.mtx};
+        std::lock_guard lock2{mtx};
+        queue = csrh.queue; // NOLINT
+
+        return *this;
+    }
+
+    std::vector<T> queue;
+    std::mutex     mtx;
+};
+
 class cfg {
 public:
-    cfg(const fs::path& entry_config_path, cfg_mode mode = cfg_mode::none) {
-        if (cfg_mode_int(mode | cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path))
-            [[maybe_unused]] auto of = std::ofstream(entry_config_path);
+    static const cfg& global() {
+        return mutable_global();
+    }
+
+    static cfg& mutable_global() {
+        static cfg instance{"fs.cfg", cfg_mode::none, true};
+        return instance;
+    }
+
+    cfg(const fs::path& config_path, const std::string& section): readonly(true) {
+        head = cfg_node::create(cfg_token_t::HEAD_NODE, {});
+        cfg_node* tail = head.get();
+        bool section_parsed = false;
+        parse(config_path, tail, section, &section_parsed);
+    }
+
+    cfg(const fs::path& entry_config_path, cfg_mode mode = cfg_mode::none, bool ireadonly = false):
+        readonly(ireadonly) {
+        if (cfg_mode_int(mode | cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path)) [[maybe_unused]]
+            auto of = std::ofstream(entry_config_path);
 
         commit_at_destroy = cfg_mode_int(mode | cfg_mode::commit_at_destroy);
 
@@ -1480,6 +1589,9 @@ public:
         if (commit_at_destroy)
             commit();
     }
+
+    cfg(cfg&&) = default;
+    cfg& operator=(cfg&&) = default;
 
     void parse(const fs::path& config_path) {
         auto tail = calc_tail();
@@ -1608,9 +1720,40 @@ public:
         return result;
     }
 
+    [[nodiscard]]
+    auto& get_sections() const {
+        return sections;
+    }
+
+    [[nodiscard]]
+    auto& get_files() const {
+        return file_nodes;
+    }
+
+    [[nodiscard]]
+    bool is_readonly() const {
+        return readonly;
+    }
+
+    void set_readonly(bool value) {
+        if (value != readonly) {
+            // Write changes
+            if (readonly)
+                commit();
+            readonly = value;
+        }
+    }
+
     void commit(bool force = false) {
-        for (auto& [_, file] : file_nodes)
-            file->commit(force);
+        if (!readonly) {
+            for (auto& [_, file] : file_nodes)
+                file->commit(force);
+        }
+    }
+
+    [[nodiscard]]
+    bool has_section(const std::string& section_name) const {
+        return sections.contains(section_name);
     }
 
     bool try_remove_section(const cfg_section_name& section_name) {
@@ -1724,8 +1867,23 @@ public:
 
         if (insert_pos->tk.type != cfg_token_t::whitespace) {
             insert_pos = insert_pos->insert_after(cfg_node::create(cfg_token_t::whitespace, "\n\n"));
-            if (file_node)
-                insert_pos->file = file_node;
+            if (!insert_pos->file) {
+                if (file_node) {
+                    insert_pos->file = file_node;
+                }
+                /* File has not been created */
+                else if (insert_pos->prev->tk.type == cfg_token_t::HEAD_NODE && file_nodes.size() == 1 &&
+                         file_nodes.begin()->second == nullptr) {
+                    /* Set the first file from file_nodes */
+                    file_nodes.begin()->second = std::make_unique<cfg_file_node>(file_nodes.begin()->first, insert_pos);
+                    file_nodes.begin()->second->inner.insert(file_nodes.begin()->second.get());
+                    insert_pos->file = file_nodes.begin()->second.get();
+                }
+                else {
+                    std::cerr << "Cannot determine target file (its a bug!)" << std::endl;
+                    std::abort();
+                }
+            }
         }
         else if (!insert_pos->tk.value.ends_with("\n\n")) {
             insert_pos->tk.value.push_back('\n');
@@ -1767,6 +1925,28 @@ public:
         return !(*this == rhs);
     }
 
+    void schedule_section_replace(cfg&& section_conf) {
+        std::lock_guard lock{section_replace_helper.mtx};
+        section_replace_helper.queue.push_back(std::move(section_conf));
+    }
+
+    std::vector<std::string> replace_changed_sections() {
+        std::vector<std::string> replaced_sections;
+
+        std::lock_guard lock{section_replace_helper.mtx};
+        for (auto& sect_conf : section_replace_helper.queue) {
+            auto sect_name = sect_conf.get_sections().begin()->first;
+            auto last_node = sect_conf.calc_tail();
+            sections.at(sect_name).replace_by(std::move(sect_conf.sections.begin()->second), last_node);
+            replaced_sections.push_back(std::move(sect_name));
+        }
+        section_replace_helper.queue.clear();
+
+        return replaced_sections;
+    }
+
+    class cfg_watcher get_watcher();
+
 private:
     [[nodiscard]]
     cfg_node* calc_tail() const {
@@ -1776,7 +1956,10 @@ private:
         return ptr;
     }
 
-    void parse(const fs::path& config_path, cfg_node*& tail) {
+    void parse(const fs::path&                   config_path,
+               cfg_node*&                        tail,
+               const std::optional<std::string>& start_section  = {},
+               bool*                             section_parsed = nullptr) {
         auto path = fs::weakly_canonical(config_path);
         auto str_path = path.string();
 
@@ -1786,10 +1969,45 @@ private:
         auto& file_node = pos->second;
 
         auto mfv       = mmap_file_view(str_path.data());
-        auto tokenizer = cfg_tokenizer(mfv.begin(), mfv.end());
+        auto mfv_begin = mfv.begin();
+        auto mfv_end   = mfv.end();
+
+        /* Start parsing from specific section */
+        if (start_section) {
+            std::string_view file_data{mfv_begin, mfv_end};
+            for (size_t pos = 0;;) {
+                auto sect_pos = file_data.find('[' + *start_section + ']', pos);
+                if (sect_pos == std::string_view::npos)
+                    throw cfg_section_not_found(*start_section);
+
+                if (sect_pos > 0) {
+                    size_t whitespace_c = sect_pos - 1;
+                    while (whitespace_c != 0 && (file_data[whitespace_c] == ' ' || file_data[whitespace_c] == '\t'))
+                        --whitespace_c;
+
+                    if (file_data[whitespace_c] != '\n' && file_data[whitespace_c] != '\r') {
+                        pos = sect_pos + 1;
+                        continue;
+                    }
+                } 
+
+                mfv_begin += sect_pos;
+                break;
+            }
+        }
+
+        auto tokenizer = cfg_tokenizer(mfv_begin, mfv_end);
 
         while (tokenizer) {
-            auto [type, tk] = tokenizer.next();
+            auto [tk, type, _] = tokenizer.next();
+
+            /* Stop before next section in single section parsing mode */
+            if (start_section && type == cfg_token_t::sect_declaration &&
+                *start_section != std::string_view(tk).substr(1, tk.size() - 2)) {
+                *section_parsed = true;
+                break;
+            }
+
             tail = tail->insert_after(cfg_node::create(type, std::move(tk)), false);
 
             if (!file_node) {
@@ -1815,7 +2033,12 @@ private:
                 break;
             case cfg_token_t::include_macro:
                 insert_next();
-                parse(config_path.parent_path() / parse_include(tail->tk.value), tail);
+                parse(config_path.parent_path() / parse_include(tail->tk.value), tail, start_section, section_parsed);
+
+                if (section_parsed && *section_parsed) {
+                    file_stack.pop_back();
+                    return;
+                }
                 break;
             case cfg_token_t::key:
                 /* Handle case when previous key has not value */
@@ -1876,6 +2099,177 @@ private:
     cfg_node*           current_eq      = nullptr;
 
     bool commit_at_destroy = false;
+    bool readonly          = false;
+
+    cfg_section_replace_helper<cfg> section_replace_helper;
 };
+
+class cfg_watcher {
+public:
+    cfg_watcher(cfg* config): conf(config), inotify_fd(inotify_init()) {
+        if (inotify_fd == -1)
+            throw cfg_exception("inotify_init() failed");
+    }
+
+    ~cfg_watcher() {
+        stop();
+        close(inotify_fd);
+    }
+
+    void watch_section(const cfg_section<true>& section) {
+        std::lock_guard lock{mtx};
+
+        auto file_node = section.begin().raw_node()->file;
+        auto [pos, was_insert] = watched_sections.emplace(file_node->path, std::set<std::string>{});
+        pos->second.emplace(section.section_name());
+
+        if (!mrunning)
+            start();
+
+        if (was_insert) {
+            auto dir = fs::path(file_node->path).parent_path();
+            auto dir_str = dir.string();
+
+            auto [dir_pos, was_insert] = dir_path_to_wd.emplace(dir.string(), 0);
+            if (was_insert) {
+                auto wd = inotify_add_watch(inotify_fd, dir_pos->first.data(), IN_MODIFY);
+                dir_pos->second = wd;
+                wd_to_dir_path.emplace(wd, dir_pos->first);
+            }
+        }
+
+    }
+
+    bool remove_section(const cfg_section<true>& section) {
+        auto file_node = section.begin().raw_node()->file;
+        std::lock_guard lock{mtx};
+
+        auto pos = watched_sections.find(file_node->path);
+        if (pos == watched_sections.end())
+            return false;
+
+        if (!pos->second.erase(std::string(section.section_name())))
+            return false;
+
+        if (pos->second.empty()) {
+            watched_sections.erase(pos);
+
+            auto parent_path = fs::path(file_node->path).parent_path().string();
+            auto lb = watched_sections.lower_bound(parent_path);
+            if (lb == watched_sections.end() || !lb->first.starts_with(parent_path)) {
+                auto dir_path_pos = dir_path_to_wd.find(parent_path);
+                if (dir_path_pos != dir_path_to_wd.end()) {
+                    auto wd = dir_path_pos->second;
+                    dir_path_to_wd.erase(dir_path_pos);
+                    wd_to_dir_path.erase(wd);
+                    inotify_rm_watch(inotify_fd, wd);
+                }
+            }
+        }
+
+        if (watched_sections.empty() && mrunning)
+            stop();
+
+        return true;
+    }
+
+    std::vector<std::string> watched_section_names() const {
+        std::vector<std::string> result;
+        std::lock_guard lock{mtx};
+        for (auto& [_, sections] : watched_sections) {
+            for (auto& sect_name : sections)
+                result.push_back(sect_name);
+        }
+        return result;
+    }
+
+    void worker() {
+        LOG_INFO("config watcher start");
+
+        mrunning = true;
+
+        struct pollfd pevt = {.fd = inotify_fd, .events = POLLIN, .revents = {}};
+
+        char inotify_buff[8192];
+
+        while (mrunning) {
+            /* XXX: do not use timeout */
+            if (poll(&pevt, 1, 300) < 0) {
+                LOG_ERR("poll failed");
+                break;
+            }
+
+            if (pevt.revents & POLLIN) {
+                auto len = read(inotify_fd, inotify_buff, sizeof(inotify_buff));
+                if (len > 0) {
+                    for (auto p = inotify_buff, e = inotify_buff + len; p < e;) {
+                        struct inotify_event evt;
+                        memcpy(&evt, p, sizeof(evt));
+                        if (evt.len == 0)
+                            break;
+
+                        std::lock_guard lock{mtx};
+                        auto pos = wd_to_dir_path.find(evt.wd);
+                        if (pos != wd_to_dir_path.end()) {
+                            auto filename = p + sizeof(evt);
+                            auto path = pos->second + "/" + filename;
+                            update(evt.wd, path, watched_sections.at(path));
+                        }
+
+                        p += evt.len;
+                    }
+                }
+            }
+        }
+
+        LOG_INFO("config watcher stop");
+    }
+
+    void update([[maybe_unused]] int wd, const std::string& file, const std::set<std::string>& sections) {
+        for (auto& section_name : sections) {
+            try {
+                auto sect_conf = cfg(file, section_name);
+                /* XXX: implement this */
+                if (sect_conf.get_files().size() > 1)
+                    throw cfg_exception("Updating section splitted into different files is not supported now");
+                conf->schedule_section_replace(std::move(sect_conf));
+            }
+            catch (const std::exception& e) {
+                LOG_ERR("Update section [{}] failed: {}", section_name);
+            }
+        }
+    }
+
+    void start() {
+        if (!mrunning) {
+            task = std::thread(&cfg_watcher::worker, this);
+            while (!mrunning)
+                usleep(1000);
+        }
+    }
+
+    void stop() {
+        if (mrunning) {
+            mrunning = false;
+            task.join();
+        }
+    }
+
+private:
+    std::thread                                     task;
+    std::atomic_bool                                mrunning = false;
+    cfg*                                            conf;
+    std::map<std::string, std::set<std::string>>    watched_sections;
+
+    std::map<int, std::string> wd_to_dir_path;
+    std::map<std::string, int> dir_path_to_wd;
+    int                        inotify_fd = -1;
+
+    mutable std::mutex mtx;
+};
+
+cfg_watcher cfg::get_watcher() {
+    return {this};
+}
 
 } // namespace dfdh

@@ -52,7 +52,6 @@ class engine {
 public:
     engine(): _wnd(sf::VideoMode(_ctx_init__.wnd_w(), _ctx_init__.wnd_h()), "diefastdiehard") {
         _wnd.setActive(true);
-
         ui = ui_ctx(_wnd);
     }
 
@@ -65,7 +64,7 @@ public:
         _main_menu.set_size({float(wnd_size.x), float(wnd_size.y)});
 
         _wnd.setVerticalSyncEnabled(true);
-        _wnd.setFramerateLimit(240);
+        _wnd.setFramerateLimit(60);
 
         while (_wnd.isOpen()) {
             {

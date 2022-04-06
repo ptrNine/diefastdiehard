@@ -135,10 +135,10 @@ public:
                F                  player_group_getter) {
         auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, group);
         auto& blt = _bullets.back();
-        blt.physic()->user_data(0xdeadbeef);
+        blt.physic()->user_data(user_data_type::bullet);
         if (group != -1)
             blt.physic()->set_collide_allower([=](const physic_point* p) {
-                if (p->get_user_data() == 0xdeadf00d) {
+                if (p->get_user_data() == user_data_type::player) {
                     int grp = player_group_getter(p);
                     return grp == -1 || grp != group;
                 }
@@ -154,13 +154,13 @@ public:
                sf::Color          color) {
         auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, -1);
         auto& blt = _bullets.back();
-        blt.physic()->user_data(0xdeadbeef);
+        blt.physic()->user_data(user_data_type::bullet);
 
         return res;
         /*
         if (group != -1)
             blt.physic()->set_collide_allower([](const physic_point* p) {
-                if (p->get_user_data() == 0xdeadf00d) {
+                if (p->get_user_data() == user_data_type::player) {
                     auto plr = std::any_cast<player*>(player_grp->get_user_any());
                 }
             });

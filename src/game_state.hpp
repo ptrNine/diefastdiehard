@@ -22,7 +22,10 @@ enum class game_state_event {
 
 class game_state {
 public:
-    game_state(): blt_mgr("blt_mgr", sim, player_hit_callback), kick_mgr("kick_mgr", sim, player_hit_callback) {
+    game_state():
+        blt_mgr("blt_mgr", sim, player_hit_callback),
+        kick_mgr("kick_mgr", sim, player_hit_callback),
+        conf_watcher(&cfg::mutable_global()) {
         sim.add_update_callback("player", [this](const physic_simulation& sim, float timestep) {
             for (auto& [_, p] : players)
                 p->physic_update(sim, timestep);
@@ -217,10 +220,9 @@ public:
             return false;
         }
 
-        auto was_empty = ai_operators.empty();
         ai_operators.emplace(player_name, ai_operator::create(ai_medium, player_name));
 
-        if (was_empty) {
+        if (!ai_mgr().running()) {
             ai_provide_level_info();
             ai_provide_player_level_sim_info();
             ai_mgr().worker_start();
@@ -241,23 +243,23 @@ public:
 
         if (cfgval_ctrl) {
             cfgval_ctrl->handle_event(evt);
-            cfgval_ctrl_update();
+            if (auto section_name = cfgval_ctrl->consume_update())
+                reload_section(*section_name);
         }
     }
 
-    void cfgval_ctrl_update() {
-        if (auto sect = cfgval_ctrl->consume_update()) {
-            if (sect->starts_with("wpn_")) {
-                for (auto& [sect_name, section] : cfg::global().get_sections()) {
-                    if (sect->starts_with(sect_name) && section.has_key("class")) {
-                        weapon_mgr().reload(sect_name);
+    void reload_section(const std::string& section_name) {
+        try {
+            if (section_name.starts_with("wpn_")) {
+                for (auto& [_, section] : cfg::global().get_sections()) {
+                    if (section_name.starts_with(section_name) && section.has_key("class")) {
+                        weapon_mgr().reload(section_name);
                         return;
                     }
                 }
             }
-
-            if (sect->starts_with("lvl_")) {
-                auto found_lvl = levels.find(*sect);
+            else if (section_name.starts_with("lvl_")) {
+                auto found_lvl = levels.find(section_name);
                 if (found_lvl != levels.end()) {
                     found_lvl->second->cfg_reload();
                     if (cur_level == found_lvl->second) {
@@ -266,6 +268,9 @@ public:
                     }
                 }
             }
+        }
+        catch (const cfg_exception& e) {
+            LOG_ERR("reload section [{}] failed: {}", section_name, e.what());
         }
     }
 
@@ -334,10 +339,11 @@ public:
     };
 
     void game_update() {
-        if (on_game) {
-            if (!ai_operators.empty())
-                ai_operators_consume();
+        /* Try reload watched sections */
+        for (auto& section_name : cfg::mutable_global().replace_changed_sections())
+            reload_section(section_name);
 
+        if (on_game) {
             sim.update(60, game_speed);
 
             for (auto& [_, pl] : players) {
@@ -356,6 +362,9 @@ public:
 
             kick_mgr.update();
             adj_box_mgr.update(sim);
+
+            if (!ai_operators.empty())
+                ai_operators_consume();
         }
         else {
             sim.update_pass();
@@ -457,6 +466,7 @@ public:
     std::queue<game_state_event>                          events;
     std::unique_ptr<player_configurator_ui>               pconf_ui;
     std::optional<cfg_value_control>                      cfgval_ctrl;
+    cfg_watcher                                           conf_watcher;
 
     bool on_game       = false;
     bool debug_physics = false;

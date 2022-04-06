@@ -13,7 +13,7 @@
 #include "bullet.hpp"
 #include "types.hpp"
 #include "physic_simulation.hpp"
-#include "config.hpp"
+#include "cfg.hpp"
 #include "weapon.hpp"
 #include "avg_counter.hpp"
 #include "player_configurator.hpp"
@@ -71,7 +71,7 @@ public:
 
         _collision_box->enable_gravity();
         _collision_box->allow_platform(true);
-        _collision_box->user_data(0xdeadf00d);
+        _collision_box->user_data(user_data_type::player);
         _collision_box->user_any(this);
 
         sim.add_primitive(_collision_box);
@@ -236,8 +236,11 @@ public:
         return std::any_cast<player*>(p->get_user_any())->get_group();
     }
 
-    template <typename F = void(*)(const vec2f&, const vec2f&, float)>
-    void game_update(physic_simulation& sim, bullet_mgr& bm, bool spawn_bullet = true, F&& bullet_spawn_callback = nullptr) {
+    template <typename F = void (*)(const vec2f&, const vec2f&, float)>
+    void game_update(physic_simulation& sim,
+                     bullet_mgr&        bm,
+                     bool               spawn_bullet          = true,
+                     F&&                bullet_spawn_callback = nullptr) {
         if (_pistol) {
             auto dir       = _on_left ? vec2f{-1.f, 0.f} : vec2f{1.f, 0.f};
             auto pos       = collision_box()->get_position();
@@ -376,7 +379,9 @@ public:
     void draw(sf::RenderWindow& wnd, float interpolation_factor, float timestep) {
         auto pos = _collision_box->get_position();
         auto next_pos = pos + _collision_box->get_velocity() * timestep;
+
         pos = lerp(pos, next_pos, interpolation_factor);
+        //LOG_INFO("now: {} new: {} intr: {}", _collision_box->get_position(), next_pos, pos);
 
         auto adj = sprite_size_adjust_factors();
         auto dif = vec2f((_size.x * adj.x - _size.x) * 0.5f, _size.y * adj.y);
@@ -867,7 +872,8 @@ public:
 
 inline void
 player_hit_callback(physic_point* bullet_pnt, physic_group* player_grp, collision_result) {
-    if (bullet_pnt->get_user_data() == 0xdeadbeef && player_grp->get_user_data() == 0xdeadf00d &&
+    if (bullet_pnt->get_user_data() == user_data_type::bullet &&
+        player_grp->get_user_data() == user_data_type::player &&
         !bullet_pnt->ready_delete_later()) {
         player_grp->apply_impulse(bullet_pnt->impulse());
         bullet_pnt->delete_later();

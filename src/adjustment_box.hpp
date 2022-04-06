@@ -45,7 +45,7 @@ public:
         _box->append(physic_line::create({size.x, 0.f}, {-size.x, 0.f}));
 
         _box->position(pos);
-        _box->user_data(0xdeaddead);
+        _box->user_data(user_data_type::adjustment_box);
         _box->user_any(this);
 
         /* Only for distance change */
@@ -110,8 +110,9 @@ private:
 inline void adjustment_box_hit_callback(physic_point* bullet_pnt,
                                         physic_group* adjustment_box_grp,
                                         collision_result) {
-    if (bullet_pnt->get_user_data() == 0xdeadbeef &&
-        adjustment_box_grp->get_user_data() == 0xdeaddead && !bullet_pnt->ready_delete_later()) {
+    if (bullet_pnt->get_user_data() == user_data_type::bullet &&
+        adjustment_box_grp->get_user_data() == user_data_type::adjustment_box &&
+        !bullet_pnt->ready_delete_later()) {
         auto adj_box = std::any_cast<adjustment_box*>(adjustment_box_grp->get_user_any());
 
         if (auto pl = adj_box->player_ptr().lock()) {

@@ -13,6 +13,10 @@ public:
         command_buffer().add_handler("player delete", &game_commands::cmd_player_delete, this);
         command_buffer().add_handler("cfg", &game_commands::cmd_cfg, this);
         command_buffer().add_handler("cfg set", &game_commands::cmd_cfg_set, this);
+        command_buffer().add_handler("cfg mode", &game_commands::cmd_cfg_mode, this);
+        command_buffer().add_handler("cfg watch", &game_commands::cmd_cfg_watch, this);
+        command_buffer().add_handler("cfg watch remove", &game_commands::cmd_cfg_watch_remove, this);
+        command_buffer().add_handler("cfg watch list", &game_commands::cmd_cfg_watch_list, this);
         command_buffer().add_handler("cfg reload", &game_commands::cmd_cfg_reload, this);
         command_buffer().add_handler("cfg list", &game_commands::cmd_cfg_list, this);
         command_buffer().add_handler("cfg control", &game_commands::cmd_cfg_control, this);
@@ -65,6 +69,11 @@ public:
                    "  cfg reload [weapons|levels]?                 - reload config users\n"
                    "  cfg list [prefix]?                           - show sections\n"
                    "  cfg set [section_name] [key] [value]?        - setup value for specified section\n"
+                   "  cfg mode [readonly/readwrite] | [r/rw]       - setup config mode\n"
+                   "  cfg watch [section_name]                     - watch section for changes and automatically\n"
+                   "                                                 reload dependent entities\n"
+                   "  cfg watch remove [section_name]              - remove section from watch list\n"
+                   "  cfg watch list                               - list watched sections\n"
                    "  cfg control [section_name] [key] [dx] [dy]?  - enable control for config value";
         }
         else if (cmd == "level") {
@@ -287,6 +296,49 @@ public:
         optkey->set(value ? *value : "");
         cfg::mutable_global().commit();
         LOG_INFO("[{}] {} = {}", sect, key, value ? *value : "");
+    }
+
+    void cmd_cfg_mode(const std::optional<std::string>& value) {
+        if (value) {
+            bool readonly = false;
+            if (*value == "readonly" || *value == "r")
+                readonly = true;
+            else if (*value != "readwrite" && *value != "rw")
+                LOG_ERR("cfg mode: invalid argument {} (must be readonly/r or readwrite/rw", *value);
+            if (cfg::mutable_global().is_readonly() != readonly) {
+                cfg::mutable_global().set_readonly(readonly);
+                LOG_INFO("Config has been mounted in {} mode", readonly ? "readonly" : "readwrite");
+            }
+        }
+        else
+            LOG_INFO("config mode: {}", cfg::mutable_global().is_readonly() ? "readonly" : "readwrite");
+    }
+
+    void cmd_cfg_watch(const std::string& value) {
+        try {
+            gs.conf_watcher.watch_section(cfg::mutable_global().get_section(value));
+            LOG_INFO("watch changes in section [{}]...", value);
+        } catch (const std::exception& e) {
+            LOG_ERR("cfg watch: {}", e.what());
+        }
+    }
+
+    void cmd_cfg_watch_list() {
+        LOG_INFO("watched sections:");
+        for (auto& sect_name : gs.conf_watcher.watched_section_names())
+            LOG_INFO("    {}", sect_name);
+    }
+
+    void cmd_cfg_watch_remove(const std::string& value) {
+        try {
+            auto ok = gs.conf_watcher.remove_section(cfg::mutable_global().get_section(value));
+            if (ok)
+                LOG_INFO("remove section [{}] from watch list", value);
+            else
+                LOG_ERR("cfg watch remove: section [{}] does not exists", value);
+        } catch (const std::exception& e) {
+            LOG_ERR("cfg watch remove: {}", e.what());
+        }
     }
 
     void cmd_level(const std::string& cmd, const std::optional<std::string>& value) {

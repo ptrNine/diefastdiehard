@@ -14,6 +14,7 @@
 #include "physic_line.hpp"
 #include "physic_group.hpp"
 #include "physic_platform.hpp"
+#include "log.hpp"
 
 namespace dfdh {
 
@@ -64,8 +65,19 @@ public:
     }
 };
 
+using std::chrono::duration_cast;
+using std::chrono::steady_clock;
+using std::chrono::milliseconds;
+using std::chrono::nanoseconds;
+
 class physic_simulation {
 public:
+    using float_seconds = std::chrono::duration<float>;
+
+    static auto tp_now() {
+        return std::chrono::steady_clock::now();
+    }
+
     template <typename T>
     struct bb_data {
         sf::FloatRect bb;
@@ -73,21 +85,26 @@ public:
     };
 
     void update(uint rps = 60, float speed = 1.f) {
-        float min_timestep = 1.f / float(rps);
+        auto min_timestep = milliseconds(uint(1000.f / float(rps)));
         _last_speed = speed;
         _last_rps   = rps;
-        _update_accum += _timer.getElapsedTime().asSeconds();
-        _timer.restart();
-        if (_update_accum > min_timestep) {
-            _update_accum -= min_timestep;
-            update_immediate(min_timestep * speed);
+
+        auto now = tp_now();
+        while (now > _next_update_time) {
+            update_immediate(duration_cast<float_seconds>(min_timestep).count(), now);
+            _next_update_time += min_timestep;
         }
 
-        _interpolation_factor = _update_accum / min_timestep;
+        _interpolation_factor = duration_cast<float_seconds>(now + min_timestep - _next_update_time) / min_timestep;
     }
 
-    void update_immediate(float timestep) {
-        _current_update_time = std::chrono::steady_clock::now();
+    void update_pass() {
+        _current_update_time = tp_now();
+        _next_update_time = _current_update_time + milliseconds(uint(1000.f / float(last_rps())));
+    }
+
+    void update_immediate(float timestep, auto now) {
+        _current_update_time = now;
         _last_timestep = timestep;
 
         constexpr auto update_move =
@@ -97,8 +114,6 @@ public:
                     primitives.erase(i++);
                 }
                 else {
-                    if (prim->is_gravity_enabled())
-                        prim->velocity(prim->get_velocity() + _gravity * timestep);
                     prim->update_bb(timestep);
                     ++i;
                 }
@@ -197,9 +212,16 @@ public:
         for (auto& prim : _lineonly)
             update_platform(prim.get(), timestep, _platforms_callbacks, _platforms);
 
-
         for (auto& [_, c] : _update_callbacks)
             c(*this, timestep);
+
+        /* Update velocity */
+        for (auto& prim : _pointonly)
+            if (prim->is_gravity_enabled())
+                prim->velocity(prim->get_velocity() + _gravity * timestep);
+        for (auto& prim : _lineonly)
+            if (prim->is_gravity_enabled())
+                prim->velocity(prim->get_velocity() + _gravity * timestep);
     }
 
     static float distance(const sf::Vector3f& line, const vec2f& point) {
@@ -431,11 +453,10 @@ private:
     u32                                     _steps        = 20;
     float                                   _collide_dist = 0.001f;
     vec2f                                   _gravity      = {0.f, 9.8f};
-    sf::Clock                               _timer;
     float                                   _last_timestep        = 1.f / 60.f;
     u32                                     _last_rps             = 60;
     float                                   _last_speed           = 1.f;
-    float                                   _update_accum         = 0.f;
+    steady_clock::time_point                _next_update_time     = steady_clock::now();
     float                                   _interpolation_factor = 0.f;
 
     std::chrono::steady_clock::time_point _current_update_time = std::chrono::steady_clock::now();

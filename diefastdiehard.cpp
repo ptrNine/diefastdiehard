@@ -80,7 +80,6 @@ public:
         command_buffer().push("level current lvl_aes");
         command_buffer().push("player create kek");
         command_buffer().push("player controller0 kek");
-        command_buffer().push("srv init");
         //command_buffer().push("cfg set lvl_aes view_size '700 400'");
         //command_buffer().push("cfg reload levels");
         //command_buffer().push("player create 'lel group=1'");
@@ -105,6 +104,7 @@ public:
     }
 
     void render_update(sf::RenderWindow& wnd) final {
+        update_cam();
         gs.render_update(wnd);
     }
 
@@ -124,7 +124,6 @@ public:
 
     void game_update() final {
         gs.game_update();
-        update_cam();
     }
 
     void post_command_update() override {
@@ -213,7 +212,10 @@ private:
         vec2f center_max = {std::numeric_limits<float>::lowest(),
                             std::numeric_limits<float>::lowest()};
         for (auto& [_, pl] : gs.players) {
-            auto pos = pl->collision_box()->get_position();
+            auto pos =
+                lerp(pl->collision_box()->get_position(),
+                     pl->collision_box()->get_position() + pl->collision_box()->get_velocity() * gs.sim.last_timestep(),
+                     gs.sim.interpolation_factor());
             center_min.x = std::min(center_min.x, pos.x);
             center_max.x = std::max(center_max.x, pos.x);
 
@@ -229,7 +231,10 @@ private:
         /* TODO: check this */
         for (auto& [_, control_data] : gs.controlled_players) {
             auto& this_player = control_data.this_player;
-            auto pl_pos_x  = this_player->get_position().x;
+            auto  pl_pos_x    = lerp(this_player->get_position().x,
+                                 this_player->get_position().x +
+                                     this_player->collision_box()->get_velocity().x * gs.sim.last_timestep(),
+                                 gs.sim.interpolation_factor());
             auto view_sz_x = _view.getSize().x * 0.46f;
             if (center.x - pl_pos_x > view_sz_x)
                 center.x = pl_pos_x + view_sz_x;

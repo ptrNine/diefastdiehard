@@ -76,10 +76,10 @@ public:
                std::weak_ptr<physic_point> related_bullet_pbox = {}) {
         auto& kick = _kicks.emplace_back(
             sim, position, end_point, mass, velocity, group, std::move(related_bullet_pbox));
-        kick.physic()->user_data(0xdeadbeef);
+        kick.physic()->user_data(user_data_type::bullet);
         if (group != -1)
             kick.physic()->set_collide_allower([=](const physic_point* p) {
-                return p->get_user_data() == 0xdeaddead;
+                return p->get_user_data() == user_data_type::adjustment_box;
             });
     }
 

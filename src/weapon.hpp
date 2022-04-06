@@ -61,7 +61,7 @@ public:
         for (auto& [sect_name, sect] : cfg::global().get_sections()) {
             if (sect_name.starts_with("wpn_")) {
                 auto wpn_class = static_cast<const cfg_section<true>&>(sect).try_get<std::string>("class");
-                if (!wpn_class /* && wpn_class->second == "pistol"*/)
+                if (wpn_class /* && wpn_class->second == "pistol"*/)
                     result.push_back(sect_name);
             }
         }
@@ -116,7 +116,7 @@ public:
             _shell_dir   = normalize(sect.get<vec2f>("shell_dir").value());
             _shell_frame = sect.value<u32>("shell_frame");
             auto& txtr   = texture_mgr().load(sect.get<std::string>("shell_txtr").value());
-            _shell_sprite.setTexture(txtr);
+            _shell_sprite = sf::Sprite(txtr);
             _shell_sprite.setOrigin(float(txtr.getSize().x) * 0.5f, float(txtr.getSize().y) * 0.5f);
             auto sz = sect.value<vec2f>("shell_size");
             _shell_sprite.setScale(sz.x / float(txtr.getSize().x), sz.y / float(txtr.getSize().y));
@@ -125,15 +125,14 @@ public:
     }
 
     void reload_layers() {
-        _layers.clear();
-        _animations.clear();
+        decltype(_layers) new_layers;
 
         int i = 0;
         while (auto layer_txtr = cfg::global()
                                      .get_section(cfg_section_name(_section))
                                      .try_get<std::string>("layer" + std::to_string(i))) {
             if (!layer_txtr->has_value()) {
-                _layers.push_back(sf::Sprite());
+                new_layers.push_back(sf::Sprite());
                 ++i;
                 continue;
             }
@@ -148,15 +147,18 @@ public:
             sprite.setOrigin(_arm_joint.x / _xf, _arm_joint.y / _yf);
             sprite.setScale(_xf, _yf);
 
-            _layers.push_back(std::move(sprite));
+            new_layers.push_back(std::move(sprite));
 
             ++i;
         }
 
-        if (_layers.empty())
-            throw std::runtime_error("Weapon " + _section + " has no layers");
+        if (new_layers.empty())
+            throw cfg_exception("Weapon " + _section + " has no layers");
 
-        load_animations(_section);
+        auto new_animations = load_animations(new_layers, _section);
+
+        _layers     = std::move(new_layers);
+        _animations = std::move(new_animations);
     }
 
     weapon(std::string section): _section(std::move(section)) {
@@ -181,21 +183,25 @@ public:
     }
 
 private:
-    void load_animations(const std::string& section) {
+    static std::map<std::string, weapon_anim> load_animations(const std::vector<sf::Sprite>& layers,
+                                                              const std::string&             section) {
+        decltype(_animations) new_animations;
+
         auto anims = cfg::global().get_section(section).get<std::vector<std::string>>("animations").value();
 
         if (anims.empty())
-            throw std::runtime_error("Weapon " + section + " must have at least one animation");
+            throw cfg_exception("Weapon " + section + " must have at least one animation");
 
         for (auto& anim : anims)
-            _animations.emplace(anim, load_anim(section + "_" += anim));
+            new_animations.emplace(anim, load_anim(layers, section + "_" += anim));
+
+        return new_animations;
     }
 
-    weapon_anim load_anim(const std::string& section) {
+    static weapon_anim load_anim(const std::vector<sf::Sprite>& layers, const std::string& section) {
         auto sect = cfg::global().get_section(section);
 
         auto frames = sect.value<u32>("frames");
-        auto layers = _layers.size();
 
         std::vector<weapon_anim_frame> _animation;
 
@@ -208,7 +214,7 @@ private:
             fr._intrpl = weapon_anim_frame::interpl_from_str(
                 sect.value<std::string>(frame_str + "_intrpl"));
 
-            for (size_t layer = 0; layer < layers; ++layer) {
+            for (size_t layer = 0; layer < layers.size(); ++layer) {
                 auto layer_str = "_layer" + std::to_string(layer) + "_";
                 auto pos_key   = sect.value_or_default<vec2f>(frame_str + layer_str + "pos", {0.f, 0.0001f});
                 auto scale_key = sect.value_or_default<vec2f>(frame_str + layer_str + "scale", {1.f, 1.f});

@@ -74,30 +74,39 @@ public:
 
         _background.setPosition(0.f, 0.f);
 
-        _platforms.clear();
-        u32 pl = 0;
+        _platforms = load_platforms(_section, _platform, _end_platform, _platform_sz);
+    }
 
-        while (auto pl_data = cfg::global().get_section(_section).try_get<std::array<float, 3>>("pl" + std::to_string(pl))) {
-            _platforms.push_back(
+    static std::vector<platform_t> load_platforms(const std::string& sect_name,
+                                                  const sf::Sprite&  platform,
+                                                  const sf::Sprite&  platform_border,
+                                                  float              platform_length) {
+        std::vector<platform_t> platforms;
+
+        u32 pl = 0;
+        while (auto pl_data =
+                   cfg::global().get_section(sect_name).try_get<std::array<float, 3>>("pl" + std::to_string(pl))) {
+            platforms.push_back(
                 platform_t{physic_platform({(pl_data->value())[0], (pl_data->value())[1]}, (pl_data->value())[2]),
-                           _end_platform,
-                           _end_platform,
-                           _platform});
-            auto& p = _platforms.back();
-            //sim.add_platform(p.ph);
+                           platform_border,
+                           platform_border,
+                           platform});
+            auto& p = platforms.back();
+            // sim.add_platform(p.ph);
 
             p.start_pl.setPosition(p.ph.get_position());
 
-            p.pl.setPosition(p.ph.get_position() + vec2f{_platform_sz, 0.f});
-            float pl_len = p.ph.length() - _platform_sz * 2.f;
-            p.pl.scale(pl_len / _platform_sz, 1.f);
+            p.pl.setPosition(p.ph.get_position() + vec2f{platform_length, 0.f});
+            float pl_len = p.ph.length() - platform_length * 2.f;
+            p.pl.scale(pl_len / platform_length, 1.f);
 
-            p.end_pl.setPosition(p.pl.getPosition() + sf::Vector2f(pl_len, 0.f) +
-                                 sf::Vector2f(_platform_sz, 0.f));
+            p.end_pl.setPosition(p.pl.getPosition() + sf::Vector2f(pl_len, 0.f) + sf::Vector2f(platform_length, 0.f));
             p.end_pl.setScale(-p.end_pl.getScale().x, p.end_pl.getScale().y);
 
             ++pl;
         }
+
+        return platforms;
     }
 
     level(std::string section): _section(std::move(section)) {
