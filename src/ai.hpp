@@ -89,6 +89,10 @@ public:
         rebuild_platform_map();
     }
 
+    bool running() const {
+        return _work;
+    }
+
     void worker_start() {
         _work = true;
         _stopped = false;
@@ -113,7 +117,8 @@ public:
                 ai->worker_op();
             }
 
-            std::this_thread::yield();
+            /* TODO: dynamic step */
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         ai->_stopped = true;
     }
