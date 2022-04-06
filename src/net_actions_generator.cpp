@@ -1,5 +1,3 @@
-#include "net_actions.hpp"
-
 #include <iostream>
 #include <string>
 #include <vector>
@@ -22,35 +20,6 @@ int main() {
     size_t pos;
 
     while (std::getline(std::cin, line)) {
-        /*
-        if ((pos = line.find(action_suf)) != std::string::npos) {
-            if ((pos = line.find(" : net_spec")) != std::string::npos) {
-                std::vector<std::string> bases = {"net_spec"};
-
-                auto name_end   = pos;
-                auto name_start = name_end - 1;
-                while (line[name_start] != ' ' && line[name_start] != '\t') --name_start;
-                ++name_start;
-
-                auto name =
-                    std::string(line.begin() + int(name_start), line.begin() + int(name_end));
-
-                pos += sizeof(" : net_spec") - 1;
-                while (line[pos] == ' ') ++pos;
-                if (line[pos] == ',') {
-                    ++pos;
-                    while (line[pos] == ' ') ++pos;
-                    std::string base;
-                    while (line[pos] != ' ' && line[pos] != '\t' && line[pos] != '{')
-                        base.push_back(line[pos++]);
-
-                    bases.push_back(std::move(base));
-                }
-
-                actions.push_back({std::move(name), std::move(bases)});
-            }
-        }
-        */
         if ((pos = line.find(serialize_suf)) != std::string::npos) {
             std::string_view name = line;
             if (name.starts_with("struct"))
