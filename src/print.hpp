@@ -81,10 +81,16 @@ void print_any(std::ostream& os, const PrinterRange auto& value) {
     os << '{';
     for (auto i = value.begin();;) {
         print_any(os, *i);
-        if (++i != value.end())
-            os << ", ";
-        else
-            break;
+        if constexpr (!std::is_same_v<std::decay_t<decltype(*i)>, char>) {
+            if (++i != value.end())
+                os << ", ";
+            else
+                break;
+        }
+        else {
+            if (++i == value.end())
+                break;
+        }
     }
     os << '}';
 }
@@ -100,7 +106,10 @@ struct printer<T> {
     template <size_t... S>
     static void print_by_idxs(std::ostream& os, const T& v, std::index_sequence<S...>) {
         using std::get;
-        ((os << get<S>(v) << ", "), ...);
+        if constexpr (std::is_same_v<std::decay_t<decltype(get<0>(v))>, char>)
+            (print_any(os, get<S>(v)), ...);
+        else
+            ((print_any(os, get<S>(v)), print_any(os, ", ")), ...);
     }
 
     template <size_t... S>
@@ -109,11 +118,12 @@ struct printer<T> {
         if constexpr (sizeof...(S) == 0)
             os << "{}";
         if constexpr (sizeof...(S) == 1)
-            os << '{' << get<0>(v) << '}';
+            print_any(os, '{', get<0>(v), '}');
         if constexpr (sizeof...(S) > 1) {
             os << '{';
             print_by_idxs(os, v, std::make_index_sequence<sizeof...(S) - 1>());
-            os << get<sizeof...(S) - 1>(v) << '}';
+            print_any(os, get<sizeof...(S) - 1>(v));
+            os << '}';
         }
     }
 
