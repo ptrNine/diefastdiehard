@@ -2,4 +2,5 @@
 compile_commands.json
 *build*/
 src/stdafx.hpp.gch*
+src/key_generated.hpp
 data/settings/*
