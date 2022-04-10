@@ -34,7 +34,7 @@ public:
         sim.add_platform_callback("player", [this](physic_point* pnt) {
             for (auto& [_, p] : players)
                 if (pnt == p->collision_box())
-                    p->enable_double_jump();
+                    p->on_ground(pnt->prev_scalar_velocity());
         });
     }
 
@@ -350,10 +350,10 @@ public:
                 if (controlled_players.contains(pl->name()) || ai_operators.contains(pl->name())) {
                     std::vector<bullet_data_t> bullets;
                     float                      mass = 0.f;
-                    pl->game_update(sim, blt_mgr, true, bullet_spawn_callback{&bullets, &mass});
+                    pl->game_update(sim, blt_mgr, cam_pos, gravity_for_bullets, true, bullet_spawn_callback{&bullets, &mass});
                 }
                 else {
-                    pl->game_update(sim, blt_mgr, false, {});
+                    pl->game_update(sim, blt_mgr, cam_pos, gravity_for_bullets, false, {});
                 }
 
                 if (pl->collision_box()->get_position().y > 2100.f)
@@ -468,8 +468,11 @@ public:
     std::optional<cfg_value_control>                      cfgval_ctrl;
     cfg_watcher                                           conf_watcher;
 
-    bool on_game       = false;
-    bool debug_physics = false;
+    vec2f                                                 cam_pos = {0.f, 0.f};
+
+    bool on_game             = false;
+    bool debug_physics       = false;
+    bool gravity_for_bullets = true;
 };
 
 } // namespace dfdh

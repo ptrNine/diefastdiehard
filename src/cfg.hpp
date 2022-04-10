@@ -1255,6 +1255,15 @@ public:
         for (; old_end && old_end->tk.type != cfg_token_t::sect_declaration;
              old_end = old_end->next.get());
 
+        /* Remove section data */
+        if (sect.start == nullptr) {
+            if (old_end) {
+                prev->next = std::move(old_end->prev->next);
+                old_end->prev = prev;
+            }
+            return;
+        }
+
         auto cur  = std::move(sect.start->prev->next);
         auto last = tail;
         if (!tail) {
@@ -1566,6 +1575,14 @@ public:
         return instance;
     }
 
+private:
+    friend class cfg_watcher;
+    struct uninitialized_construct {};
+    cfg(uninitialized_construct, const std::string& section_name): readonly(true) {
+        sections.emplace(section_name, cfg_section<false>{nullptr});
+    }
+
+public:
     cfg(const fs::path& config_path, const std::string& section): readonly(true) {
         head = cfg_node::create(cfg_token_t::HEAD_NODE, {});
         cfg_node* tail = head.get();
@@ -1938,6 +1955,9 @@ public:
             auto sect_name = sect_conf.get_sections().begin()->first;
             auto last_node = sect_conf.calc_tail();
             sections.at(sect_name).replace_by(std::move(sect_conf.sections.begin()->second), last_node);
+            /* Remove removed section from sections map */
+            if (!last_node)
+                sections.erase(sect_name);
             replaced_sections.push_back(std::move(sect_name));
         }
         section_replace_helper.queue.clear();
@@ -1951,6 +1971,9 @@ private:
     [[nodiscard]]
     cfg_node* calc_tail() const {
         auto ptr = head.get();
+        if (!ptr)
+            return nullptr;
+
         while (ptr->next)
             ptr = ptr->next.get();
         return ptr;
@@ -2226,16 +2249,48 @@ public:
     }
 
     void update([[maybe_unused]] int wd, const std::string& file, const std::set<std::string>& sections) {
+        std::vector<std::string> to_remove;
+
         for (auto& section_name : sections) {
             try {
                 auto sect_conf = cfg(file, section_name);
-                /* XXX: implement this */
                 if (sect_conf.get_files().size() > 1)
                     throw cfg_exception("Updating section splitted into different files is not supported now");
                 conf->schedule_section_replace(std::move(sect_conf));
             }
+            catch (const cfg_section_not_found&) {
+                conf->schedule_section_replace(cfg(cfg::uninitialized_construct{}, section_name));
+                to_remove.push_back(section_name);
+            }
             catch (const std::exception& e) {
                 LOG_ERR("Update section [{}] failed: {}", section_name);
+            }
+        }
+
+        for (auto& section_name : to_remove) {
+            auto found_sects = watched_sections.find(file);
+            if (found_sects == watched_sections.end())
+                continue;
+
+            auto& sects = found_sects->second;
+            sects.erase(section_name);
+
+            LOG_INFO("section [{}] has been removed from watch list", section_name);
+
+            if (sects.empty()) {
+                watched_sections.erase(found_sects);
+                LOG_INFO("file {} has been removed from watch list", file);
+
+                auto dir_path = fs::path(file).parent_path().string();
+                auto found    = watched_sections.lower_bound(dir_path);
+
+                if (found == watched_sections.end() || !found->first.starts_with(dir_path)) {
+                    auto found_wd = dir_path_to_wd.find(dir_path);
+                    auto wd       = found_wd->second;
+                    dir_path_to_wd.erase(found_wd);
+                    wd_to_dir_path.erase(wd);
+                    LOG_INFO("directory {} has been removed from watch list", dir_path);
+                }
             }
         }
     }

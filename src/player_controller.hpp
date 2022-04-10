@@ -41,12 +41,13 @@ struct player_controller {
         auto conf      = cfg(path, cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy);
         auto sect      = conf.get_or_create(sect_name);
 
-        up      = key_str_map().to_key(sect.value_or_default_and_set("key_up", "Up"s));
-        down    = key_str_map().to_key(sect.value_or_default_and_set("key_down", "Down"s));
-        left    = key_str_map().to_key(sect.value_or_default_and_set("key_left", "Left"s));
-        right   = key_str_map().to_key(sect.value_or_default_and_set("key_right", "Right"s));
-        shot    = key_str_map().to_key(sect.value_or_default_and_set("key_shot", "Comma"s));
-        grenade = key_str_map().to_key(sect.value_or_default_and_set("key_grenade", "Dash"s));
+        up        = key_str_map().to_key(sect.value_or_default_and_set("key_up", "Up"s));
+        down      = key_str_map().to_key(sect.value_or_default_and_set("key_down", "Down"s));
+        left      = key_str_map().to_key(sect.value_or_default_and_set("key_left", "Left"s));
+        right     = key_str_map().to_key(sect.value_or_default_and_set("key_right", "Right"s));
+        shot      = key_str_map().to_key(sect.value_or_default_and_set("key_shot", "Comma"s));
+        adjust_up = key_str_map().to_key(sect.value_or_default_and_set("key_adjust_up", "M"s));
+        grenade   = key_str_map().to_key(sect.value_or_default_and_set("key_grenade", "Period"s));
     }
 
     /*
@@ -72,7 +73,7 @@ struct player_controller {
         //cfg().try_refresh_file("player_controller_" + std::to_string(_id));
     }
 
-    int up, down, left, right, shot, grenade;
+    int up, down, left, right, shot, adjust_up, grenade;
     u32 _id;
     player_name_t player_name;
 };

@@ -504,7 +504,7 @@ $([ "$asan" == true ] && asan_flags)
         "$CXX_COMPILER" \
         "$debug" \
         "$hardening_flags" \
-        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lpthread -lGL -lGLEW"
+        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lsfml-audio -lpthread -lGL -lGLEW"
 
     build_executable \
         cfg_test \

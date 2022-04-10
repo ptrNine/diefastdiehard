@@ -188,20 +188,20 @@ private:
 
         float timestep = cam_timer.elapsed();
         cam_timer.restart();
-        if (!approx_equal(_cam_pos.x, _view.getCenter().x, 0.001f) ||
-            !approx_equal(_cam_pos.y, _view.getCenter().y, 0.001f)) {
-            auto diff = _cam_pos - _view.getCenter();
+        if (!approx_equal(gs.cam_pos.x, _view.getCenter().x, 0.001f) ||
+            !approx_equal(gs.cam_pos.y, _view.getCenter().y, 0.001f)) {
+            auto diff = gs.cam_pos - _view.getCenter();
             auto dir  = normalize(diff);
             if (!std::isinf(dir.x) && !std::isinf(dir.y)) {
                 auto mov = dir * timestep * 600.f;
                 auto c   = _view.getCenter();
                 auto nc  = c + mov;
-                if ((c.x < _cam_pos.x && nc.x > _cam_pos.x) ||
-                    (c.x > _cam_pos.x && nc.x < _cam_pos.x))
-                    nc.x = _cam_pos.x;
-                if ((c.y < _cam_pos.y && nc.y > _cam_pos.y) ||
-                    (c.y > _cam_pos.y && nc.y < _cam_pos.y))
-                    nc.y = _cam_pos.y;
+                if ((c.x < gs.cam_pos.x && nc.x > gs.cam_pos.x) ||
+                    (c.x > gs.cam_pos.x && nc.x < gs.cam_pos.x))
+                    nc.x = gs.cam_pos.x;
+                if ((c.y < gs.cam_pos.y && nc.y > gs.cam_pos.y) ||
+                    (c.y > gs.cam_pos.y && nc.y < gs.cam_pos.y))
+                    nc.y = gs.cam_pos.y;
 
                 _view.setCenter(nc);
                 window().setView(_view);
@@ -253,7 +253,7 @@ private:
                 center.y = _view.getSize().y / 2.f;
         }
 
-        _cam_pos = center;
+        gs.cam_pos = center;
     }
 
 private:
@@ -265,7 +265,6 @@ private:
 
     timer    cam_timer;
     sf::View _view;
-    vec2f    _cam_pos = {0.f, 0.f};
 };
 }
 

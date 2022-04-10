@@ -91,7 +91,7 @@ public:
 
         auto now = tp_now();
         while (now > _next_update_time) {
-            update_immediate(duration_cast<float_seconds>(min_timestep).count(), now);
+            update_immediate(duration_cast<float_seconds>(min_timestep).count() * speed, now);
             _next_update_time += min_timestep;
         }
 
@@ -108,7 +108,7 @@ public:
         _last_timestep = timestep;
 
         constexpr auto update_move =
-            [](auto& primitives, auto& i, float timestep, const vec2f& _gravity) {
+            [](auto& primitives, auto& i, float timestep) {
                 auto& prim = *i;
                 if (prim->ready_delete_later()) {
                     primitives.erase(i++);
@@ -120,9 +120,9 @@ public:
             };
 
         for (auto i = _pointonly.begin(); i != _pointonly.end();)
-            update_move(_pointonly, i, timestep, _gravity);
+            update_move(_pointonly, i, timestep);
         for (auto i = _lineonly.begin(); i != _lineonly.end();)
-            update_move(_lineonly, i, timestep, _gravity);
+            update_move(_lineonly, i, timestep);
 
         std::set<std::pair<physic_point*, physic_point*>> collisions;
 

@@ -173,6 +173,9 @@ public:
             else if (c == ks.shot) {
                 update_was = shot();
             }
+            else if (c == ks.adjust_up) {
+                _long_shot_enabled = true;
+            }
         }
         else if (evt.type == sf::Event::KeyReleased) {
             auto c = evt.key.code;
@@ -194,6 +197,9 @@ public:
             else if (c == ks.down && _jump_down_pressed) {
                 _jump_down_pressed = false;
                 update_was = true;
+            }
+            else if (c == ks.adjust_up) {
+                _long_shot_enabled = false;
             }
         }
 
@@ -239,8 +245,52 @@ public:
     template <typename F = void (*)(const vec2f&, const vec2f&, float)>
     void game_update(physic_simulation& sim,
                      bullet_mgr&        bm,
+                     const vec2f&       cam_position,
+                     bool               gravity_for_bullets   = false,
                      bool               spawn_bullet          = true,
                      F&&                bullet_spawn_callback = nullptr) {
+        /* Hit player sounds */
+        if (_hit_sound_info) {
+            sound_mgr().play(_hit_sound_info->pwned ? "player/headshot0.wav"s
+                                                    : ("player/bullethit"s + rand_num('0', '1') + ".wav"),
+                             _group,
+                             (_hit_sound_info->position - cam_position),
+                             sim.last_speed());
+            _hit_sound_info.reset();
+        }
+
+        /* Steps and fall sounds */
+        if (_collision_box->is_lock_y() && std::abs(_collision_box->get_velocity().x) > 20.f) {
+            if (!_step_sound_active) {
+                _step_sound_timer.restart();
+                _step_sound_active = true;
+            }
+        }
+        else if (_step_sound_active) {
+            _step_sound_active = false;
+        }
+        if (_step_sound_active) {
+            float period = 65.f / (std::abs(_collision_box->get_velocity().x) * sim.last_speed());
+            if (_step_sound_timer.getElapsedTime().asSeconds() > period) {
+                sound_mgr().play("player/step"s + rand_num('0', '2') + ".wav",
+                                 _group,
+                                 get_position() - cam_position,
+                                 sim.last_speed());
+                _step_sound_timer.restart();
+            }
+        }
+        if (_fall_velocity) {
+            auto volume = inverse_lerp(0.f, 1800.f, std::clamp(*_fall_velocity, 0.f, 1800.f));
+            volume *= volume * 100.f;
+            sound_mgr().play("player/fall"s + rand_num('0', '1') + ".wav",
+                             _group,
+                             get_position() - cam_position,
+                             sim.last_speed(),
+                             volume);
+            _fall_velocity.reset();
+        }
+
+        /* Update weapon */
         if (_pistol) {
             auto dir       = _on_left ? vec2f{-1.f, 0.f} : vec2f{1.f, 0.f};
             auto pos       = collision_box()->get_position();
@@ -248,9 +298,12 @@ public:
             pos += vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
 
             if (auto recoil = _pistol.update(pos,
+                                             cam_position,
                                              dir,
+                                            _long_shot_enabled,
                                              bm,
                                              sim,
+                                             gravity_for_bullets,
                                              spawn_bullet,
                                              std::forward<F>(bullet_spawn_callback),
                                              _group,
@@ -355,7 +408,7 @@ public:
             pos.x *= f.x;
             pos.y *= f.y;
             pos.y += size.y;
-            wpn->draw(pos, false, target, scale);
+            wpn->draw(pos, false, 0.f, target, scale);
 
             default_hand_setup(hand_or_leg, sz);
             hand_or_leg.setPosition(pos + wpn->arm_idle_pos() * scale);
@@ -428,6 +481,7 @@ public:
             auto [lh, rh] =
                 _pistol.draw(pos + vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y),
                              _on_left,
+                             _long_shot_enabled,
                              wnd,
                              _collision_box->get_velocity());
             _left_hand.setPosition(lh);
@@ -564,6 +618,14 @@ public:
         tracer_color(pc.tracer_color);
     }
 
+    struct hit_sound_info {
+        vec2f position;
+        bool  pwned;
+    };
+    void play_hit_sound(const vec2f& hit_position, bool pwned) {
+        _hit_sound_info.emplace(hit_sound_info{hit_position, pwned});
+    }
+
 private:
     void leg_animation_update(float timestep, const vec2f& pos, const vec2f& vel) {
         auto vx = vel.x;
@@ -667,18 +729,20 @@ private:
 
     weapon_instance _pistol;
 
-    enum player_dir_t {
-        dir_none = 0,
-        dir_left,
-        dir_right
-    } _dir;
-    bool _on_left = false;
-    bool _jump_pressed = false;
-    bool _jump_down_pressed = false;
+    enum player_dir_t { dir_none = 0, dir_left, dir_right } _dir;
+    bool _on_left            = false;
+    bool _jump_pressed       = false;
+    bool _jump_down_pressed  = false;
+    bool _long_shot_enabled  = false;
 
     int _group = 0;
 
     bool _on_hit_event = false;
+    std::optional<hit_sound_info> _hit_sound_info;
+
+    bool                 _step_sound_active = false;
+    std::optional<float> _fall_velocity;
+    sf::Clock _step_sound_timer;
 
 public:
     u64 last_state_packet_id = 0;
@@ -822,6 +886,11 @@ public:
         jumps_left = max_jumps;
     }
 
+    void on_ground(float fall_velocity = 0.f) {
+        enable_double_jump();
+        _fall_velocity = fall_velocity;
+    }
+
     void mass(float value) {
         _collision_box->mass(value);
     }
@@ -870,17 +939,24 @@ public:
     }
 };
 
-inline void
-player_hit_callback(physic_point* bullet_pnt, physic_group* player_grp, collision_result) {
+inline void player_hit_callback(physic_point*            bullet_pnt,
+                                physic_group*            player_grp,
+                                collision_result) {
     if (bullet_pnt->get_user_data() == user_data_type::bullet &&
-        player_grp->get_user_data() == user_data_type::player &&
-        !bullet_pnt->ready_delete_later()) {
-        player_grp->apply_impulse(bullet_pnt->impulse());
+        player_grp->get_user_data() == user_data_type::player && !bullet_pnt->ready_delete_later()) {
+
+        auto impulse = bullet_pnt->impulse();
+        if (player_grp->is_lock_y())
+            if (impulse.y < -180.f) 
+                player_grp->unlock_y();
+
+        player_grp->apply_impulse(impulse);
         bullet_pnt->delete_later();
         auto pl = std::any_cast<player*>(player_grp->get_user_any());
 
         pl->reset_accel_f(bullet_pnt->get_direction().x < 0.f);
         pl->set_on_hit_event();
+        pl->play_hit_sound(bullet_pnt->get_position(), magnitude(bullet_pnt->impulse()) > 2200.f);
     }
 }
-}
+} // namespace dfdh

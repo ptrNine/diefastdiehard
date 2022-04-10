@@ -13,7 +13,7 @@ namespace dfdh {
 
 class bullet_sprite_cache {
 public:
-    static constexpr float bullet_x = 150.f;
+    static constexpr float bullet_x_max = 150.f;
     static constexpr float bullet_y = 15.f;
 
     static bullet_sprite_cache& instance() {
@@ -50,7 +50,7 @@ private:
         _txtr.loadFromFile(std::filesystem::current_path() / "data/textures/bullet.png");
         _txtr.setSmooth(true);
         auto sz = _txtr.getSize();
-        _xf = bullet_x / float(sz.x);
+        _xf = bullet_x_max / float(sz.x);
         _yf = bullet_y / float(sz.y);
     }
 
@@ -81,9 +81,11 @@ public:
            float              mass,
            const vec2f&       velocity,
            sf::Color          color,
+           bool               enabled_gravity,
            int                group):
         _color(color), _group(group) {
         _ph = physic_point::create(position, normalize(velocity), magnitude(velocity), mass);
+        _ph->enable_gravity(enabled_gravity);
         sim.add_primitive(_ph);
     }
 
@@ -131,9 +133,10 @@ public:
                float              mass,
                const vec2f&       velocity,
                sf::Color          color,
+               bool               enabled_gravity,
                int                group,
                F                  player_group_getter) {
-        auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, group);
+        auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, enabled_gravity, group);
         auto& blt = _bullets.back();
         blt.physic()->user_data(user_data_type::bullet);
         if (group != -1)
@@ -151,8 +154,9 @@ public:
                const vec2f&       position,
                float              mass,
                const vec2f&       velocity,
-               sf::Color          color) {
-        auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, -1);
+               sf::Color          color,
+               bool               enabled_gravity) {
+        auto& res = _bullets.emplace_back(sim, position, mass, velocity, color, enabled_gravity, -1);
         auto& blt = _bullets.back();
         blt.physic()->user_data(user_data_type::bullet);
 
@@ -184,8 +188,11 @@ public:
             auto dir = i->physic()->get_direction();
             auto angle = std::atan2(dir.y, dir.x);
 
-            auto x_sz = std::min(i->physic()->get_distance(), bullet_sprite_cache::bullet_x);
-            auto xf = (x_sz / bullet_sprite_cache::bullet_x) * bullet_sprite().scale_f().x;
+            auto x_sz = std::min(i->physic()->get_distance(), bullet_sprite_cache::bullet_x_max);
+            auto xf   = lerp(0.f,
+                           x_sz / bullet_sprite_cache::bullet_x_max,
+                           std::clamp(i->physic()->scalar_velocity() / 2100.f, 0.f, 1.f)) *
+                      bullet_sprite().scale_f().x;
 
             auto& blt_sprite = bullet_sprite().sprite(i->color());
             blt_sprite.setScale(xf, bullet_sprite().scale_f().y);

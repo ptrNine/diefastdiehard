@@ -9,6 +9,7 @@
 #include "texture_mgr.hpp"
 #include "instant_kick.hpp"
 #include "log.hpp"
+#include "sound_mgr.hpp"
 
 namespace dfdh
 {
@@ -35,14 +36,21 @@ struct weapon_anim_frame {
         float angle    = 0.f;
     };
 
-    std::vector<key_t>   _layers;
-    interpl_type         _intrpl;
-    float                _time;
+    std::vector<key_t>         _layers;
+    interpl_type               _intrpl;
+    float                      _time;
+};
+
+struct weapon_anim_sound_key {
+    std::string sound;
+    u32         frame;
+    float       time;
 };
 
 struct weapon_anim {
-    std::vector<weapon_anim_frame> _frames;
-    float _duration;
+    std::vector<weapon_anim_frame>     _frames;
+    std::vector<weapon_anim_sound_key> _sounds;
+    float                              _duration;
 };
 
 class weapon {
@@ -110,6 +118,8 @@ public:
         _eject_shell     = sect.value_or_default("eject_shell", false);
         _wpn_class       = weapon_class_from_str(sect.value<std::string>("class"));
         _bullet_vel_tier = sect.value<u32>("bullet_velocity_tier");
+        _long_shot_angle = sect.value<float>("long_shot_angle");
+        _shot_snd_path   = sect.value_or_default("shot_sound", "none"s);
 
         if (_eject_shell) {
             _shell_pos   = sect.value<vec2f>("shell_pos");
@@ -172,12 +182,13 @@ public:
     }
 
 public:
-    void draw(const vec2f& start_pos, bool left_dir, sf::RenderTarget& wnd, float scale = 1.f) {
+    void draw(const vec2f& start_pos, bool left_dir, float shot_angle_degree, sf::RenderTarget& wnd, float scale = 1.f) {
         float invert = left_dir ? -1.f : 1.f;
+        shot_angle_degree *= invert;
         for (auto& sprite : _layers) {
             sprite.setPosition(start_pos);
             sprite.setScale(_xf * invert * scale, _yf * scale);
-            sprite.setRotation(0.f);
+            sprite.setRotation(shot_angle_degree);
             wnd.draw(sprite);
         }
     }
@@ -203,7 +214,8 @@ private:
 
         auto frames = sect.value<u32>("frames");
 
-        std::vector<weapon_anim_frame> _animation;
+        std::vector<weapon_anim_frame>     _animation;
+        std::vector<weapon_anim_sound_key> sounds;
 
         auto duration = sect.value<float>("duration");
 
@@ -211,8 +223,9 @@ private:
             auto frame_str = std::to_string(frame);
             weapon_anim_frame fr;
             fr._time   = sect.value<float>(frame_str + "_time");
-            fr._intrpl = weapon_anim_frame::interpl_from_str(
-                sect.value<std::string>(frame_str + "_intrpl"));
+            fr._intrpl = weapon_anim_frame::interpl_from_str(sect.value<std::string>(frame_str + "_intrpl"));
+            if (auto snd = sect.value_or_default(frame_str + "_sound", std::optional<std::string>{}))
+                sounds.push_back(weapon_anim_sound_key{*snd, frame, fr._time});
 
             for (size_t layer = 0; layer < layers.size(); ++layer) {
                 auto layer_str = "_layer" + std::to_string(layer) + "_";
@@ -225,7 +238,7 @@ private:
 
             _animation.push_back(std::move(fr));
         }
-        return {std::move(_animation), duration};
+        return {std::move(_animation), sounds, duration};
     }
 
 private:
@@ -240,6 +253,7 @@ private:
     u32   _arm_bone;
     u32   _arm2_bone;
     u32   _bullet_vel_tier;
+    float _long_shot_angle;
 
     float _xf, _yf;
 
@@ -254,6 +268,8 @@ private:
     float      _shell_vel;
     u32        _shell_frame;
     sf::Sprite _shell_sprite;
+
+    std::string _shot_snd_path;
 
     weapon_class _wpn_class;
     bool         _shot_flash;
@@ -383,6 +399,8 @@ inline weapon_storage_singleton& weapon_mgr() {
 
 class weapon_instance {
 public:
+    static constexpr vec2f shot_flash_scale = {55.f, 55.f};
+
     struct remote_shot_params_t {
         instant_kick_mgr* kick_mgr;
         float             lastency;
@@ -398,9 +416,12 @@ public:
     weapon_instance(weapon* wpn): _ammo_elapsed(wpn->mag_size()), _wpn(wpn) {
         if (_wpn->_shot_flash) {
             auto& txtr = texture_mgr().load("wpn/shot.png");
+            auto  txtr_sz = txtr.getSize();
+            auto  scale   = vec2f{shot_flash_scale.x / float(txtr_sz.x), shot_flash_scale.y / float(txtr_sz.y)};
+
             _shot_flash.setTexture(txtr);
             _shot_flash.setOrigin({float(txtr.getSize().x) * 0.5f, float(txtr.getSize().y) * 0.5f});
-            _shot_flash.setScale(0.55f, 0.55f);
+            _shot_flash.setScale(scale.x, scale.y);
             _shot_flash.setColor({255, 255, 255, 0});
             _shot_flash_intensity = 0.f;
         }
@@ -440,13 +461,17 @@ public:
         }
 
         _current_anim = anim_spec_t{name, {}};
+        _anim_played_sounds.clear();
     }
 
     template <typename F = int, typename F2 = void (*)(const vec2f&, const vec2f&, float)>
     std::optional<float> update(const vec2f&       position,
+                                const vec2f&       cam_position,
                                 const vec2f&       direction,
+                                bool               enable_long_shot,
                                 bullet_mgr&        bm,
                                 physic_simulation& sim,
+                                bool               gravity_for_bullets   = false,
                                 bool               spawn_bullet          = true,
                                 F2&&               bullet_spawn_callback = nullptr,
                                 int                group                 = -1,
@@ -468,10 +493,13 @@ public:
             _shot_timer.elapsed(sim.last_speed()) > 60.f / _wpn->_fire_rate) {
             if constexpr (std::is_same_v<F, int>)
                 shot(position,
+                     cam_position,
                      direction,
+                     enable_long_shot,
                      bm,
                      sim,
                      _last_tracer_color,
+                     gravity_for_bullets,
                      spawn_bullet,
                      std::forward<F2>(bullet_spawn_callback),
                      -1,
@@ -479,10 +507,13 @@ public:
                      rand_pool);
             else
                 shot(position,
+                     cam_position,
                      direction,
+                     enable_long_shot,
                      bm,
                      sim,
                      _last_tracer_color,
+                     gravity_for_bullets,
                      spawn_bullet,
                      std::forward<F2>(bullet_spawn_callback),
                      group,
@@ -496,6 +527,11 @@ public:
         if (_on_reload && !_current_anim) {
             _ammo_elapsed = _wpn->mag_size();
             _on_reload = false;
+        }
+
+        if (_anim_sound_to_play) {
+            sound_mgr().play(*_anim_sound_to_play, group, position - cam_position, sim.last_speed());
+            _anim_sound_to_play.reset();
         }
 
         return {};
@@ -524,21 +560,28 @@ public:
 
     std::array<vec2f, 2> draw(const vec2f&      position,
                               bool              left_dir,
+                              bool              enable_long_shot,
                               sf::RenderWindow& wnd,
                               const vec2f&      shell_additional_vel = {0.f, 0.f}) {
         float                 LF       = left_dir ? -1.f : 1.f;
+        auto shot_angle_deg = enable_long_shot ? _wpn->_long_shot_angle : 0.f;
+        auto shot_angle_rad = shot_angle_deg * M_PIf32 / 180.f;
+
         static constexpr auto leftyfix = [](const vec2f& v, float invert) {
             return vec2f(v.x * invert, v.y);
         };
 
-        static constexpr auto make_return = [](const vec2f& pos, weapon* wpn, float LF) {
+        static constexpr auto make_return = [](const vec2f& pos, weapon* wpn, float LF, float rotate_angle) {
             return std::array<vec2f, 2>{pos + leftyfix(wpn->_arm_idle_pos, LF),
-                                               pos + leftyfix(wpn->_arm_idle_pos, LF) +
-                                                   leftyfix(wpn->_arm2_idle_pos, LF)};
+                                        pos + leftyfix(wpn->_arm_idle_pos, LF) + rotate_vec(leftyfix(wpn->_arm2_idle_pos, LF), rotate_angle)};
+        };
+
+        auto rotvec = [angl = shot_angle_rad * LF](const vec2f& v) {
+            return rotate_vec(v, angl);
         };
 
         if (auto c = _shot_flash.getColor(); _wpn->_shot_flash && c.a != 0) {
-            _shot_flash.setPosition(position + shot_displacement(vec2f(left_dir ? -1.f : 1.f, 0.f)));
+            _shot_flash.setPosition(position + rotvec(shot_displacement(vec2f(left_dir ? -1.f : 1.f, 0.f))));
             wnd.draw(_shot_flash);
             _shot_flash_intensity -= _shot_flash_timer.restart().asSeconds() * 18.f;
             if (_shot_flash_intensity < 0.f)
@@ -549,9 +592,9 @@ public:
         }
 
         if (!_current_anim) {
-            _wpn->draw(position, left_dir, wnd);
+            _wpn->draw(position, left_dir, shot_angle_deg, wnd);
             draw_shells(wnd);
-            return make_return(position, _wpn, LF);
+            return make_return(position, _wpn, LF, shot_angle_rad * LF);
         }
 
         weapon_anim* anim;
@@ -570,7 +613,7 @@ public:
                     _current_anim = anim_spec_t{"load_end"};
                 else
                     _current_anim.reset();
-                return make_return(position, _wpn, LF);
+                return make_return(position, _wpn, LF, shot_angle_rad * LF);
             }
             anim = &found_anim->second;
 
@@ -578,8 +621,8 @@ public:
 
             if (frames->empty()) {
                 _current_anim.reset();
-                draw(position, left_dir, wnd);
-                return make_return(position, _wpn, LF);
+                draw(position, left_dir, enable_long_shot, wnd);
+                return make_return(position, _wpn, LF, shot_angle_rad * LF);
             }
 
             auto  dur      = anim->_duration;
@@ -602,8 +645,8 @@ public:
                 }
                 else {
                     _current_anim.reset();
-                    draw(position, left_dir, wnd);
-                    return make_return(position, _wpn, LF);
+                    draw(position, left_dir, enable_long_shot, wnd);
+                    return make_return(position, _wpn, LF, shot_angle_rad * LF);
                 }
             }
         }
@@ -620,6 +663,20 @@ public:
             }
         }
 
+        /* Play sound */
+        {
+            auto frame_i = u32(beg - frames->begin());
+            for (size_t i = 0; i < anim->_sounds.size(); ++i) {
+                auto& snd = anim->_sounds[i];
+                if (snd.frame == frame_i && snd.time <= cur_frame_time &&
+                    _anim_played_sounds.emplace(played_sound_info{i, frame_i}).second) {
+                    _anim_sound_to_play = snd.sound;
+                    break;
+                }
+            }
+        }
+
+
         if (_wpn->_eject_shell && !_shell_ejected && _current_anim->_name == "shot" &&
             beg - frames->begin() == _wpn->_shell_frame) {
             _shell_ejected = true;
@@ -629,7 +686,7 @@ public:
 
             _active_shells.push_back(shell_data{
                 vel * dir + shell_additional_vel,
-                position + shell_displacement(left_dir),
+                position + rotvec(shell_displacement(left_dir)),
                 rand_float(-40.f, 40.f),
                 rand_float(-360.f, 360.f),
                 left_dir});
@@ -666,18 +723,17 @@ public:
                 layers[i].setPosition(position + leftyfix(main_layer_keys.position, LF));
                 layers[i].setScale(
                     {LF * xf * main_layer_keys.scale.x, yf * main_layer_keys.scale.y});
-                layers[i].setRotation(main_layer_keys.angle * LF);
+                layers[i].setRotation(main_layer_keys.angle * LF + shot_angle_deg * LF);
             }
             else {
-                auto addition =
-                    i == _wpn->_arm2_bone ? _wpn->_arm2_idle_pos : vec2f(0.f, 0.f);
+                auto addition = i == _wpn->_arm2_bone ? _wpn->_arm2_idle_pos : vec2f(0.f, 0.f);
                 layers[i].setPosition(position + leftyfix(main_layer_keys.position, LF) +
                                       rotate_vec(leftyfix(keys[i].position, LF) + leftyfix(addition, LF),
-                                                 M_PIf32 * main_layer_keys.angle * LF / 180.f));
+                                                 M_PIf32 * main_layer_keys.angle * LF / 180.f + shot_angle_rad * LF));
                 /* TODO: fix scale with rotations */
                 layers[i].setScale({LF * xf * main_layer_keys.scale.x * keys[i].scale.x,
                                     yf * main_layer_keys.scale.y * keys[i].scale.y});
-                layers[i].setRotation(main_layer_keys.angle * LF + keys[i].angle * LF);
+                layers[i].setRotation(main_layer_keys.angle * LF + keys[i].angle * LF + shot_angle_deg * LF);
             }
             wnd.draw(layers[i]);
         }
@@ -723,17 +779,25 @@ private:
 
     template <typename F = int, typename F2 = void (*)(const vec2f&, const vec2f&, float)>
     void shot(const vec2f&       position,
-              const vec2f&       direction,
+              const vec2f&       cam_position,
+              vec2f              direction,
+              bool               enable_long_shot,
               bullet_mgr&        bm,
               physic_simulation& sim,
               sf::Color          tracer_color,
+              bool               gravity_for_bullets   = false,
               bool               spawn_bullet          = true,
               F2&&               bullet_spawn_callback = nullptr,
               int                group                 = -1,
               F                  player_group_getter   = -1,
               rand_float_pool*   rand_pool             = nullptr) {
-        auto pos  = position + shot_displacement(direction);
-        auto angl = _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f;
+        auto shot_angle =
+            enable_long_shot ? (direction.x < 0.f ? -_wpn->_long_shot_angle : _wpn->_long_shot_angle) : 0.f;
+        shot_angle *= M_PIf32 / 180.f;
+
+        auto pos   = position + rotate_vec(shot_displacement(direction), shot_angle);
+        direction  = normalize(rotate_vec(direction, shot_angle));
+        auto angl  = _wpn->_buckshot == 1 ? _wpn->_dispersion : _wpn->_dispersion * 0.5f;
 
         auto dir = !rand_pool ? randomize_dir(direction, angl)
                               : randomize_dir(direction, angl, [rand_pool](float min, float max) {
@@ -747,13 +811,14 @@ private:
 
             if (spawn_bullet) {
                 if constexpr (std::is_same_v<F, int>)
-                    bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel, tracer_color);
+                    bm.shot(sim, pos, _wpn->_hit_mass, dir * bullet_vel, tracer_color, gravity_for_bullets);
                 else
                     bm.shot(sim,
                             pos,
                             _wpn->_hit_mass,
                             dir * bullet_vel,
                             tracer_color,
+                            gravity_for_bullets,
                             group,
                             std::move(player_group_getter));
             }
@@ -772,13 +837,14 @@ private:
 
                 if (spawn_bullet) {
                     if constexpr (std::is_same_v<F, int>)
-                        bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel, tracer_color);
+                        bm.shot(sim, pos, _wpn->_hit_mass, newdir * bullet_vel, tracer_color, gravity_for_bullets);
                     else
                         bm.shot(sim,
                                 pos,
                                 _wpn->_hit_mass,
                                 newdir * bullet_vel,
                                 tracer_color,
+                                gravity_for_bullets,
                                 group,
                                 std::move(player_group_getter));
                 }
@@ -800,6 +866,7 @@ private:
         _shell_ejected = false;
 
         --_ammo_elapsed;
+        sound_mgr().play(_wpn->_shot_snd_path, group, position - cam_position, _last_time_speed);
     }
 
     struct shell_data {
@@ -831,6 +898,14 @@ private:
     bool  _on_shot   = false;
     bool  _on_reload = false;
     timer _shot_timer;
+
+    struct played_sound_info {
+        size_t sound_index;
+        u32    frame;
+        auto operator<=>(const played_sound_info&) const = default;
+    };
+    std::set<played_sound_info> _anim_played_sounds;
+    std::optional<std::string>  _anim_sound_to_play;
 
 public:
     [[nodiscard]]
