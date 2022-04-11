@@ -10,3 +10,6 @@
 [submodule "submodules/Catch2"]
 	path = submodules/Catch2
 	url = https://github.com/catchorg/Catch2
+[submodule "submodules/luacpp"]
+	path = submodules/luacpp
+	url = https://github.com/ptrNine/luacpp

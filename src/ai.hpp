@@ -8,22 +8,24 @@
 #include <memory>
 #include <thread>
 #include <optional>
+#include <filesystem>
 
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/System/Clock.hpp>
 
+#include "ai_types.hpp"
+#include "log.hpp"
 #include "fixed_string.hpp"
 #include "types.hpp"
 #include "vec_math.hpp"
+#include "lua.hpp"
 
-namespace dfdh {
+namespace dfdh
+{
+namespace fs = std::filesystem;
 
-enum ai_difficulty {
-    ai_easy = 0,
-    ai_medium,
-    ai_hard
-};
+enum ai_difficulty { ai_easy = 0, ai_medium, ai_hard };
 
 class ai_mgr_singleton {
 public:
@@ -32,16 +34,16 @@ public:
         return inst;
     }
 
-    ai_mgr_singleton(const ai_mgr_singleton&) = delete;
+    ai_mgr_singleton(const ai_mgr_singleton&)            = delete;
     ai_mgr_singleton& operator=(const ai_mgr_singleton&) = delete;
 
     void reset_all() {
         std::lock_guard lock{mtx};
 
-        players.clear();
-        bullets.clear();
-        platforms.clear();
-        platform_map.clear();
+        d.players.clear();
+        d.bullets.clear();
+        d.platforms.clear();
+        d.platform_map.clear();
     }
 
     template <typename C, typename F>
@@ -50,41 +52,39 @@ public:
 
         for (auto& [_, p] : c) {
             auto insert_player = get_adapter(p);
-            players.insert_or_assign(insert_player.name, insert_player);
+            d.players.insert_or_assign(insert_player.name, insert_player);
         }
     }
 
     void provide_physic_sim(const vec2f& gravity, float time_speed, u32 last_rps) {
         std::lock_guard lock{mtx};
 
-        physic_sim.gravity = gravity;
-        physic_sim.time_speed = time_speed;
-        physic_sim.last_rps = last_rps;
+        d.physic_sim.gravity    = gravity;
+        d.physic_sim.time_speed = time_speed;
+        d.physic_sim.last_rps   = last_rps;
     }
 
     void provide_level(const vec2f& level_size) {
         std::lock_guard lock{mtx};
 
-        level.level_size = level_size;
+        d.level.level_size = level_size;
     }
 
     template <typename C, typename F>
     void provide_bullets(const C& c, F get_adapter) {
         std::lock_guard lock{mtx};
 
-        bullets.resize(c.size());
+        d.bullets.resize(c.size());
         size_t i = 0;
-        for (auto it = c.begin(); it != c.end(); ++it)
-            bullets[i++] = get_adapter(*it);
+        for (auto it = c.begin(); it != c.end(); ++it) d.bullets[i++] = get_adapter(*it);
     }
 
     template <typename C, typename F>
     void provide_platforms(const C& c, F get_adapter) {
         std::lock_guard lock{mtx};
 
-        platforms.resize(c.size());
-        for (size_t i = 0; i < platforms.size(); ++i)
-            platforms[i] = get_adapter(c[i]);
+        d.platforms.resize(c.size());
+        for (size_t i = 0; i < d.platforms.size(); ++i) d.platforms[i] = get_adapter(c[i]);
 
         rebuild_platform_map();
     }
@@ -94,7 +94,7 @@ public:
     }
 
     void worker_start() {
-        _work = true;
+        _work    = true;
         _stopped = false;
 
         _thread = std::thread(worker, this);
@@ -102,14 +102,15 @@ public:
 
     void worker_stop() {
         _work = false;
-        while (!_stopped);
+        while (!_stopped)
+            ;
 
         _thread.join();
     }
 
     static void worker(ai_mgr_singleton* ai) {
         while (ai->_work) {
-            float step = 1.f / static_cast<float>(ai->physic_sim.last_rps);
+            float step = 1.f / static_cast<float>(ai->d.physic_sim.last_rps);
             if (ai->_timer.elapsed() > step) {
                 ai->_timer.restart();
 
@@ -124,7 +125,9 @@ public:
     }
 
 private:
-    ai_mgr_singleton() = default;
+    ai_mgr_singleton() {
+        luactx_mgr::ai_instance();
+    }
 
     ~ai_mgr_singleton() {
         if (_work)
@@ -148,59 +151,7 @@ private:
     }
 
 public:
-    struct player_t {
-        vec2f         pos;
-        vec2f         dir;
-        vec2f         size;
-        vec2f         vel;
-        vec2f         barrel_pos;
-        player_name_t name;
-        u32           available_jumps;
-        float         x_accel;
-        float         x_slowdown;
-        float         jump_speed;
-        float         max_jump_dist;
-        float         max_vel_x;
-        float         gun_dispersion;
-        int           group;
-        float         gun_bullet_vel;
-        float         gun_fire_rate;
-        bool          on_left;
-        bool          is_y_locked;
-    };
-
-    struct physic_sim_t {
-        vec2f gravity;
-        float time_speed;
-        u32   last_rps;
-    };
-
-    struct level_t {
-        vec2f level_size;
-    };
-
-    struct bullet_t {
-        vec2f pos;
-        vec2f vel;
-        float hit_mass;
-        int   group;
-    };
-
-    struct platform_t {
-        vec2f pos1;
-        vec2f pos2;
-    };
-
-    using plat_dist_t       = vec2f;
-    using plat_neighbours_t = std::vector<plat_dist_t>;
-    using ai_plat_map_t     = std::vector<plat_neighbours_t>;
-
-    std::map<player_name_t, player_t> players;
-    std::vector<bullet_t>             bullets;
-    physic_sim_t                      physic_sim;
-    std::vector<platform_t>           platforms;
-    ai_plat_map_t                     platform_map;
-    level_t                           level;
+    ai_data_t d;
 
     float platforms_bound_start_x;
     float platforms_bound_end_x;
@@ -217,21 +168,21 @@ private:
 private:
     void rebuild_platform_map() {
         platforms_bound_start_x = std::numeric_limits<float>::max();
-        platforms_bound_end_x = std::numeric_limits<float>::lowest();
+        platforms_bound_end_x   = std::numeric_limits<float>::lowest();
 
-        platform_map.clear();
-        platform_map.resize(platforms.size());
+        d.platform_map.clear();
+        d.platform_map.resize(d.platforms.size());
 
-        for (size_t i = 0; i != platforms.size(); ++i) {
-            if (platforms[i].pos1.x < platforms_bound_start_x)
-                platforms_bound_start_x = platforms[i].pos1.x;
+        for (size_t i = 0; i != d.platforms.size(); ++i) {
+            if (d.platforms[i].pos1.x < platforms_bound_start_x)
+                platforms_bound_start_x = d.platforms[i].pos1.x;
 
-            if (platforms[i].pos2.x > platforms_bound_end_x)
-                platforms_bound_end_x = platforms[i].pos2.x;
+            if (d.platforms[i].pos2.x > platforms_bound_end_x)
+                platforms_bound_end_x = d.platforms[i].pos2.x;
 
-            auto neighbours = plat_neighbours_t(platforms.size());
+            auto neighbours = ai_plat_neighbours_t(d.platforms.size());
 
-            for (size_t j = 0; j != platforms.size(); ++j) {
+            for (size_t j = 0; j != d.platforms.size(); ++j) {
                 if (i == j) {
                     neighbours[j] = {0.f, 0.f};
                     continue;
@@ -239,11 +190,11 @@ private:
 
                 vec2f dist{0.f, 0.f};
 
-                auto& current   = platforms[i];
-                auto& neighbour = platforms[j];
-                float cl = current.pos1.x;
-                float cr = current.pos2.x;
-                float cy = current.pos1.y;
+                auto& current   = d.platforms[i];
+                auto& neighbour = d.platforms[j];
+                float cl        = current.pos1.x;
+                float cr        = current.pos2.x;
+                float cy        = current.pos1.y;
 
                 float nl = neighbour.pos1.x;
                 float nr = neighbour.pos2.x;
@@ -259,36 +210,24 @@ private:
                 neighbours[j] = dist;
             }
 
-            platform_map[i] = std::move(neighbours);
+            d.platform_map[i] = std::move(neighbours);
         }
     }
 };
-
 
 inline ai_mgr_singleton& ai_mgr() {
     return ai_mgr_singleton::instance();
 }
 
-
 struct platform_res_t {
-    const ai_mgr_singleton::platform_t *stand_on = nullptr, *can_stand_on = nullptr,
-                                       *nearest = nullptr;
+    const ai_platform_t *stand_on = nullptr, *can_stand_on = nullptr, *nearest = nullptr;
 };
-
 
 class ai_operator : public std::enable_shared_from_this<ai_operator> {
 public:
     friend class ai_mgr_singleton;
 
-    enum task_t {
-        t_move_left = 0,
-        t_move_right,
-        t_stop,
-        t_shot,
-        t_relax,
-        t_jump,
-        t_jump_down
-    };
+    enum task_t { t_move_left = 0, t_move_right, t_stop, t_shot, t_relax, t_jump, t_jump_down };
 
     static std::shared_ptr<ai_operator> create(ai_difficulty difficulty, const player_name_t& player_name) {
         return std::make_shared<ai_operator>(difficulty, player_name);
@@ -322,19 +261,19 @@ public:
 
     void move_left() {
         produce_task(t_move_left);
-        _mov_left = true;
+        _mov_left  = true;
         _mov_right = false;
     }
 
     void move_right() {
         produce_task(t_move_right);
         _mov_right = true;
-        _mov_left = false;
+        _mov_left  = false;
     }
 
     void stop() {
         produce_task(t_stop);
-        _mov_left = false;
+        _mov_left  = false;
         _mov_right = false;
     }
 
@@ -369,13 +308,11 @@ public:
         _shot = false;
     }
 
-    [[nodiscard]]
-    bool is_on_shot() const {
+    [[nodiscard]] bool is_on_shot() const {
         return _shot;
     }
 
-    [[nodiscard]]
-    ai_difficulty difficulty() const {
+    [[nodiscard]] ai_difficulty difficulty() const {
         return _difficulty;
     }
 
@@ -385,17 +322,16 @@ public:
 
     void shot_next_frame(float shot_delay = 0.f) {
         if (!_shot_next_frame) {
-            _shot_delay = shot_delay;
+            _shot_delay      = shot_delay;
             _shot_next_frame = true;
             _start_shot_timer.restart();
         }
     }
 
-    void update_shot_next_frame(const ai_mgr_singleton::physic_sim_t& sim) {
+    void update_shot_next_frame(const ai_physic_sim_t& sim) {
         _jump_was = false;
 
-        if (_delayed_jump_delay > 0.001f &&
-            _start_delayed_jump.elapsed(sim.time_speed) > _delayed_jump_delay)
+        if (_delayed_jump_delay > 0.001f && _start_delayed_jump.elapsed(sim.time_speed) > _delayed_jump_delay)
             jump();
 
         if (_shot_next_frame && _start_shot_timer.elapsed(sim.time_speed) > _shot_delay) {
@@ -404,28 +340,23 @@ public:
         }
     }
 
-    [[nodiscard]]
-    const player_name_t player_name() const {
+    [[nodiscard]] const player_name_t player_name() const {
         return _player_name;
     }
 
-    [[nodiscard]]
-    auto& operated_platforms() const {
+    [[nodiscard]] auto& operated_platforms() const {
         return _operated_platforms;
     }
 
-    [[nodiscard]]
-    auto& operated_platforms() {
+    [[nodiscard]] auto& operated_platforms() {
         return _operated_platforms;
     }
 
-    [[nodiscard]]
-    float jump_x_max() const {
+    [[nodiscard]] float jump_x_max() const {
         return _jump_x_max;
     }
 
-    [[nodiscard]]
-    auto last_stand_on_plat() const {
+    [[nodiscard]] auto last_stand_on_plat() const {
         return _last_stand_on_plat;
     }
 
@@ -445,17 +376,17 @@ private:
 
     mutable std::mutex mtx;
 
-    timer                               _timer;
-    player_name_t                       _target_id;
-    player_name_t                       _last_target_id;
-    float                               _jump_x_max         = 0.f;
-    const ai_mgr_singleton::platform_t* _last_stand_on_plat = nullptr;
-    platform_res_t                      _operated_platforms;
-    bool                                _mov_left        = false;
-    bool                                _mov_right       = false;
-    bool                                _shot            = false;
-    bool                                _shot_next_frame = false;
-    bool                                _jump_was        = false;
+    timer                _timer;
+    player_name_t        _target_id;
+    player_name_t        _last_target_id;
+    float                _jump_x_max         = 0.f;
+    const ai_platform_t* _last_stand_on_plat = nullptr;
+    platform_res_t       _operated_platforms;
+    bool                 _mov_left        = false;
+    bool                 _mov_right       = false;
+    bool                 _shot            = false;
+    bool                 _shot_next_frame = false;
+    bool                 _jump_was        = false;
 };
 
 inline bool overlap(float a1, float a2, float b1, float b2) {
@@ -464,10 +395,8 @@ inline bool overlap(float a1, float a2, float b1, float b2) {
 
 inline constexpr float falling_dist = 350.f;
 
-inline bool hard_i_see_you(const ai_mgr_singleton::player_t& it,
-                             const ai_mgr_singleton::player_t& pl,
-                             const ai_mgr_singleton::level_t&  level,
-                             float                             gun_dispersion) {
+inline bool
+hard_i_see_you(const ai_player_t& it, const ai_player_t& pl, const ai_level_t& level, float gun_dispersion) {
     if (it.group != -1 && it.group == pl.group)
         return false;
 
@@ -477,24 +406,25 @@ inline bool hard_i_see_you(const ai_mgr_singleton::player_t& it,
     if (std::fabs(pl.pos.x) - level.level_size.x > falling_dist)
         return false;
 
-    auto disp = gun_dispersion * 0.35f;
+    auto disp   = gun_dispersion * 0.35f;
     auto x_dist = std::fabs(pl.pos.x - it.pos.x);
-    auto y_add = std::sin(disp) * x_dist;
+    auto y_add  = std::sin(disp) * x_dist;
 
-    return overlap(pl.pos.y, pl.pos.y + pl.size.y, it.pos.y - y_add + it.size.y * 0.5f, it.pos.y + y_add + it.size.y * 0.5f);
+    return overlap(
+        pl.pos.y, pl.pos.y + pl.size.y, it.pos.y - y_add + it.size.y * 0.5f, it.pos.y + y_add + it.size.y * 0.5f);
 }
 
-inline bool i_see_you(const ai_mgr_singleton::player_t& it, const ai_mgr_singleton::player_t& pl) {
+inline bool i_see_you(const ai_player_t& it, const ai_player_t& pl) {
     if (it.group != -1 && it.group == pl.group)
         return false;
     return overlap(it.pos.y, it.pos.y + it.size.y, pl.pos.y, pl.pos.y + pl.size.y);
 }
 
 inline std::optional<std::pair<player_name_t, vec2f>>
-easy_ai_find_nearest(const ai_mgr_singleton::player_t&                          it,
-                     const std::map<player_name_t, ai_mgr_singleton::player_t>& players,
-                     const ai_mgr_singleton::level_t&                           level,
-                     ai_operator&                                               oper) {
+easy_ai_find_nearest(const ai_player_t&                          it,
+                     const std::map<player_name_t, ai_player_t>& players,
+                     const ai_level_t&                           level,
+                     ai_operator&                                oper) {
     static constexpr auto cmp = [](const std::pair<player_name_t, vec2f>& lhs,
                                    const std::pair<player_name_t, vec2f>& rhs) {
         return magnitude2(lhs.second) < magnitude2(rhs.second);
@@ -502,8 +432,8 @@ easy_ai_find_nearest(const ai_mgr_singleton::player_t&                          
 
     std::set<std::pair<player_name_t, vec2f>, decltype(cmp)> nearests;
     for (auto& [_, pl] : players) {
-        auto iseeyou = oper.difficulty() == ai_hard ? hard_i_see_you(it, pl, level, it.gun_dispersion)
-                                                      : i_see_you(it, pl);
+        auto iseeyou =
+            oper.difficulty() == ai_hard ? hard_i_see_you(it, pl, level, it.gun_dispersion) : i_see_you(it, pl);
         if (pl.name != it.name && iseeyou)
             nearests.emplace(pl.name, pl.pos - it.pos);
     }
@@ -514,8 +444,7 @@ easy_ai_find_nearest(const ai_mgr_singleton::player_t&                          
         return *nearests.begin();
 }
 
-inline auto calc_dist_to_platform(const ai_mgr_singleton::platform_t& plat,
-                                  const ai_mgr_singleton::player_t&   plr) {
+inline auto calc_dist_to_platform(const ai_platform_t& plat, const ai_player_t& plr) {
     if (plr.pos.x > plat.pos2.x)
         return plat.pos2 - plr.pos;
     else if (plr.pos.x < plat.pos1.x)
@@ -524,35 +453,33 @@ inline auto calc_dist_to_platform(const ai_mgr_singleton::platform_t& plat,
         return vec2f(0.f, plat.pos1.y - plr.pos.y);
 }
 
-inline platform_res_t find_platform(const std::vector<ai_mgr_singleton::platform_t>& platforms,
-                                    const ai_mgr_singleton::player_t&                player) {
+inline platform_res_t find_platform(const std::vector<ai_platform_t>& platforms, const ai_player_t& player) {
     platform_res_t res;
-    vec2f nearest_dist;
-    float nearest_dist_sc = std::numeric_limits<float>::max();
+    vec2f          nearest_dist;
+    float          nearest_dist_sc = std::numeric_limits<float>::max();
 
     auto& p = player.pos;
     for (auto& pl : platforms) {
         if (p.x > pl.pos1.x && p.x < pl.pos2.x) {
             if (approx_equal(pl.pos1.y, p.y, 0.0001f)) {
-                res.stand_on = &pl;
+                res.stand_on     = &pl;
                 res.can_stand_on = &pl;
-                res.nearest = &pl;
+                res.nearest      = &pl;
                 break;
             }
             else {
                 if (pl.pos1.y > player.pos.y &&
-                    (!res.can_stand_on ||
-                     res.can_stand_on->pos1.y - player.pos.y > pl.pos1.y - player.pos.y)) {
+                    (!res.can_stand_on || res.can_stand_on->pos1.y - player.pos.y > pl.pos1.y - player.pos.y)) {
                     res.can_stand_on = &pl;
                 }
             }
         }
 
-        auto dist_to_plat = calc_dist_to_platform(pl, player);
+        auto  dist_to_plat    = calc_dist_to_platform(pl, player);
         float dist_to_plat_sc = magnitude(dist_to_plat);
         if (!res.nearest || dist_to_plat_sc < nearest_dist_sc) {
-            res.nearest = &pl;
-            nearest_dist = dist_to_plat;
+            res.nearest     = &pl;
+            nearest_dist    = dist_to_plat;
             nearest_dist_sc = dist_to_plat_sc;
         }
     }
@@ -560,17 +487,12 @@ inline platform_res_t find_platform(const std::vector<ai_mgr_singleton::platform
     return res;
 }
 
-enum ai_move_type {
-    ai_move_none = 0,
-    ai_move_left,
-    ai_move_right,
-    ai_move_stop
-};
+enum ai_move_type { ai_move_none = 0, ai_move_left, ai_move_right, ai_move_stop };
 
 struct ai_move_spec {
     void update_move(ai_move_type itype, int ipriority) {
         if (ipriority >= priority) {
-            type = itype;
+            type     = itype;
             priority = ipriority;
         }
     }
@@ -578,36 +500,29 @@ struct ai_move_spec {
     void update_apply(ai_operator& oper, ai_move_type itype, int ipriority) {
         if (ipriority >= priority) {
             apply(oper);
-            type = itype;
+            type     = itype;
             priority = ipriority;
         }
     }
 
     void apply(ai_operator& oper) {
         switch (type) {
-            case ai_move_left:
-                oper.move_left();
-                break;
-            case ai_move_right:
-                oper.move_right();
-                break;
-            case ai_move_stop:
-                oper.stop();
-                break;
-            default:
-                break;
+        case ai_move_left: oper.move_left(); break;
+        case ai_move_right: oper.move_right(); break;
+        case ai_move_stop: oper.stop(); break;
+        default: break;
         }
-        type = ai_move_none;
+        type     = ai_move_none;
         priority = 0;
     }
 
-    ai_move_type type = ai_move_none;
-    int priority = 0;
+    ai_move_type type     = ai_move_none;
+    int          priority = 0;
 };
 
-inline void easy_ai_platform_actions(const std::vector<ai_mgr_singleton::platform_t>& platforms,
+inline void easy_ai_platform_actions(const std::vector<ai_platform_t>& platforms,
                                      const platform_res_t&             plat,
-                                     const ai_mgr_singleton::player_t& player,
+                                     const ai_player_t&                player,
                                      ai_operator&                      oper,
                                      ai_move_spec&                     move_spec) {
     auto [stand_on, can_stand_on, nearest_plat] = plat;
@@ -624,7 +539,7 @@ inline void easy_ai_platform_actions(const std::vector<ai_mgr_singleton::platfor
         }
     }
     else {
-        auto plr = player;
+        auto           plr   = player;
         constexpr auto solve = [](float x, float v0, float a) {
             float t = v0 / a;
             return x + v0 * t + a * t * t * 0.5f;
@@ -656,11 +571,9 @@ inline void easy_ai_platform_actions(const std::vector<ai_mgr_singleton::platfor
     }
 }
 
-inline std::vector<const ai_mgr_singleton::bullet_t*>
-find_dangerous_bullets(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
-                       const ai_mgr_singleton::player_t&              player,
-                       float                                          bullet_timeshift) {
-    std::vector<const ai_mgr_singleton::bullet_t*> dangerous;
+inline std::vector<const ai_bullet_t*>
+find_dangerous_bullets(const std::vector<ai_bullet_t>& bullets, const ai_player_t& player, float bullet_timeshift) {
+    std::vector<const ai_bullet_t*> dangerous;
 
     for (auto& bl : bullets) {
         if (bl.pos.y > player.pos.y || bl.pos.y < player.pos.y - player.size.y)
@@ -680,11 +593,11 @@ find_dangerous_bullets(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
     return dangerous;
 }
 
-inline void dodge_ai(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
-                     const ai_mgr_singleton::player_t&              player,
-                     const ai_mgr_singleton::physic_sim_t&          physic_sim,
-                     ai_move_spec&/*                                  move_spec*/,
-                     ai_operator&                                   oper) {
+inline void dodge_ai(const std::vector<ai_bullet_t>& bullets,
+                     const ai_player_t&              player,
+                     const ai_physic_sim_t&          physic_sim,
+                     ai_move_spec& /*                                  move_spec*/,
+                     ai_operator& oper) {
     if (oper.difficulty() < ai_difficulty::ai_medium)
         return;
 
@@ -713,24 +626,21 @@ inline void dodge_ai(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
     }
 
     if (oper.difficulty() == ai_hard) {
-        constexpr auto calc_hit_mass =
-            [](const std::vector<const ai_mgr_singleton::bullet_t*>& bullets) {
-                float hit_mass = 0;
-                for (auto b : bullets) hit_mass += (b->vel.x > 0.f ? b->hit_mass : -b->hit_mass);
-                return hit_mass;
-            };
+        constexpr auto calc_hit_mass = [](const std::vector<const ai_bullet_t*>& bullets) {
+            float hit_mass = 0;
+            for (auto b : bullets) hit_mass += (b->vel.x > 0.f ? b->hit_mass : -b->hit_mass);
+            return hit_mass;
+        };
 
         auto full_mass = calc_hit_mass(find_dangerous_bullets(bullets, player, 0.f));
         if (std::fabs(full_mass) < 0.1f)
             return;
 
-        auto afterjump_pos =
-            player.pos + vec2f(player.vel.x, -player.jump_speed) * 0.5f + physic_sim.gravity * 0.125f;
+        auto afterjump_pos = player.pos + vec2f(player.vel.x, -player.jump_speed) * 0.5f + physic_sim.gravity * 0.125f;
         auto afterjump_player = player;
         afterjump_player.pos  = afterjump_pos;
 
-        float afterjump_full_mass =
-            calc_hit_mass(find_dangerous_bullets(bullets, afterjump_player, 0.5f));
+        float afterjump_full_mass = calc_hit_mass(find_dangerous_bullets(bullets, afterjump_player, 0.5f));
 
         if (std::fabs(afterjump_full_mass) < std::fabs(full_mass)) {
             if (player.vel.y > -0.001f)
@@ -739,16 +649,16 @@ inline void dodge_ai(const std::vector<ai_mgr_singleton::bullet_t>& bullets,
     }
 }
 
-inline void hard_shooter(const std::map<player_name_t, ai_mgr_singleton::player_t>& players,
-                         const ai_mgr_singleton::player_t&                          plr,
-                         ai_operator&                                               op,
-                         const ai_mgr_singleton::physic_sim_t&                      physic_sim,
-                         const ai_mgr_singleton::level_t&                           level,
+inline void hard_shooter(const std::map<player_name_t, ai_player_t>& players,
+                         const ai_player_t&                          plr,
+                         ai_operator&                                op,
+                         const ai_physic_sim_t&                      physic_sim,
+                         const ai_level_t&                           level,
                          ai_move_spec&) {
     if (op.is_on_shot())
         return;
 
-    std::map<float, const ai_mgr_singleton::player_t*> targets;
+    std::map<float, const ai_player_t*> targets;
 
     for (auto& [_, trg] : players) {
         if (trg.name == plr.name || trg.is_y_locked)
@@ -760,7 +670,7 @@ inline void hard_shooter(const std::map<player_name_t, ai_mgr_singleton::player_
         if (std::fabs(trg.pos.x) - level.level_size.x > falling_dist)
             continue;
 
-        auto a = 0.5f *  physic_sim.gravity.y;
+        auto a = 0.5f * physic_sim.gravity.y;
         auto b = trg.vel.y;
         auto c = trg.pos.y - plr.pos.y;
         auto d = b * b - 4.f * a * c;
@@ -792,7 +702,7 @@ inline void hard_shooter(const std::map<player_name_t, ai_mgr_singleton::player_
         /* TODO: read from gun params */
 
         auto trg_new_pos = trg->pos + trg->vel * t + physic_sim.gravity * t * t * 0.5f;
-        auto dist = trg_new_pos - (plr.pos - (plr.barrel_pos - plr.pos));
+        auto dist        = trg_new_pos - (plr.pos - (plr.barrel_pos - plr.pos));
         auto blt_dist    = plr.gun_bullet_vel * t;
         if (((dist.x < 0.f && dist.x < blt_dist) || (dist.x > 0.f && dist.x > blt_dist)) &&
             std::fabs(std::fabs(dist.x) - blt_dist) < 50.f / std::cos(plr.gun_dispersion * 0.5f)) {
@@ -810,16 +720,18 @@ inline void hard_shooter(const std::map<player_name_t, ai_mgr_singleton::player_
     }
 }
 
-inline auto pathfinder(const std::vector<ai_mgr_singleton::platform_t>& platforms,
-                       const ai_mgr_singleton::ai_plat_map_t&           plat_map,
-                       const platform_res_t&                            start_plat,
-                       const platform_res_t&                            target_plat) {
-    std::vector<const ai_mgr_singleton::platform_t*> res;
-    auto src_plat = start_plat.stand_on;
-    auto trg_plat = target_plat.stand_on ? target_plat.stand_on : target_plat.nearest;
+inline auto pathfinder(const std::vector<ai_platform_t>& platforms,
+                       const ai_plat_map_t&              plat_map,
+                       const platform_res_t&             start_plat,
+                       const platform_res_t&             target_plat) {
+    std::vector<const ai_platform_t*> res;
+    auto                              src_plat = start_plat.stand_on;
+    auto                              trg_plat = target_plat.stand_on ? target_plat.stand_on : target_plat.nearest;
 
-    if (!src_plat) src_plat = start_plat.stand_on;
-    if (!src_plat) src_plat = start_plat.nearest;
+    if (!src_plat)
+        src_plat = start_plat.stand_on;
+    if (!src_plat)
+        src_plat = start_plat.nearest;
 
     if (!src_plat || !trg_plat)
         return res;
@@ -831,7 +743,7 @@ inline auto pathfinder(const std::vector<ai_mgr_singleton::platform_t>& platform
     auto trg_plat_idx = static_cast<size_t>(trg_plat - platforms.data());
 
     std::vector<size_t> came_from;
-    std::vector<float> cost_so_far;
+    std::vector<float>  cost_so_far;
     came_from.resize(platforms.size(), std::numeric_limits<size_t>::max());
     cost_so_far.resize(platforms.size());
 
@@ -839,7 +751,7 @@ inline auto pathfinder(const std::vector<ai_mgr_singleton::platform_t>& platform
     std::priority_queue<pair_t, std::vector<pair_t>, std::greater<>> frontier;
     frontier.push({0.0, src_plat_idx});
 
-    came_from[src_plat_idx] = src_plat_idx;
+    came_from[src_plat_idx]   = src_plat_idx;
     cost_so_far[src_plat_idx] = 0.f;
 
     while (!frontier.empty()) {
@@ -850,12 +762,12 @@ inline auto pathfinder(const std::vector<ai_mgr_singleton::platform_t>& platform
             break;
 
         for (size_t i = 0; i < plat_map[current].size(); ++i) {
-            auto& next = plat_map[current][i];
+            auto& next     = plat_map[current][i];
             float new_cost = cost_so_far[current] + magnitude2(next);
 
             if (came_from[i] == std::numeric_limits<size_t>::max() || new_cost < cost_so_far[i]) {
                 cost_so_far[i] = new_cost;
-                came_from[i] = current;
+                came_from[i]   = current;
                 frontier.push({new_cost, i});
             }
         }
@@ -874,15 +786,15 @@ inline auto pathfinder(const std::vector<ai_mgr_singleton::platform_t>& platform
     return res;
 }
 
-inline void move_to_target(const std::vector<ai_mgr_singleton::platform_t>& platforms,
-                           const ai_mgr_singleton::ai_plat_map_t&           plat_map,
-                           const ai_mgr_singleton::player_t&                player,
-                           ai_operator&                                     oper,
-                           ai_move_spec&                                    move_spec,
-                           const ai_mgr_singleton::player_t&                target,
-                           const platform_res_t&                            target_plat,
-                           float                                            plats_bound_start,
-                           float                                            plats_bound_end) {
+inline void move_to_target(const std::vector<ai_platform_t>& platforms,
+                           const ai_plat_map_t&              plat_map,
+                           const ai_player_t&                player,
+                           ai_operator&                      oper,
+                           ai_move_spec&                     move_spec,
+                           const ai_player_t&                target,
+                           const platform_res_t&             target_plat,
+                           float                             plats_bound_start,
+                           float                             plats_bound_end) {
     auto operated_plats = oper.operated_platforms();
     if (!operated_plats.stand_on)
         operated_plats.stand_on = oper.last_stand_on_plat();
@@ -908,24 +820,23 @@ inline void move_to_target(const std::vector<ai_mgr_singleton::platform_t>& plat
             f = lerp(trg_plat_f, 1.f, 0.5f);
         else
             f = lerp(0.f, trg_plat_f, 0.5f);
-        plat_center     = (next_plat->pos2.x - next_plat->pos1.x) * f;
+        plat_center   = (next_plat->pos2.x - next_plat->pos1.x) * f;
         plat_min_dist = std::min(plat_center - next_plat->pos1.x, next_plat->pos2.x - plat_center) * 0.1f;
     }
     else {
-        plat_center     = (next_plat->pos1.x + next_plat->pos2.x) * 0.5f;
+        plat_center   = (next_plat->pos1.x + next_plat->pos2.x) * 0.5f;
         plat_min_dist = (next_plat->pos2.x - next_plat->pos1.x) * 0.1f;
     }
 
     if (plat_center + plat_min_dist < player.pos.x) {
         move_spec.update_move(ai_move_left, 0);
-        ready_to_jump = next_plat->pos2.x > player.pos.x ||
-                        player.pos.x - next_plat->pos2.x < oper.jump_x_max();
+        ready_to_jump = next_plat->pos2.x > player.pos.x || player.pos.x - next_plat->pos2.x < oper.jump_x_max();
     }
     else if (plat_center - plat_min_dist > player.pos.x) {
         move_spec.update_move(ai_move_right, 0);
-        ready_to_jump = next_plat->pos1.x < player.pos.x ||
-                        next_plat->pos1.x - player.pos.x < oper.jump_x_max();
-    } else {
+        ready_to_jump = next_plat->pos1.x < player.pos.x || next_plat->pos1.x - player.pos.x < oper.jump_x_max();
+    }
+    else {
         move_spec.update_move(ai_move_stop, 0);
         ready_to_jump = true;
     }
@@ -933,7 +844,8 @@ inline void move_to_target(const std::vector<ai_mgr_singleton::platform_t>& plat
     if (next_plat->pos1.y < player.pos.y) {
         if (ready_to_jump && player.vel.y > -0.001f)
             oper.jump();
-    } else {
+    }
+    else {
         if (player.is_y_locked)
             oper.jump_down();
     }
@@ -947,18 +859,17 @@ inline void move_to_target(const std::vector<ai_mgr_singleton::platform_t>& plat
     */
 }
 
-inline std::optional<player_name_t>
-find_closest_target(const std::map<player_name_t, ai_mgr_singleton::player_t>& players,
-                    const ai_mgr_singleton::player_t&                          player) {
+inline std::optional<player_name_t> find_closest_target(const std::map<player_name_t, ai_player_t>& players,
+                                                        const ai_player_t&                          player) {
     std::optional<player_name_t> closest;
-    float dist = std::numeric_limits<float>::max();
+    float                        dist = std::numeric_limits<float>::max();
 
     for (auto& [_, trg] : players) {
         if (&player != &trg && (trg.group == -1 || trg.group != player.group)) {
             auto cur_dist = magnitude2(trg.pos - player.pos);
             if (cur_dist < dist) {
                 closest = trg.name;
-                dist = cur_dist;
+                dist    = cur_dist;
             }
         }
     }
@@ -966,10 +877,7 @@ find_closest_target(const std::map<player_name_t, ai_mgr_singleton::player_t>& p
     return closest;
 }
 
-inline void stay_away_from_borders(const ai_mgr_singleton::player_t& player,
-                                   ai_move_spec&                     move_spec,
-                                   float                             start,
-                                   float                             end) {
+inline void stay_away_from_borders(const ai_player_t& player, ai_move_spec& move_spec, float start, float end) {
     if (player.pos.x < start || player.pos.x > end)
         return;
 
@@ -984,72 +892,73 @@ inline void stay_away_from_borders(const ai_mgr_singleton::player_t& player,
 
 inline void ai_mgr_singleton::worker_op() {
     for (auto& [player_name, oper_ptr] : _operators) {
-        auto& player = players[player_name];
+        auto& player = d.players[player_name];
 
-        auto last_stand_on = oper_ptr->_operated_platforms.stand_on;
-        oper_ptr->_operated_platforms = find_platform(platforms, player);
+        auto last_stand_on            = oper_ptr->_operated_platforms.stand_on;
+        oper_ptr->_operated_platforms = find_platform(d.platforms, player);
         if (oper_ptr->_operated_platforms.stand_on != last_stand_on)
             oper_ptr->_last_stand_on_plat = last_stand_on;
 
-        oper_ptr->_jump_x_max = ((player.jump_speed * 2.f) / physic_sim.gravity.y) * player.max_vel_x * 0.7f;
+        oper_ptr->_jump_x_max = ((player.jump_speed * 2.f) / d.physic_sim.gravity.y) * player.max_vel_x * 0.7f;
     }
 
     for (auto& [player_id, oper_ptr] : _operators) {
-        auto& oper   = *oper_ptr;
-        auto& player = players[player_id];
-        auto plat    = oper._operated_platforms;
+        auto&        oper   = *oper_ptr;
+        auto&        player = d.players[player_id];
+        auto         plat   = oper._operated_platforms;
         ai_move_spec move_spec;
 
-        oper.update_shot_next_frame(physic_sim);
+        oper.update_shot_next_frame(d.physic_sim);
 
         if (oper._target_id == ai_operator::no_target) {
-            if (auto id = easy_ai_find_nearest(player, players, level, oper))
+            if (auto id = easy_ai_find_nearest(player, d.players, d.level, oper))
                 oper._target_id = id->first;
         }
         else {
             if (oper.difficulty() == ai_hard) {
-                if (!hard_i_see_you(player, players[oper._target_id], level, player.gun_dispersion)) {
-                    if (auto next_target = find_closest_target(players, player))
+                if (!hard_i_see_you(player, d.players[oper._target_id], d.level, player.gun_dispersion)) {
+                    if (auto next_target = find_closest_target(d.players, player))
                         oper._last_target_id = *next_target;
                     else
                         oper._last_target_id = ai_operator::no_target;
 
                     oper._target_id = ai_operator::no_target;
-                    if (auto id = easy_ai_find_nearest(player, players, level, oper))
+                    if (auto id = easy_ai_find_nearest(player, d.players, d.level, oper))
                         oper._target_id = id->first;
                 }
             }
             else {
-                if (!i_see_you(player, players[oper._target_id])) {
-                    if (auto next_target = find_closest_target(players, player))
+                if (!i_see_you(player, d.players[oper._target_id])) {
+                    if (auto next_target = find_closest_target(d.players, player))
                         oper._last_target_id = *next_target;
                     oper._target_id = ai_operator::no_target;
                 }
             }
         }
 
-        easy_ai_platform_actions(platforms, plat, player, oper, move_spec);
+        easy_ai_platform_actions(d.platforms, plat, player, oper, move_spec);
 
         if (oper._target_id != ai_operator::no_target) {
             if (!oper._shot) {
                 float delay = 0.f;
                 if (oper.difficulty() == ai_easy)
-                    delay = 0.35f; //rand_float(0.15f, 0.4f);
+                    delay = 0.35f; // rand_float(0.15f, 0.4f);
                 else if (oper.difficulty() == ai_medium)
-                    delay = 0.15f; //rand_float(0.05f, 0.15f);
+                    delay = 0.15f; // rand_float(0.05f, 0.15f);
                 oper.shot_next_frame(delay);
             }
 
-            auto& trg = players[oper._target_id];
-            auto dist = trg.pos - player.pos;
-            auto mod_dist_x = fabs(dist.x);
+            auto& trg        = d.players[oper._target_id];
+            auto  dist       = trg.pos - player.pos;
+            auto  mod_dist_x = fabs(dist.x);
 
             std::array<float, 3> dists; // NOLINT
             if (oper.difficulty() != ai_hard) {
                 dists[0] = std::fabs(player.barrel_pos.x - player.pos.x) * 1.3f;
                 dists[1] = dists[0] * 0.8f;
                 dists[2] = 500.f;
-            } else {
+            }
+            else {
                 dists[0] = std::fabs(player.barrel_pos.x - player.pos.x);
                 dists[1] = dists[0];
                 dists[2] = 40.f;
@@ -1082,29 +991,29 @@ inline void ai_mgr_singleton::worker_op() {
             }
 
             if (oper.difficulty() == ai_hard && trg.vel.y < -trg.jump_speed * 0.99f &&
-                player.vel.y > -0.001f/* && roll_the_dice(0.5f)*/) {
+                player.vel.y > -0.001f /* && roll_the_dice(0.5f)*/) {
                 /* For 50% chance */
                 if (static_cast<int>(std::fabs(player.pos.x)) % 2 == 0)
-                    oper.delayed_jump(0.15f/*rand_float(0.05f, 0.25f)*/);
+                    oper.delayed_jump(0.15f /*rand_float(0.05f, 0.25f)*/);
             }
-        } else {
+        }
+        else {
             if (oper._last_target_id != ai_operator::no_target) {
-                auto& trg = players[oper._last_target_id];
-                auto target_plat = find_platform(platforms, trg);
+                auto& trg         = d.players[oper._last_target_id];
+                auto  target_plat = find_platform(d.platforms, trg);
 
                 if (oper.difficulty() == ai_hard && player.pos.y > trg.pos.y &&
-                    (player.pos.y - trg.pos.y) <
-                        player.max_jump_dist * float(player.available_jumps) &&
+                    (player.pos.y - trg.pos.y) < player.max_jump_dist * float(player.available_jumps) &&
                     player.pos.y > -0.001f) {
                     oper.jump();
                 }
                 else if (!oper._shot) {
-                    move_to_target(platforms,
-                                   platform_map,
+                    move_to_target(d.platforms,
+                                   d.platform_map,
                                    player,
                                    oper,
                                    move_spec,
-                                   players[oper._last_target_id],
+                                   d.players[oper._last_target_id],
                                    target_plat,
                                    platforms_bound_start_x,
                                    platforms_bound_end_x);
@@ -1113,23 +1022,22 @@ inline void ai_mgr_singleton::worker_op() {
 
             /* Relax with delay */
             float relax_delay = player.gun_fire_rate * 0.001f;
-            if (oper._shot && oper._timer.elapsed(physic_sim.time_speed) > relax_delay) {
+            if (oper._shot && oper._timer.elapsed(d.physic_sim.time_speed) > relax_delay) {
                 if (oper._shot)
                     oper.relax();
             }
 
             if (oper.difficulty() == ai_hard)
-                hard_shooter(players, player, oper, physic_sim, level, move_spec);
+                hard_shooter(d.players, player, oper, d.physic_sim, d.level, move_spec);
         }
 
         if (std::fabs(player.vel.x) > player.max_vel_x * 3.f && plat.stand_on && player.vel.y > -0.001f)
             oper.jump();
 
-        dodge_ai(bullets, player, physic_sim, move_spec, oper);
+        dodge_ai(d.bullets, player, d.physic_sim, move_spec, oper);
 
         move_spec.apply(oper);
     }
 }
 
-}
-
+} // namespace dfdh

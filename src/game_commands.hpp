@@ -3,6 +3,7 @@
 #include "game_state.hpp"
 #include "ston.hpp"
 #include "command_buffer.hpp"
+#include "lua.hpp"
 
 namespace dfdh {
 
@@ -28,6 +29,7 @@ public:
         command_buffer().add_handler("ai", &game_commands::cmd_ai, this);
         command_buffer().add_handler("ai difficulty", &game_commands::cmd_ai_difficulty, this);
         command_buffer().add_handler("shutdown", &game_commands::cmd_shutdown, this);
+        command_buffer().add_handler("lua", &game_commands::cmd_lua, this);
     }
 
     ~game_commands() {
@@ -94,6 +96,10 @@ public:
                    "  ai difficulty [player_name] [difficulty]?  - shows or setups ai difficulty\n"
                    "    difficulty: easy medium hard";
         }
+        else if (cmd == "lua") {
+            help = "Lua interpreter\n"
+                   "lua [command]    - execute lua line";
+        }
 
         if (!help.empty())
             LOG("{}", help);
@@ -114,6 +120,10 @@ public:
         else {
             LOG_ERR("player {} not found", player_name);
         }
+    }
+
+    void cmd_lua(const std::string& cmd) {
+        lua().execute_line(cmd);
     }
 
     void cmd_player(const std::string& cmd, const std::optional<std::string>& value) {

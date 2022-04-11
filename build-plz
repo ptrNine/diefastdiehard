@@ -110,6 +110,9 @@ build_static_lib() {
             -L '$(pwd)/$builddir/3rd/lib' \
             -L '$(pwd)/$builddir/3rd/lib64' \
             -L '$(pwd)/$builddir' \
+            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
+            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
+            -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
             -isystem '$(pwd)/$builddir/3rd/include' '$(pwd)/$build_source' \
             -o '$(pwd)/$builddir/$name.o' \
             $libs"
@@ -162,6 +165,9 @@ build_executable() {
             -L '$(pwd)/$builddir/3rd/lib' \
             -L '$(pwd)/$builddir/3rd/lib64' \
             -L '$(pwd)/$builddir' \
+            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
+            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
+            -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
             -isystem '$(pwd)/$builddir/3rd/include' '$(pwd)/$build_source' \
             -o '$(pwd)/$builddir/$name' \
             $libs"
@@ -208,7 +214,10 @@ codegen_step() {
 
         local start_tm=$(mstime)
         colored yellow "Generating $output_header ... " n
-        $CXX_COMPILER -E -isystem "$(pwd)/$builddir/3rd/include" "$input_header" 2>/dev/null | "$builddir/$generator_name" > "$output_header" \
+        $CXX_COMPILER -E \
+            -isystem "$(pwd)/$builddir/3rd/include" \
+            -isystem "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+            "$input_header" 2>/dev/null | "$builddir/$generator_name" > "$output_header" \
             || fail "Generation of $output_header failed"
         colored lgreen "done! $(measure $start_tm)s"
 
@@ -247,7 +256,11 @@ make_pch() {
             -L '$(pwd)/$builddir/3rd/lib' \
             -L '$(pwd)/$builddir/3rd/lib64' \
             -L '$(pwd)/$builddir' \
-            -isystem '$(pwd)/$builddir/3rd/include' '$(pwd)/$location' \
+            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
+            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
+            -isystem '$(pwd)/$builddir/3rd/include' \
+            -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
+            '$(pwd)/$location' \
             -o $location.gch"
         cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
@@ -428,6 +441,7 @@ $([ "$asan" == true ] && asan_flags)
 
     build_cmake_submodule "$builddir" $rebuild_submodules SFML
     build_cmake_submodule "$builddir" $rebuild_submodules Catch2 -DCATCH_INSTALL_DOCS=OFF
+    build_cmake_submodule "$builddir" $rebuild_submodules luacpp -DENABLE_TESTS=ON
 
     if [ ! -f "$builddir/submodules/boost/.easybuild_done" ] || [ "$rebuild_submodules" == true ]; then
         git submodule init submodules/boost || fail
@@ -497,6 +511,15 @@ $([ "$asan" == true ] && asan_flags)
         src/key_generator.cpp \
         src/key_generated.hpp
 
+    codegen_step \
+        "$builddir" \
+        "$CXX_COMPILER" \
+        "$builddir/3rd/include/SFML/Window/Event.hpp" \
+        sfml_event_type_generator \
+        src/event_type_generator.cpp \
+        src/event_type_generated.hpp
+
+
     build_executable \
         dfdh \
         diefastdiehard.cpp \
@@ -504,7 +527,7 @@ $([ "$asan" == true ] && asan_flags)
         "$CXX_COMPILER" \
         "$debug" \
         "$hardening_flags" \
-        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lsfml-audio -lpthread -lGL -lGLEW"
+        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lsfml-audio -lpthread -lGL -lGLEW -lluajit-5.1"
 
     build_executable \
         cfg_test \

@@ -41,6 +41,7 @@ int main() {
     std::cout <<
         "#pragma once\n"
         "\n"
+        "#include <map>\n"
         "#include <string>\n"
         "#include <SFML/Window/Keyboard.hpp>\n"
         "\n"
@@ -54,6 +55,21 @@ int main() {
     std::cout <<
         "        default: return {};\n"
         "    }\n"
+        "}\n"
+        "inline sf::Keyboard::Key sfml_str_to_key(std::string_view str) {\n"
+        "   static constexpr auto init_f = [] {\n"
+        "       return std::map<std::string_view, sf::Keyboard::Key>{\n";
+    for (auto& key : keys)
+        std::cout <<
+            "           {\"" << key << "\", sf::Keyboard::" << key << "},\n";
+    std::cout <<
+        "       };\n"
+        "   };\n"
+        "   static auto map = init_f();\n"
+        "   auto found = map.find(str);\n"
+        "   if (found != map.end())\n"
+        "       return found->second;\n"
+        "   return sf::Keyboard::Unknown;\n"
         "}\n"
         "} // namespace dfdh\n";
 }

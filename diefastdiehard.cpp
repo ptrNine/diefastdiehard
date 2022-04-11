@@ -6,8 +6,9 @@
 #include "src/command_buffer.hpp"
 #include "src/game_commands.hpp"
 #include "src/serialization.hpp"
-
 #include "src/game_state.hpp"
+
+#include "src/lua_init.hpp"
 
 #include <SFML/Graphics/RectangleShape.hpp>
 
@@ -77,15 +78,16 @@ public:
         if (args.get("--physic-debug"))
             gs.debug_physics = true;
 
-        command_buffer().push("level current lvl_aes");
-        command_buffer().push("player create kek");
-        command_buffer().push("player controller0 kek");
-        //command_buffer().push("cfg set lvl_aes view_size '700 400'");
-        //command_buffer().push("cfg reload levels");
-        //command_buffer().push("player create 'lel group=1'");
-        //command_buffer().push("ai bind lel");
-        //command_buffer().push("ai difficulty lel hard");
-        //command_buffer().push("game on");
+        init_lua();
+        lua().load();
+    }
+
+    void init_lua() {
+        lua().ctx().annotate_args("commands");
+        lua().ctx().provide(LUA_TNAME("cmd"), [](const std::string& commands) {
+            for (auto cmd : commands / split('\n')) command_buffer().push(std::string(cmd.begin(), cmd.end()));
+        });
+        lua().ctx().provide(LUA_TNAME("GS"), &gs);
     }
 
     void on_destroy() final {
@@ -95,6 +97,7 @@ public:
 
     void handle_event(const sf::Event& evt) final {
         gs.handle_event(evt);
+        lua().try_call_proc(true, LUA_TNAME("G.handle_event"), evt);
     }
 
     void ui_update() final {
@@ -124,6 +127,7 @@ public:
 
     void game_update() final {
         gs.game_update();
+        lua().try_call_proc(true, LUA_TNAME("G.game_update"), &gs);
     }
 
     void post_command_update() override {
@@ -257,7 +261,7 @@ private:
     }
 
 private:
-    game_state gs;
+    game_state    gs;
     game_commands gc{gs};
 
     sf::RectangleShape point_shape;

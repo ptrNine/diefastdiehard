@@ -396,7 +396,7 @@ public:
 
     void ai_provide_player_level_sim_info() {
         ai_mgr().provide_bullets(blt_mgr.bullets(), [](const bullet& bl) {
-            return ai_mgr_singleton::bullet_t{
+            return ai_bullet_t{
                 bl.physic()->get_position(),
                 bl.physic()->get_velocity(),
                 bl.physic()->get_mass(),
@@ -407,7 +407,7 @@ public:
         ai_mgr().provide_players(players, [gy = sim.gravity().y](const std::shared_ptr<player>& pl) {
             auto& gun = pl->get_gun();
 
-            return ai_mgr_singleton::player_t{
+            return ai_player_t{
                 pl->get_position(),
                 pl->collision_box()->get_direction(),
                 pl->get_size(),
@@ -440,7 +440,7 @@ public:
         ai_mgr().provide_platforms(cur_level->get_platforms(), [](const level::platform_t& pl) {
             auto pos = pl.ph.get_position();
             auto len = pl.ph.length();
-            return ai_mgr_singleton::platform_t{pos, vec2f(pos.x + len, pos.y)};
+            return ai_platform_t{pos, vec2f(pos.x + len, pos.y)};
         });
     }
 

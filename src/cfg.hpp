@@ -1522,6 +1522,9 @@ enum class cfg_mode : cfg_mode_int { none = 0, create_if_not_exists = 1 << 0, co
 cfg_mode operator|(cfg_mode lhs, cfg_mode rhs) {
     return cfg_mode(cfg_mode_int(lhs) | cfg_mode_int(rhs));
 }
+bool operator&(cfg_mode lhs, cfg_mode rhs) {
+    return cfg_mode_int(lhs) & cfg_mode_int(rhs);
+}
 
 template <typename T>
 struct cfg_section_replace_helper {
@@ -1592,10 +1595,10 @@ public:
 
     cfg(const fs::path& entry_config_path, cfg_mode mode = cfg_mode::none, bool ireadonly = false):
         readonly(ireadonly) {
-        if (cfg_mode_int(mode | cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path)) [[maybe_unused]]
+        if (cfg_mode_int(mode & cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path)) [[maybe_unused]]
             auto of = std::ofstream(entry_config_path);
 
-        commit_at_destroy = cfg_mode_int(mode | cfg_mode::commit_at_destroy);
+        commit_at_destroy = cfg_mode_int(mode & cfg_mode::commit_at_destroy);
 
         head = cfg_node::create(cfg_token_t::HEAD_NODE, {});
         cfg_node* tail = head.get();
@@ -1764,7 +1767,8 @@ public:
     void commit(bool force = false) {
         if (!readonly) {
             for (auto& [_, file] : file_nodes)
-                file->commit(force);
+                if (file)
+                    file->commit(force);
         }
     }
 
