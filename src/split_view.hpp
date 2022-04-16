@@ -157,7 +157,7 @@ enum class split_mode : u8 {
 template <typename ContainerT, typename T, size_t Ndelims>
 split_viewer(ContainerT&&,
              const std::array<T, Ndelims>&,
-             bool) -> split_viewer<decltype(begin(std::declval<ContainerT>())), Ndelims>;
+             bool) -> split_viewer<decltype(std::begin(std::declval<ContainerT>())), Ndelims>;
 
 template <typename T, size_t Ndelims>
 struct split {
@@ -284,7 +284,7 @@ private:
 template <typename ContainerT, typename F>
 split_when_viewer(ContainerT&&,
                   F,
-                  bool) -> split_when_viewer<decltype(begin(std::declval<ContainerT>())), F>;
+                  bool) -> split_when_viewer<decltype(std::begin(std::declval<ContainerT>())), F>;
 
 template <typename F>
 struct split_when {

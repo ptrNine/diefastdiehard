@@ -6,6 +6,19 @@
 #include <vector>
 #include <string>
 
+#include <byteswap.h>
+
+inline auto bswap(auto v) {
+    if constexpr (sizeof(v) == 1)
+        return v;
+    if constexpr (sizeof(v) == 2)
+        return bswap_16(v);
+    if constexpr (sizeof(v) == 4)
+        return bswap_32(v);
+    if constexpr (sizeof(v) == 8)
+        return bswap_64(v);
+}
+
 #ifndef NDEBUG
 #define Expects(...) do { if (!(__VA_ARGS__)) std::terminate(); } while(0)
 #else

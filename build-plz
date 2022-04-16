@@ -47,40 +47,6 @@ measure() {
     echo "scale=2; $(($(mstime) - start_tm))/1000" | bc -l
 }
 
-declare -A INCLUDE_MAP
-
-_include_scan() {
-    local fname="$1"
-    local cur_dir="$2"
-    for f in $(cat "$fname" 2>/dev/null | grep -E "^[ \t]*#include[ \t]+\"" 2>/dev/null); do
-        [ $f = '#include' ] && continue
-
-        f="${f#*\"}"
-        f="${f%*\"}"
-
-        local current_fname="$cur_dir/$f"
-        current_fname="${current_fname#./}"
-        current_fname="${current_fname#/}"
-
-        [ -z "${INCLUDE_MAP[$current_fname]}" ] && \
-            INCLUDE_MAP["$current_fname"]=true || \
-            continue
-
-        echo "$current_fname"
-
-        local current_dir="$(dirname "$current_fname")"
-        current_dir="${current_dir#./}"
-
-        _include_scan "$current_fname" "$current_dir"
-    done | sort | uniq
-}
-
-include_scan() {
-    echo "$1"
-    _include_scan "$1" "$(dirname "$1")"
-    declare -A INCLUDE_MAP
-}
-
 build_static_lib() {
     local name="$1"
     local build_source="$2"
@@ -90,47 +56,49 @@ build_static_lib() {
     local flags="$6"
     local libs="$7"
 
-    local list="$builddir/.ezbld/$name-list" newlist="$builddir/.ezbld/new-$name-list"
-
-    rm -f "$newlist"
-    for f in $(include_scan "$build_source"); do
-        stat --printf="%Y:%n\n" "$f" >> "$newlist"
-    done
-
-    if [ ! -f "$list" ] || \
-        ! cmp --silent "$list" "$newlist"; then
-        rm -f "$builddir/$name-list"
-
-        local start_tm=$(mstime)
-        colored yellow "Building lib$name.a ... " n
-
-        local cmd="$(command -v "$CXX_COMPILER") -c -std=c++20 \
-            $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
-            $flags \
-            -L '$(pwd)/$builddir/3rd/lib' \
-            -L '$(pwd)/$builddir/3rd/lib64' \
-            -L '$(pwd)/$builddir' \
-            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
-            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
-            -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
-            -isystem '$(pwd)/$builddir/3rd/include' '$(pwd)/$build_source' \
-            -o '$(pwd)/$builddir/$name.o' \
-            $libs"
-        cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
-
-        eval $cmd || fail "Build failed"
-
-        ar rcs "$(pwd)/$builddir/lib$name.a" "$(pwd)/$builddir/$name.o" || fail "Build failed"
-        rm -f "$builddir/$name.o"
-
-        mv -f "$newlist" "$list"
-        printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$builddir/.ezbld/$name-command"
-
-        colored lgreen "done! $(measure $start_tm)s"
-    else
-        colored lpurple "lib$name.a already built"
-        rm -f "$newlist"
+    if [ ! -z "$TARGET" ] && [ "$TARGET" != "$name" ]; then
+        return
     fi
+
+    local depinfo=
+    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
+        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+            -I "$(pwd)/$builddir/3rd/include" \
+            --hash -C "$(pwd)/$builddir/.ezbld/$name-depinfo" \
+            "$(pwd)/$build_source"); then
+            colored lpurple "$name already built"
+            return 0
+        fi
+    fi
+
+    local start_tm=$(mstime)
+    colored yellow "Building lib$name.a ... " n
+
+    local cmd="$(command -v "$CXX_COMPILER") -c -std=c++20 \
+        $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
+        $flags \
+        -L '$(pwd)/$builddir/3rd/lib' \
+        -L '$(pwd)/$builddir/3rd/lib64' \
+        -L '$(pwd)/$builddir' \
+        -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
+        -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
+        -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
+        -isystem '$(pwd)/$builddir/3rd/include' \
+        '$(pwd)/$build_source' \
+        -o '$(pwd)/$builddir/$name.o' \
+        $libs"
+    cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
+
+    eval $cmd || fail "Build failed"
+
+    ar rcs "$(pwd)/$builddir/lib$name.a" "$(pwd)/$builddir/$name.o" || fail "Build failed"
+    rm -f "$builddir/$name.o"
+
+    echo "$depinfo" > "$(pwd)/$builddir/.ezbld/$name-depinfo"
+    printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$builddir/.ezbld/$name-command"
+
+    colored lgreen "done! $(measure $start_tm)s"
 }
 
 build_executable() {
@@ -146,42 +114,42 @@ build_executable() {
         return
     fi
 
-    local list="$builddir/.ezbld/$name-list" newlist="$builddir/.ezbld/new-$name-list"
-
-    rm -f "$newlist"
-    for f in $(include_scan "$build_source"); do
-        stat --printf="%Y:%n\n" "$f" >> "$newlist"
-    done
-
-    if [ ! -f "$list" ] || \
-        ! cmp --silent "$list" "$newlist"; then
-        rm -f "$list"
-
-        local start_tm=$(mstime)
-        colored yellow "Building $name ... " n
-        local cmd="$(command -v "$CXX_COMPILER") -std=c++20 \
-            $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
-            $flags \
-            -L '$(pwd)/$builddir/3rd/lib' \
-            -L '$(pwd)/$builddir/3rd/lib64' \
-            -L '$(pwd)/$builddir' \
-            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
-            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
-            -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
-            -isystem '$(pwd)/$builddir/3rd/include' '$(pwd)/$build_source' \
-            -o '$(pwd)/$builddir/$name' \
-            $libs"
-        cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
-
-        eval $cmd || fail "Build failed"
-        mv -f "$newlist" "$list"
-        printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$builddir/.ezbld/$name-command"
-
-        colored lgreen "done! $(measure $start_tm)s"
-    else
-        colored lpurple "$name already built"
-        rm -f "$newlist"
+    local depinfo=
+    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
+        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+            -I "$(pwd)/$builddir/3rd/include" \
+            --hash -C "$(pwd)/$builddir/.ezbld/$name-depinfo" \
+            "$(pwd)/$build_source"); then
+            colored lpurple "$name already built"
+            return 0
+        fi
     fi
+
+    local start_tm=$(mstime)
+    colored yellow "Building $name ... " n
+
+    local cmd="$(command -v "$CXX_COMPILER") -std=c++20 \
+        $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
+        $flags \
+        -L '$(pwd)/$builddir/3rd/lib' \
+        -L '$(pwd)/$builddir/3rd/lib64' \
+        -L '$(pwd)/$builddir' \
+        -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
+        -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
+        -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
+        -isystem '$(pwd)/$builddir/3rd/include' \
+        '$(pwd)/$build_source' \
+        -o '$(pwd)/$builddir/$name' \
+        $libs"
+    cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
+
+    eval $cmd || fail "Build failed"
+
+    echo "$depinfo" > "$(pwd)/$builddir/.ezbld/$name-depinfo"
+    printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$builddir/.ezbld/$name-command"
+
+    colored lgreen "done! $(measure $start_tm)s"
 }
 
 codegen_step() {
@@ -192,37 +160,39 @@ codegen_step() {
     local generator_cpp="$5"
     local output_header="$6"
 
-    local deps_list="$builddir/.ezbld/$generator_name-codegen-list"
-    local new_deps_list="$builddir/.ezbld/new-$generator_name-codegen-list"
-
-    rm -f "$new_deps_list"
-    for f in $(include_scan "$generator_cpp"); do
-        stat --printf="%Y:%n\n" "$f" >> "$new_deps_list"
-    done
-    stat --printf="%Y:%n\n" "$input_header" >> "$new_deps_list"
-
-    if [ ! -f "$deps_list" ] || \
-        ! cmp --silent "$deps_list" "$new_deps_list"; then
-        rm -f "$deps_list"
-
-        build_executable \
-            "$generator_name" \
-            "$generator_cpp" \
-            "$builddir" \
-            "$CXX_COMPILER" \
-            false
-
-        local start_tm=$(mstime)
-        colored yellow "Generating $output_header ... " n
-        $CXX_COMPILER -E \
-            -isystem "$(pwd)/$builddir/3rd/include" \
-            -isystem "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
-            "$input_header" 2>/dev/null | "$builddir/$generator_name" > "$output_header" \
-            || fail "Generation of $output_header failed"
-        colored lgreen "done! $(measure $start_tm)s"
-
-        mv -f "$new_deps_list" "$deps_list"
+    if [ ! -z "$TARGET" ] && [ "$TARGET" != "$name" ]; then
+        return
     fi
+
+    local depinfo=
+    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
+        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+            -I "$(pwd)/$builddir/3rd/include" \
+            --hash -C "$(pwd)/$builddir/.ezbld/codegen-$generator_name-depinfo" \
+            "$(pwd)/$generator_cpp"); then
+            colored lpurple "$generator_name already generated"
+            return 0
+        fi
+    fi
+
+    build_executable \
+        "$generator_name" \
+        "$generator_cpp" \
+        "$builddir" \
+        "$CXX_COMPILER" \
+        false
+
+    local start_tm=$(mstime)
+    colored yellow "Generating $output_header ... " n
+    $CXX_COMPILER -E \
+        -isystem "$(pwd)/$builddir/3rd/include" \
+        -isystem "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+        "$input_header" 2>/dev/null | "$builddir/$generator_name" > "$output_header" \
+        || fail "Generation of $output_header failed"
+    colored lgreen "done! $(measure $start_tm)s"
+
+    echo "$depinfo" > "$(pwd)/$builddir/.ezbld/codegen-$generator_name-depinfo"
 }
 
 make_pch() {
@@ -235,47 +205,45 @@ make_pch() {
 
     [ -f "$location" ] || return 0
 
-    local list="$builddir/.ezbld/$name-list" newlist="$builddir/.ezbld/new-$name-list"
-
-    rm -f "$newlist"
-    for f in $(include_scan "$location"); do
-        stat --printf="%Y:%n\n" "$f" >> "$newlist"
-    done
-
-    if [ ! -f "$list" ] || \
-        ! cmp --silent "$list" "$newlist" || \
-        [ "$(cat "$location.gch.builddir" 2>/dev/null)" != "$builddir" ] || \
-        [ ! -f "$location.gch" ]; then
-        rm -f "$list"
-
-        local start_tm=$(mstime)
-        colored yellow "Making precompiled header $location ... " n
-        local cmd="$(command -v "$CXX_COMPILER") -std=c++20 -c \
-            $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
-            $flags \
-            -L '$(pwd)/$builddir/3rd/lib' \
-            -L '$(pwd)/$builddir/3rd/lib64' \
-            -L '$(pwd)/$builddir' \
-            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
-            -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
-            -isystem '$(pwd)/$builddir/3rd/include' \
-            -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
-            '$(pwd)/$location' \
-            -o $location.gch"
-        cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
-
-        eval $cmd || fail " Failed"
-
-        mv -f "$newlist" "$list"
-        echo "$builddir" > "$location.gch.builddir"
-
-        MAKED_PCH="$location"
-
-        colored lgreen "done! $(measure $start_tm)s"
-    else
-        colored lpurple "$name already built"
-        rm -f "$newlist"
+    local depinfo=
+    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
+        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+            -I "$(pwd)/$builddir/3rd/include" \
+            --hash -C "$(pwd)/$builddir/.ezbld/pch-$name-depinfo" \
+            "$(pwd)/$location") && \
+            [ "$(cat "$location.gch.builddir" 2>/dev/null)" == "$builddir" ] && \
+            [ -f "$location.gch" ]
+        then
+            colored lpurple "$name already built"
+            return 0
+        fi
     fi
+
+    local start_tm=$(mstime)
+    colored yellow "Making precompiled header $location ... " n
+    local cmd="$(command -v "$CXX_COMPILER") -std=c++20 -c \
+        $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
+        $flags \
+        -L '$(pwd)/$builddir/3rd/lib' \
+        -L '$(pwd)/$builddir/3rd/lib64' \
+        -L '$(pwd)/$builddir' \
+        -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
+        -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
+        -isystem '$(pwd)/$builddir/3rd/include' \
+        -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
+        '$(pwd)/$location' \
+        -o $location.gch"
+    cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
+
+    eval $cmd || fail " Failed"
+
+    echo "$depinfo" > "$(pwd)/$builddir/.ezbld/pch-$name-depinfo"
+    echo "$builddir" > "$location.gch.builddir"
+
+    MAKED_PCH="$location"
+
+    colored lgreen "done! $(measure $start_tm)s"
 }
 
 build_cmake_submodule() {
@@ -479,6 +447,14 @@ $([ "$asan" == true ] && asan_flags)
         cp 'submodules/Nuklear/nuklear.h' "$builddir/3rd/include/"
     fi
 
+    build_executable \
+        hpp_depinfo \
+        tools/hpp_depinfo.cpp \
+        "$builddir" \
+        "$CXX_COMPILER" \
+        "$debug" \
+        "$hardening_flags"
+
     make_pch \
         src/stdafx.hpp \
         "$builddir" \
@@ -537,7 +513,6 @@ $([ "$asan" == true ] && asan_flags)
         "$debug" \
         "$hardening_flags" \
         "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2"
-
 
 #    build_executable \
 #        gui-test \

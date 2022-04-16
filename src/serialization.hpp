@@ -6,7 +6,6 @@
 #include <bit>
 #include <tuple>
 
-#include <byteswap.h>
 #include "types.hpp"
 
 #define DFDH_SERIALIZE(...)                                                                        \
@@ -37,17 +36,6 @@
 
 namespace dfdh
 {
-
-auto bswap(auto v) {
-    if constexpr (sizeof(v) == 1)
-        return v;
-    if constexpr (sizeof(v) == 2)
-        return bswap_16(v);
-    if constexpr (sizeof(v) == 4)
-        return bswap_32(v);
-    if constexpr (sizeof(v) == 8)
-        return bswap_64(v);
-}
 
 class serializable_base {
 public:
