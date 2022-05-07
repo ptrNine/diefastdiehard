@@ -28,6 +28,7 @@ public:
         command_buffer().add_handler("ai", &game_commands::cmd_ai, this);
         command_buffer().add_handler("ai difficulty", &game_commands::cmd_ai_difficulty, this);
         command_buffer().add_handler("shutdown", &game_commands::cmd_shutdown, this);
+        command_buffer().add_handler("sound volume", &game_commands::cmd_sound_volume, this);
 
         if (gs.lua_cmd_enabled)
             command_buffer().add_handler("lua", &game_commands::cmd_lua, this);
@@ -100,6 +101,10 @@ public:
         else if (gs.lua_cmd_enabled && cmd == "lua") {
             help = "Lua interpreter\n"
                    "lua [command]    - execute lua line";
+        }
+        else if (cmd == "sound") {
+            help = "Sound settings\n"
+                   "sound volume [0 - 100]  - set or get sound volume";
         }
 
         if (!help.empty())
@@ -498,6 +503,19 @@ public:
         std::string commands;
         for (auto& [cmd, _] : command_buffer().get_command_tree()->subcmds) commands += "\n" + cmd;
         LOG("available commands: {}", commands);
+    }
+
+    void cmd_sound_volume(const std::optional<std::string>& volume) {
+        if (volume) {
+            try {
+                sound_mgr().volume(ston<float>(*volume));
+            } catch (...) {
+                LOG_ERR("sound volume: value must be a number [0 - 100]");
+            }
+        }
+        else {
+            LOG_INFO("sound volume: {}", sound_mgr().volume());
+        }
     }
 
     void cmd_shutdown() {

@@ -60,12 +60,20 @@ public:
         auto& snd = get(path, id);
         snd.setPosition({cam_relative_position.x * position_coef, cam_relative_position.y * position_coef, 0.1f});
         snd.setPitch(pitch);
-        snd.setVolume(volume);
+        snd.setVolume(volume * (volume_level * 0.01f));
         snd.play();
     }
 
     sound_mgr_singleton(const sound_mgr_singleton&) = delete;
     sound_mgr_singleton& operator=(const sound_mgr_singleton&) = delete;
+
+    float volume() const {
+        return volume_level;
+    }
+
+    void volume(float value) {
+        volume_level = value;
+    }
 
 private:
     sound_mgr_singleton() = default;
@@ -86,6 +94,7 @@ private:
     std::map<std::string, sf::SoundBuffer> samples;
     std::map<sound_key, sound_data_t>      sounds;
     std::list<sound_key>                   sound_use;
+    float                                  volume_level = 100.f;
 };
 
 inline sound_mgr_singleton& sound_mgr() {
