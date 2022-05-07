@@ -25,7 +25,128 @@ namespace dfdh
 {
 namespace fs = std::filesystem;
 
-enum ai_difficulty { ai_easy = 0, ai_medium, ai_hard };
+class ai_mgr_singleton;
+
+enum class ai_action {
+    move_left = 0,
+    move_right,
+    stop,
+    shot,
+    relax,
+    jump,
+    jump_down,
+    enable_long_shot,
+    disable_long_shot,
+    COUNT
+};
+
+class ai_operator_base {
+public:
+    static std::unique_ptr<ai_operator_base> create(const player_name_t& player_name, const std::string& difficulty);
+
+    ai_operator_base(const player_name_t&);
+    virtual ~ai_operator_base();
+
+    const player_name_t& player_name() const {
+        return _player_name;
+    }
+
+    std::optional<ai_action> consume_action() {
+        std::lock_guard lock{mtx};
+
+        if (_actions.empty())
+            return {};
+        else {
+            auto t = _actions.front();
+            _actions.pop();
+            return t;
+        }
+    }
+
+    void produce_action(ai_action action) {
+        std::lock_guard lock{mtx};
+        _actions.push(action);
+    }
+
+    template <typename... Acts>
+    void unsafe_produce_actions(Acts... actions) {
+        (_actions.push(actions), ...);
+    }
+
+    auto unsafe_steal_actions(ai_operator_base& from) {
+        _actions = std::move(from._actions);
+    }
+
+    auto& mutex() {
+        return mtx;
+    }
+
+    virtual std::string difficulty() const = 0;
+    virtual void work(const ai_data_t& ai_data) = 0;
+
+private:
+    player_name_t         _player_name;
+    std::queue<ai_action> _actions;
+    mutable std::mutex    mtx;
+};
+
+ai_operator_base::ai_operator_base(const player_name_t& iplayer_name): _player_name(iplayer_name) {}
+ai_operator_base::~ai_operator_base() = default;
+
+class ai_operator {
+public:
+    class ctor_access {
+        friend ai_operator;
+        ctor_access() = default;
+    };
+
+    ai_operator(ctor_access&, const player_name_t& player_name, const std::string& difficulty);
+    ~ai_operator();
+
+    static std::shared_ptr<ai_operator> create(const player_name_t& player_name, const std::string& difficulty) {
+        ctor_access ca;
+        return std::make_shared<ai_operator>(ca, player_name, difficulty);
+    }
+
+    std::optional<ai_action> consume_action() {
+        return oper->consume_action();
+    }
+
+    void produce_action(ai_action action) {
+        oper->produce_action(action);
+    }
+
+    [[nodiscard]]
+    const player_name_t& player_name() const {
+        return oper->player_name();
+    }
+
+    [[nodiscard]]
+    std::string difficulty() const {
+        return oper->difficulty();
+    }
+
+    void set_difficulty(const std::string& difficulty) {
+        if (difficulty == oper->difficulty())
+            return;
+
+        std::lock_guard lock{oper->mutex()};
+        auto new_oper = ai_operator_base::create(oper->player_name(), difficulty);
+
+        /* Steal actions from old operator and stop&relax */
+        new_oper->unsafe_steal_actions(*oper);
+        new_oper->unsafe_produce_actions(ai_action::relax, ai_action::stop, ai_action::disable_long_shot);
+
+        oper = std::move(new_oper);
+    }
+
+    void work(const ai_data_t& ai_data) {
+        oper->work(ai_data);
+    }
+
+private:
+    std::unique_ptr<ai_operator_base> oper;
+};
 
 class ai_mgr_singleton {
 public:
@@ -40,10 +161,10 @@ public:
     void reset_all() {
         std::lock_guard lock{mtx};
 
-        d.players.clear();
-        d.bullets.clear();
-        d.platforms.clear();
-        d.platform_map.clear();
+        _data.players.clear();
+        _data.bullets.clear();
+        _data.platforms.clear();
+        _data.platform_map.clear();
     }
 
     template <typename C, typename F>
@@ -52,39 +173,40 @@ public:
 
         for (auto& [_, p] : c) {
             auto insert_player = get_adapter(p);
-            d.players.insert_or_assign(insert_player.name, insert_player);
+            _data.players.insert_or_assign(insert_player.name, get_adapter(p));
         }
     }
 
-    void provide_physic_sim(const vec2f& gravity, float time_speed, u32 last_rps) {
+    void provide_physic_sim(const vec2f& gravity, float time_speed, u32 last_rps, bool enable_gravity_for_bullets) {
         std::lock_guard lock{mtx};
 
-        d.physic_sim.gravity    = gravity;
-        d.physic_sim.time_speed = time_speed;
-        d.physic_sim.last_rps   = last_rps;
+        _data.physic_sim.gravity                    = gravity;
+        _data.physic_sim.time_speed                 = time_speed;
+        _data.physic_sim.last_rps                   = last_rps;
+        _data.physic_sim.enable_gravity_for_bullets = enable_gravity_for_bullets;
     }
 
     void provide_level(const vec2f& level_size) {
         std::lock_guard lock{mtx};
 
-        d.level.level_size = level_size;
+        _data.level.level_size = level_size;
     }
 
     template <typename C, typename F>
     void provide_bullets(const C& c, F get_adapter) {
         std::lock_guard lock{mtx};
 
-        d.bullets.resize(c.size());
+        _data.bullets.resize(c.size());
         size_t i = 0;
-        for (auto it = c.begin(); it != c.end(); ++it) d.bullets[i++] = get_adapter(*it);
+        for (auto it = c.begin(); it != c.end(); ++it) _data.bullets[i++] = get_adapter(*it);
     }
 
     template <typename C, typename F>
     void provide_platforms(const C& c, F get_adapter) {
         std::lock_guard lock{mtx};
 
-        d.platforms.resize(c.size());
-        for (size_t i = 0; i < d.platforms.size(); ++i) d.platforms[i] = get_adapter(c[i]);
+        _data.platforms.resize(c.size());
+        for (size_t i = 0; i < _data.platforms.size(); ++i) _data.platforms[i] = get_adapter(c[i]);
 
         rebuild_platform_map();
     }
@@ -97,7 +219,7 @@ public:
         _work    = true;
         _stopped = false;
 
-        _thread = std::thread(worker, this);
+        _thread = std::thread(&ai_mgr_singleton::worker, this);
     }
 
     void worker_stop() {
@@ -108,20 +230,36 @@ public:
         _thread.join();
     }
 
-    static void worker(ai_mgr_singleton* ai) {
-        while (ai->_work) {
-            float step = 1.f / static_cast<float>(ai->d.physic_sim.last_rps);
-            if (ai->_timer.elapsed() > step) {
-                ai->_timer.restart();
+    void worker() {
+        while (_work) {
+            float step = 1.f / static_cast<float>(_data.physic_sim.last_rps);
+            if (_timer.elapsed() > step) {
+                _timer.restart();
 
-                std::lock_guard lock{ai->mtx};
-                ai->worker_op();
+                std::lock_guard lock{mtx};
+                worker_op();
             }
 
             /* TODO: dynamic step */
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        ai->_stopped = true;
+        _stopped = true;
+    }
+
+    void add_ai_operator(ai_operator* oprt) {
+        std::lock_guard lock{mtx};
+
+        _operators.emplace(oprt->player_name(), oprt);
+    }
+
+    void remove_ai_operator(const player_name_t& name) {
+        std::lock_guard lock{mtx};
+
+        _operators.erase(name);
+    }
+
+    const ai_data_t& data() const {
+        return _data;
     }
 
 private:
@@ -134,55 +272,38 @@ private:
             worker_stop();
     }
 
-    friend class ai_operator;
-
     void worker_op();
 
-    void add_ai_operator(const player_name_t& name, class ai_operator* oprt) {
-        std::lock_guard lock{mtx};
-
-        _operators.emplace(name, oprt);
-    }
-
-    void remove_ai_operator(const player_name_t& name) {
-        std::lock_guard lock{mtx};
-
-        _operators.erase(name);
-    }
+    ai_data_t _data;
 
 public:
-    ai_data_t d;
-
-    float platforms_bound_start_x;
-    float platforms_bound_end_x;
-
-    std::map<player_name_t, class ai_operator*> _operators;
-    std::atomic<bool>                           _work;
-    std::atomic<bool>                           _stopped;
-    timer                                       _timer;
-    std::thread                                 _thread;
+    std::map<player_name_t, ai_operator*> _operators;
+    std::atomic<bool>                     _work;
+    std::atomic<bool>                     _stopped;
+    timer                                 _timer;
+    std::thread                           _thread;
 
 private:
     mutable std::mutex mtx;
 
 private:
     void rebuild_platform_map() {
-        platforms_bound_start_x = std::numeric_limits<float>::max();
-        platforms_bound_end_x   = std::numeric_limits<float>::lowest();
+        _data.level.platforms_bound_start_x = std::numeric_limits<float>::max();
+        _data.level.platforms_bound_end_x   = std::numeric_limits<float>::lowest();
 
-        d.platform_map.clear();
-        d.platform_map.resize(d.platforms.size());
+        _data.platform_map.clear();
+        _data.platform_map.resize(_data.platforms.size());
 
-        for (size_t i = 0; i != d.platforms.size(); ++i) {
-            if (d.platforms[i].pos1.x < platforms_bound_start_x)
-                platforms_bound_start_x = d.platforms[i].pos1.x;
+        for (size_t i = 0; i != _data.platforms.size(); ++i) {
+            if (_data.platforms[i].pos1.x < _data.level.platforms_bound_start_x)
+                _data.level.platforms_bound_start_x = _data.platforms[i].pos1.x;
 
-            if (d.platforms[i].pos2.x > platforms_bound_end_x)
-                platforms_bound_end_x = d.platforms[i].pos2.x;
+            if (_data.platforms[i].pos2.x > _data.level.platforms_bound_end_x)
+                _data.level.platforms_bound_end_x = _data.platforms[i].pos2.x;
 
-            auto neighbours = ai_plat_neighbours_t(d.platforms.size());
+            auto neighbours = ai_plat_neighbours_t(_data.platforms.size());
 
-            for (size_t j = 0; j != d.platforms.size(); ++j) {
+            for (size_t j = 0; j != _data.platforms.size(); ++j) {
                 if (i == j) {
                     neighbours[j] = {0.f, 0.f};
                     continue;
@@ -190,8 +311,8 @@ private:
 
                 vec2f dist{0.f, 0.f};
 
-                auto& current   = d.platforms[i];
-                auto& neighbour = d.platforms[j];
+                auto& current   = _data.platforms[i];
+                auto& neighbour = _data.platforms[j];
                 float cl        = current.pos1.x;
                 float cr        = current.pos2.x;
                 float cy        = current.pos1.y;
@@ -210,7 +331,7 @@ private:
                 neighbours[j] = dist;
             }
 
-            d.platform_map[i] = std::move(neighbours);
+            _data.platform_map[i] = std::move(neighbours);
         }
     }
 };
@@ -219,60 +340,61 @@ inline ai_mgr_singleton& ai_mgr() {
     return ai_mgr_singleton::instance();
 }
 
+ai_operator::ai_operator(ctor_access&, const player_name_t& player_name, const std::string& difficulty):
+    oper(ai_operator_base::create(player_name, difficulty)) {
+    ai_mgr().add_ai_operator(this);
+}
+
+ai_operator::~ai_operator() {
+    ai_mgr().remove_ai_operator(player_name());
+}
+
 struct platform_res_t {
     const ai_platform_t *stand_on = nullptr, *can_stand_on = nullptr, *nearest = nullptr;
 };
 
-class ai_operator : public std::enable_shared_from_this<ai_operator> {
+enum class ai_native_difficulty { easy = 0, medium, hard, invalid };
+
+std::string ai_native_difficulty_to_string(ai_native_difficulty value) {
+    switch (value) {
+    case ai_native_difficulty::easy: return "easy";
+    case ai_native_difficulty::medium: return "medium";
+    case ai_native_difficulty::hard: return "hard";
+    default: return "invalid";
+    }
+}
+
+ai_native_difficulty ai_native_difficulty_from_string(const std::string& value) {
+    if (value == "easy")
+        return ai_native_difficulty::easy;
+    if (value == "medium")
+        return ai_native_difficulty::medium;
+    if (value == "hard")
+        return ai_native_difficulty::hard;
+    return ai_native_difficulty::invalid;
+}
+
+
+class ai_operator_native : public ai_operator_base {
 public:
-    friend class ai_mgr_singleton;
-
-    enum task_t { t_move_left = 0, t_move_right, t_stop, t_shot, t_relax, t_jump, t_jump_down };
-
-    static std::shared_ptr<ai_operator> create(ai_difficulty difficulty, const player_name_t& player_name) {
-        return std::make_shared<ai_operator>(difficulty, player_name);
-    }
-
-    ai_operator(ai_difficulty difficulty, const player_name_t& player_name):
-        _difficulty(difficulty), _player_name(player_name) {
-        ai_mgr().add_ai_operator(player_name, this);
-    }
-
-    ~ai_operator() {
-        ai_mgr().remove_ai_operator(_player_name);
-    }
-
-    std::optional<task_t> consume_task() {
-        std::lock_guard lock{mtx};
-
-        if (_tasks.empty())
-            return {};
-        else {
-            auto t = _tasks.front();
-            _tasks.pop();
-            return t;
-        }
-    }
-
-    void produce_task(task_t task) {
-        std::lock_guard lock{mtx};
-        _tasks.push(task);
+    ai_operator_native(const player_name_t& player_name, ai_native_difficulty difficulty):
+        ai_operator_base(player_name), _difficulty(difficulty) {
     }
 
     void move_left() {
-        produce_task(t_move_left);
+        produce_action(ai_action::move_left);
         _mov_left  = true;
         _mov_right = false;
     }
 
     void move_right() {
-        produce_task(t_move_right);
+        produce_action(ai_action::move_right);
         _mov_right = true;
         _mov_left  = false;
     }
 
     void stop() {
-        produce_task(t_stop);
+        produce_action(ai_action::stop);
         _mov_left  = false;
         _mov_right = false;
     }
@@ -280,7 +402,7 @@ public:
     void jump() {
         if (!_jump_was) {
             _delayed_jump_delay = 0.0f;
-            produce_task(t_jump);
+            produce_action(ai_action::jump);
             _jump_was = true;
         }
     }
@@ -294,17 +416,17 @@ public:
     }
 
     void jump_down() {
-        produce_task(t_jump_down);
+        produce_action(ai_action::jump_down);
     }
 
     void shot() {
         _shot = true;
-        produce_task(t_shot);
+        produce_action(ai_action::shot);
         _timer.restart();
     }
 
     void relax() {
-        produce_task(t_relax);
+        produce_action(ai_action::relax);
         _shot = false;
     }
 
@@ -312,11 +434,15 @@ public:
         return _shot;
     }
 
-    [[nodiscard]] ai_difficulty difficulty() const {
+    std::string difficulty() const final {
+        return ai_native_difficulty_to_string(_difficulty);
+    }
+
+    [[nodiscard]] ai_native_difficulty native_difficulty() const {
         return _difficulty;
     }
 
-    void set_difficulty(ai_difficulty value) {
+    void set_native_difficulty(ai_native_difficulty value) {
         _difficulty = value;
     }
 
@@ -340,10 +466,6 @@ public:
         }
     }
 
-    [[nodiscard]] const player_name_t player_name() const {
-        return _player_name;
-    }
-
     [[nodiscard]] auto& operated_platforms() const {
         return _operated_platforms;
     }
@@ -362,10 +484,16 @@ public:
 
     static constexpr player_name_t no_target = player_name_t{};
 
+    void work(const ai_data_t& ai_data) final;
+
+    player_name_t        _target_id;
+    player_name_t        _last_target_id;
+    float                _jump_x_max         = 0.f;
+    const ai_platform_t* _last_stand_on_plat = nullptr;
+    platform_res_t       _operated_platforms;
+
 private:
-    ai_difficulty      _difficulty;
-    player_name_t      _player_name;
-    std::queue<task_t> _tasks;
+    ai_native_difficulty   _difficulty;
 
     float _shot_delay = 0.f;
     timer _start_shot_timer;
@@ -374,20 +502,53 @@ private:
     float _last_plat_path_delay = 0.f;
     timer _start_plat_path;
 
-    mutable std::mutex mtx;
-
-    timer                _timer;
-    player_name_t        _target_id;
-    player_name_t        _last_target_id;
-    float                _jump_x_max         = 0.f;
-    const ai_platform_t* _last_stand_on_plat = nullptr;
-    platform_res_t       _operated_platforms;
-    bool                 _mov_left        = false;
-    bool                 _mov_right       = false;
-    bool                 _shot            = false;
-    bool                 _shot_next_frame = false;
-    bool                 _jump_was        = false;
+    timer _timer;
+    bool  _mov_left        = false;
+    bool  _mov_right       = false;
+    bool  _shot            = false;
+    bool  _shot_next_frame = false;
+    bool  _jump_was        = false;
 };
+
+using ai_lua_operator_update_func_t = std::function<void(ai_operator_base*, const ai_data_t*)>;
+using ai_lua_operator_init_func_t = std::function<void(ai_operator_base*)>;
+
+ai_lua_operator_update_func_t get_ai_lua_operator_update(const std::string& name);
+ai_lua_operator_init_func_t   get_ai_lua_operator_init(const std::string& name);
+
+class ai_operator_lua : public ai_operator_base {
+public:
+    ai_operator_lua(const player_name_t& player_name, std::string operator_name):
+        ai_operator_base(player_name), _operator_name(std::move(operator_name)) {
+        try {
+            get_ai_lua_operator_init(_operator_name)(this);
+        }
+        catch (const std::exception& e) {
+            LOG_WARN("AI.{}.init() is missing or its execution failed: {}", _operator_name, e.what());
+        }
+        _lua_update_func = get_ai_lua_operator_update(_operator_name);
+    }
+
+    std::string difficulty() const final {
+        return _operator_name;
+    }
+
+    void work(const ai_data_t& ai_data) final {
+        _lua_update_func(this, &ai_data);
+    }
+
+private:
+    std::string                   _operator_name;
+    ai_lua_operator_update_func_t _lua_update_func;
+};
+
+std::unique_ptr<ai_operator_base> ai_operator_base::create(const player_name_t& player_name,
+                                                           const std::string&   difficulty) {
+    if (auto d = ai_native_difficulty_from_string(difficulty); d != ai_native_difficulty::invalid)
+        return std::make_unique<ai_operator_native>(player_name, d);
+    else
+        return std::make_unique<ai_operator_lua>(player_name, difficulty);
+}
 
 inline bool overlap(float a1, float a2, float b1, float b2) {
     return (a2 > b1 && a1 < b2) || (b2 > a1 && b1 < a2);
@@ -424,7 +585,7 @@ inline std::optional<std::pair<player_name_t, vec2f>>
 easy_ai_find_nearest(const ai_player_t&                          it,
                      const std::map<player_name_t, ai_player_t>& players,
                      const ai_level_t&                           level,
-                     ai_operator&                                oper) {
+                     ai_operator_native&                                oper) {
     static constexpr auto cmp = [](const std::pair<player_name_t, vec2f>& lhs,
                                    const std::pair<player_name_t, vec2f>& rhs) {
         return magnitude2(lhs.second) < magnitude2(rhs.second);
@@ -433,7 +594,7 @@ easy_ai_find_nearest(const ai_player_t&                          it,
     std::set<std::pair<player_name_t, vec2f>, decltype(cmp)> nearests;
     for (auto& [_, pl] : players) {
         auto iseeyou =
-            oper.difficulty() == ai_hard ? hard_i_see_you(it, pl, level, it.gun_dispersion) : i_see_you(it, pl);
+            oper.native_difficulty() == ai_native_difficulty::hard ? hard_i_see_you(it, pl, level, it.gun_dispersion) : i_see_you(it, pl);
         if (pl.name != it.name && iseeyou)
             nearests.emplace(pl.name, pl.pos - it.pos);
     }
@@ -497,7 +658,7 @@ struct ai_move_spec {
         }
     }
 
-    void update_apply(ai_operator& oper, ai_move_type itype, int ipriority) {
+    void update_apply(ai_operator_native& oper, ai_move_type itype, int ipriority) {
         if (ipriority >= priority) {
             apply(oper);
             type     = itype;
@@ -505,7 +666,7 @@ struct ai_move_spec {
         }
     }
 
-    void apply(ai_operator& oper) {
+    void apply(ai_operator_native& oper) {
         switch (type) {
         case ai_move_left: oper.move_left(); break;
         case ai_move_right: oper.move_right(); break;
@@ -523,7 +684,7 @@ struct ai_move_spec {
 inline void easy_ai_platform_actions(const std::vector<ai_platform_t>& platforms,
                                      const platform_res_t&             plat,
                                      const ai_player_t&                player,
-                                     ai_operator&                      oper,
+                                     ai_operator_native&                      oper,
                                      ai_move_spec&                     move_spec) {
     auto [stand_on, can_stand_on, nearest_plat] = plat;
 
@@ -597,11 +758,11 @@ inline void dodge_ai(const std::vector<ai_bullet_t>& bullets,
                      const ai_player_t&              player,
                      const ai_physic_sim_t&          physic_sim,
                      ai_move_spec& /*                                  move_spec*/,
-                     ai_operator& oper) {
-    if (oper.difficulty() < ai_difficulty::ai_medium)
+                     ai_operator_native& oper) {
+    if (oper.native_difficulty() < ai_native_difficulty::medium)
         return;
 
-    if (oper.difficulty() == ai_medium) {
+    if (oper.native_difficulty() == ai_native_difficulty::medium) {
         /* 8% chance */
         bool ok = static_cast<u32>(std::fabs(player.pos.x)) % 12 != 0;
         if (ok)
@@ -625,7 +786,7 @@ inline void dodge_ai(const std::vector<ai_bullet_t>& bullets,
         }
     }
 
-    if (oper.difficulty() == ai_hard) {
+    if (oper.native_difficulty() == ai_native_difficulty::hard) {
         constexpr auto calc_hit_mass = [](const std::vector<const ai_bullet_t*>& bullets) {
             float hit_mass = 0;
             for (auto b : bullets) hit_mass += (b->vel.x > 0.f ? b->hit_mass : -b->hit_mass);
@@ -651,7 +812,7 @@ inline void dodge_ai(const std::vector<ai_bullet_t>& bullets,
 
 inline void hard_shooter(const std::map<player_name_t, ai_player_t>& players,
                          const ai_player_t&                          plr,
-                         ai_operator&                                op,
+                         ai_operator_native&                                op,
                          const ai_physic_sim_t&                      physic_sim,
                          const ai_level_t&                           level,
                          ai_move_spec&) {
@@ -789,7 +950,7 @@ inline auto pathfinder(const std::vector<ai_platform_t>& platforms,
 inline void move_to_target(const std::vector<ai_platform_t>& platforms,
                            const ai_plat_map_t&              plat_map,
                            const ai_player_t&                player,
-                           ai_operator&                      oper,
+                           ai_operator_native&                      oper,
                            ai_move_spec&                     move_spec,
                            const ai_player_t&                target,
                            const platform_res_t&             target_plat,
@@ -811,7 +972,7 @@ inline void move_to_target(const std::vector<ai_platform_t>& platforms,
     float plat_center;
     float plat_min_dist;
 
-    if (path.size() == 1 && oper.difficulty() == ai_hard && next_plat->pos1.x < target.pos.x &&
+    if (path.size() == 1 && oper.native_difficulty() == ai_native_difficulty::hard && next_plat->pos1.x < target.pos.x &&
         target.pos.x < next_plat->pos2.x) {
         auto  trg_plat_f    = inverse_lerp(next_plat->pos1.x, next_plat->pos2.x, target.pos.x);
         auto  global_plat_f = inverse_lerp(plats_bound_start, plats_bound_end, target.pos.x);
@@ -890,154 +1051,155 @@ inline void stay_away_from_borders(const ai_player_t& player, ai_move_spec& move
     }
 }
 
+inline void ai_operator_native::work(const ai_data_t& ai_data) {
+    auto& player = ai_data.players.at(player_name());
+
+    auto last_stand_on  = _operated_platforms.stand_on;
+    _operated_platforms = find_platform(ai_data.platforms, player);
+    if (_operated_platforms.stand_on != last_stand_on)
+        _last_stand_on_plat = last_stand_on;
+
+    _jump_x_max = ((player.jump_speed * 2.f) / ai_data.physic_sim.gravity.y) * player.max_vel_x * 0.7f;
+
+
+
+    auto         plat   = _operated_platforms;
+    ai_move_spec move_spec;
+
+    update_shot_next_frame(ai_data.physic_sim);
+
+    if (_target_id == ai_operator_native::no_target) {
+        if (auto id = easy_ai_find_nearest(player, ai_data.players, ai_data.level, *this))
+            _target_id = id->first;
+    }
+    else {
+        if (_difficulty == ai_native_difficulty::hard) {
+            if (!hard_i_see_you(player, ai_data.players.at(_target_id), ai_data.level, player.gun_dispersion)) {
+                if (auto next_target = find_closest_target(ai_data.players, player))
+                    _last_target_id = *next_target;
+                else
+                    _last_target_id = ai_operator_native::no_target;
+
+                _target_id = ai_operator_native::no_target;
+                if (auto id = easy_ai_find_nearest(player, ai_data.players, ai_data.level, *this))
+                    _target_id = id->first;
+            }
+        }
+        else {
+            if (!i_see_you(player, ai_data.players.at(_target_id))) {
+                if (auto next_target = find_closest_target(ai_data.players, player))
+                    _last_target_id = *next_target;
+                _target_id = ai_operator_native::no_target;
+            }
+        }
+    }
+
+    easy_ai_platform_actions(ai_data.platforms, plat, player, *this, move_spec);
+
+    if (_target_id != ai_operator_native::no_target) {
+        if (!_shot) {
+            float delay = 0.f;
+            if (_difficulty == ai_native_difficulty::easy)
+                delay = 0.35f; // rand_float(0.15f, 0.4f);
+            else if (_difficulty == ai_native_difficulty::medium)
+                delay = 0.15f; // rand_float(0.05f, 0.15f);
+            shot_next_frame(delay);
+        }
+
+        auto& trg        = ai_data.players.at(_target_id);
+        auto  dist       = trg.pos - player.pos;
+        auto  mod_dist_x = fabs(dist.x);
+
+        std::array<float, 3> dists; // NOLINT
+        if (_difficulty != ai_native_difficulty::hard) {
+            dists[0] = std::fabs(player.barrel_pos.x - player.pos.x) * 1.3f;
+            dists[1] = dists[0] * 0.8f;
+            dists[2] = 500.f;
+        }
+        else {
+            dists[0] = std::fabs(player.barrel_pos.x - player.pos.x);
+            dists[1] = dists[0];
+            dists[2] = 40.f;
+        }
+
+        if (mod_dist_x < dists[0]) {
+            if (_difficulty >= ai_native_difficulty::hard && player.vel.y > -0.001f)
+                jump();
+            /* Move from target */
+            if (dist.x >= 0.f && !_mov_left)
+                move_spec.update_move(ai_move_left, 0);
+            else if (dist.x < 0.f && !_mov_right)
+                move_spec.update_move(ai_move_right, 0);
+        }
+        else if (mod_dist_x >= dists[1] && mod_dist_x < dists[2]) {
+            if (dist.x >= 0.f && player.on_left)
+                move_spec.update_move(ai_move_right, 0);
+            else if (dist.x < 0.f && !player.on_left)
+                move_spec.update_move(ai_move_left, 0);
+
+            if (_mov_right || _mov_left)
+                move_spec.update_apply(*this, ai_move_stop, 0);
+        }
+        else {
+            /* Move to target */
+            if (dist.x >= 0.f && !_mov_right)
+                move_spec.update_move(ai_move_right, 0);
+            else if (dist.x < 0.f && !_mov_left)
+                move_spec.update_move(ai_move_left, 0);
+        }
+
+        if (_difficulty == ai_native_difficulty::hard && trg.vel.y < -trg.jump_speed * 0.99f &&
+            player.vel.y > -0.001f /* && roll_the_dice(0.5f)*/) {
+            /* For 50% chance */
+            if (static_cast<int>(std::fabs(player.pos.x)) % 2 == 0)
+                delayed_jump(0.15f /*rand_float(0.05f, 0.25f)*/);
+        }
+    }
+    else {
+        if (_last_target_id != ai_operator_native::no_target) {
+            auto& trg         = ai_data.players.at(_last_target_id);
+            auto  target_plat = find_platform(ai_data.platforms, trg);
+
+            if (_difficulty == ai_native_difficulty::hard && player.pos.y > trg.pos.y &&
+                (player.pos.y - trg.pos.y) < player.max_jump_dist * float(player.available_jumps) &&
+                player.pos.y > -0.001f) {
+                jump();
+            }
+            else if (!_shot) {
+                move_to_target(ai_data.platforms,
+                               ai_data.platform_map,
+                               player,
+                               *this,
+                               move_spec,
+                               ai_data.players.at(_last_target_id),
+                               target_plat,
+                               ai_data.level.platforms_bound_start_x,
+                               ai_data.level.platforms_bound_end_x);
+            }
+        }
+
+        /* Relax with delay */
+        float relax_delay = player.gun_fire_rate * 0.001f;
+        if (_shot && _timer.elapsed(ai_data.physic_sim.time_speed) > relax_delay) {
+            if (_shot)
+                relax();
+        }
+
+        if (_difficulty == ai_native_difficulty::hard)
+            hard_shooter(ai_data.players, player, *this, ai_data.physic_sim, ai_data.level, move_spec);
+    }
+
+    if (std::fabs(player.vel.x) > player.max_vel_x * 3.f && plat.stand_on && player.vel.y > -0.001f)
+        jump();
+
+    dodge_ai(ai_data.bullets, player, ai_data.physic_sim, move_spec, *this);
+
+    move_spec.apply(*this);
+}
+
 inline void ai_mgr_singleton::worker_op() {
-    for (auto& [player_name, oper_ptr] : _operators) {
-        auto& player = d.players[player_name];
-
-        auto last_stand_on            = oper_ptr->_operated_platforms.stand_on;
-        oper_ptr->_operated_platforms = find_platform(d.platforms, player);
-        if (oper_ptr->_operated_platforms.stand_on != last_stand_on)
-            oper_ptr->_last_stand_on_plat = last_stand_on;
-
-        oper_ptr->_jump_x_max = ((player.jump_speed * 2.f) / d.physic_sim.gravity.y) * player.max_vel_x * 0.7f;
-    }
-
-    for (auto& [player_id, oper_ptr] : _operators) {
-        auto&        oper   = *oper_ptr;
-        auto&        player = d.players[player_id];
-        auto         plat   = oper._operated_platforms;
-        ai_move_spec move_spec;
-
-        oper.update_shot_next_frame(d.physic_sim);
-
-        if (oper._target_id == ai_operator::no_target) {
-            if (auto id = easy_ai_find_nearest(player, d.players, d.level, oper))
-                oper._target_id = id->first;
-        }
-        else {
-            if (oper.difficulty() == ai_hard) {
-                if (!hard_i_see_you(player, d.players[oper._target_id], d.level, player.gun_dispersion)) {
-                    if (auto next_target = find_closest_target(d.players, player))
-                        oper._last_target_id = *next_target;
-                    else
-                        oper._last_target_id = ai_operator::no_target;
-
-                    oper._target_id = ai_operator::no_target;
-                    if (auto id = easy_ai_find_nearest(player, d.players, d.level, oper))
-                        oper._target_id = id->first;
-                }
-            }
-            else {
-                if (!i_see_you(player, d.players[oper._target_id])) {
-                    if (auto next_target = find_closest_target(d.players, player))
-                        oper._last_target_id = *next_target;
-                    oper._target_id = ai_operator::no_target;
-                }
-            }
-        }
-
-        easy_ai_platform_actions(d.platforms, plat, player, oper, move_spec);
-
-        if (oper._target_id != ai_operator::no_target) {
-            if (!oper._shot) {
-                float delay = 0.f;
-                if (oper.difficulty() == ai_easy)
-                    delay = 0.35f; // rand_float(0.15f, 0.4f);
-                else if (oper.difficulty() == ai_medium)
-                    delay = 0.15f; // rand_float(0.05f, 0.15f);
-                oper.shot_next_frame(delay);
-            }
-
-            auto& trg        = d.players[oper._target_id];
-            auto  dist       = trg.pos - player.pos;
-            auto  mod_dist_x = fabs(dist.x);
-
-            std::array<float, 3> dists; // NOLINT
-            if (oper.difficulty() != ai_hard) {
-                dists[0] = std::fabs(player.barrel_pos.x - player.pos.x) * 1.3f;
-                dists[1] = dists[0] * 0.8f;
-                dists[2] = 500.f;
-            }
-            else {
-                dists[0] = std::fabs(player.barrel_pos.x - player.pos.x);
-                dists[1] = dists[0];
-                dists[2] = 40.f;
-            }
-
-            if (mod_dist_x < dists[0]) {
-                if (oper.difficulty() >= ai_hard && player.vel.y > -0.001f)
-                    oper.jump();
-                /* Move from target */
-                if (dist.x >= 0.f && !oper._mov_left)
-                    move_spec.update_move(ai_move_left, 0);
-                else if (dist.x < 0.f && !oper._mov_right)
-                    move_spec.update_move(ai_move_right, 0);
-            }
-            else if (mod_dist_x >= dists[1] && mod_dist_x < dists[2]) {
-                if (dist.x >= 0.f && player.on_left)
-                    move_spec.update_move(ai_move_right, 0);
-                else if (dist.x < 0.f && !player.on_left)
-                    move_spec.update_move(ai_move_left, 0);
-
-                if (oper._mov_right || oper._mov_left)
-                    move_spec.update_apply(oper, ai_move_stop, 0);
-            }
-            else {
-                /* Move to target */
-                if (dist.x >= 0.f && !oper._mov_right)
-                    move_spec.update_move(ai_move_right, 0);
-                else if (dist.x < 0.f && !oper._mov_left)
-                    move_spec.update_move(ai_move_left, 0);
-            }
-
-            if (oper.difficulty() == ai_hard && trg.vel.y < -trg.jump_speed * 0.99f &&
-                player.vel.y > -0.001f /* && roll_the_dice(0.5f)*/) {
-                /* For 50% chance */
-                if (static_cast<int>(std::fabs(player.pos.x)) % 2 == 0)
-                    oper.delayed_jump(0.15f /*rand_float(0.05f, 0.25f)*/);
-            }
-        }
-        else {
-            if (oper._last_target_id != ai_operator::no_target) {
-                auto& trg         = d.players[oper._last_target_id];
-                auto  target_plat = find_platform(d.platforms, trg);
-
-                if (oper.difficulty() == ai_hard && player.pos.y > trg.pos.y &&
-                    (player.pos.y - trg.pos.y) < player.max_jump_dist * float(player.available_jumps) &&
-                    player.pos.y > -0.001f) {
-                    oper.jump();
-                }
-                else if (!oper._shot) {
-                    move_to_target(d.platforms,
-                                   d.platform_map,
-                                   player,
-                                   oper,
-                                   move_spec,
-                                   d.players[oper._last_target_id],
-                                   target_plat,
-                                   platforms_bound_start_x,
-                                   platforms_bound_end_x);
-                }
-            }
-
-            /* Relax with delay */
-            float relax_delay = player.gun_fire_rate * 0.001f;
-            if (oper._shot && oper._timer.elapsed(d.physic_sim.time_speed) > relax_delay) {
-                if (oper._shot)
-                    oper.relax();
-            }
-
-            if (oper.difficulty() == ai_hard)
-                hard_shooter(d.players, player, oper, d.physic_sim, d.level, move_spec);
-        }
-
-        if (std::fabs(player.vel.x) > player.max_vel_x * 3.f && plat.stand_on && player.vel.y > -0.001f)
-            oper.jump();
-
-        dodge_ai(d.bullets, player, d.physic_sim, move_spec, oper);
-
-        move_spec.apply(oper);
-    }
+    for (auto& [_, oper_ptr] : _operators)
+        oper_ptr->work(_data);
 }
 
 } // namespace dfdh

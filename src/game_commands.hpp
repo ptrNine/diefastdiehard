@@ -425,22 +425,15 @@ public:
         }
 
         if (difficulty) {
-#define choose_difficulty(VALUE)                                                                   \
-    else if (*difficulty == #VALUE) {                                                              \
-        found->second->set_difficulty(ai_##VALUE);                                                 \
-        LOG_INFO("{} ai difficulty set to " #VALUE, player_name);                                  \
-    }
-            if (false) {}
-            choose_difficulty(easy)
-            choose_difficulty(medium)
-            choose_difficulty(hard)
-            else
-                LOG_ERR("invalid ai difficulty '{}'", *difficulty);
-        } else {
-            LOG_INFO("ai difficulty {}: {}",
-                     player_name,
-                     std::array{
-                         "easy", "medium", "hard"}[size_t(found->second->difficulty())]);
+            try {
+                found->second->set_difficulty(*difficulty);
+            }
+            catch (const std::exception& e) {
+                LOG_ERR("ai difficulty: cannot set difficulty {}: {}", *difficulty, e.what());
+            }
+        }
+        else {
+            LOG_INFO("ai difficulty {}: {}", player_name, found->second->difficulty());
         }
     }
 

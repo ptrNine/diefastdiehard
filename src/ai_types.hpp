@@ -12,6 +12,7 @@ struct ai_player_t {
     vec2f         dir;
     vec2f         size;
     vec2f         vel;
+    vec2f         acceleration;
     vec2f         barrel_pos;
     player_name_t name;
     u32           available_jumps;
@@ -23,19 +24,28 @@ struct ai_player_t {
     float         gun_dispersion;
     int           group;
     float         gun_bullet_vel;
+    float         gun_hit_power;
     float         gun_fire_rate;
+    uint          gun_mag_size;
+    uint          gun_mag_elapsed;
     bool          on_left;
     bool          is_y_locked;
+    bool          long_shot_enabled;
+    bool          is_walking;
+    vec2f         long_shot_dir;
 };
 
 struct ai_physic_sim_t {
     vec2f gravity;
     float time_speed;
     u32   last_rps;
+    bool  enable_gravity_for_bullets;
 };
 
 struct ai_level_t {
     vec2f level_size;
+    float platforms_bound_start_x;
+    float platforms_bound_end_x;
 };
 
 struct ai_bullet_t {
@@ -52,7 +62,7 @@ struct ai_platform_t {
 
 using ai_plat_dist_t       = vec2f;
 using ai_plat_neighbours_t = std::vector<ai_plat_dist_t>;
-using ai_plat_map_t     = std::vector<ai_plat_neighbours_t>;
+using ai_plat_map_t        = std::vector<ai_plat_neighbours_t>;
 
 struct ai_data_t {
     std::map<player_name_t, ai_player_t> players;

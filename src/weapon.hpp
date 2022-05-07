@@ -181,6 +181,12 @@ public:
             return lefty ? vec2f{1.f - _arm_pos_f.x, _arm_pos_f.y} : _arm_pos_f;
     }
 
+    vec2f long_shot_dir(const vec2f& dir) const {
+        auto shot_angle = dir.x < 0.f ? -_long_shot_angle : _long_shot_angle;
+        shot_angle *= M_PIf32 / 180.f;
+        return rotate_vec(dir, shot_angle);
+    }
+
 public:
     void draw(const vec2f& start_pos, bool left_dir, float shot_angle_degree, sf::RenderTarget& wnd, float scale = 1.f) {
         float invert = left_dir ? -1.f : 1.f;
@@ -348,6 +354,11 @@ public:
     const std::string& section() const {
         return _section;
     }
+
+    [[nodiscard]]
+    float long_shot_angle() const {
+        return _long_shot_angle;
+    }
 };
 
 
@@ -373,11 +384,29 @@ public:
         }
     }
 
-    void reload(const std::string& wpn_section) {
+    void reload(std::string wpn_section) {
         auto found = _wpns.find(wpn_section);
         if (found != _wpns.end()) {
             found->second.cfg_set();
             found->second.reload_layers();
+        }
+        else {
+            /* TODO: do something with this */
+            if (wpn_section.ends_with("_reload"))
+                wpn_section.resize(wpn_section.size() - 7);
+            else if (wpn_section.ends_with("_shot"))
+                wpn_section.resize(wpn_section.size() - 5);
+            else if (wpn_section.ends_with("_load_start"))
+                wpn_section.resize(wpn_section.size() - 11);
+            else if (wpn_section.ends_with("_load_end"))
+                wpn_section.resize(wpn_section.size() - 9);
+            else if (wpn_section.ends_with("_shell"))
+                wpn_section.resize(wpn_section.size() - 6);
+
+            found = _wpns.find(wpn_section);
+            if (found != _wpns.end()) {
+                found->second.reload_layers();
+            }
         }
         /* TODO: log if section not found? */
     }

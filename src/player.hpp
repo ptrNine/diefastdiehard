@@ -238,6 +238,14 @@ public:
         return false;
     }
 
+    void enable_long_shot(bool value = true) {
+        _long_shot_enabled = value;
+    }
+
+    void disable_long_shot() {
+        _long_shot_enabled = false;
+    }
+
     static int player_group_getter(const physic_point* p) {
         return std::any_cast<player*>(p->get_user_any())->get_group();
     }
@@ -300,7 +308,7 @@ public:
             if (auto recoil = _pistol.update(pos,
                                              cam_position,
                                              dir,
-                                            _long_shot_enabled,
+                                             gravity_for_bullets && _long_shot_enabled,
                                              bm,
                                              sim,
                                              gravity_for_bullets,
@@ -313,30 +321,62 @@ public:
     }
 
     void physic_update(const physic_simulation& sim, float timestep) {
-        _accel_f += timestep * 2.f;
-        if (_accel_f > 1.f)
-            _accel_f = 1.f;
+        static constexpr auto accel_f_restore = [](float& accel, float timestep) {
+            accel += timestep * 2.f;
+            if (accel > 1.f)
+                accel = 1.f;
+        };
+        accel_f_restore(_accel_left_f, timestep);
+        accel_f_restore(_accel_right_f, timestep);
 
-        auto vel = _collision_box->get_velocity();
+        auto  vel          = _collision_box->get_velocity();
+        auto  moving_left  = !is_float_zero(_cur_x_accel_l);
+        auto  moving_right = !is_float_zero(_cur_x_accel_r);
+        bool  moving       = moving_left || moving_right;
+        float move_accel_l = _cur_x_accel_l;
+        float move_accel_r = _cur_x_accel_r;
+
+        if (moving_left && moving_right) {
+            moving_left  = false;
+            moving_right = false;
+            move_accel_l = 0.f;
+            move_accel_r = 0.f;
+        }
 
         float accel = 0.f;
-        if (_collision_box->is_lock_y()) {
-            if (vel.x > 0.f)
+        if (_collision_box->is_lock_y() && !moving) {
+            if (vel.x > _max_speed || (vel.x > 0.f && !moving_right))
                 accel = -_x_slowdown;
-            else if (vel.x < 0.f)
+            else if (vel.x < -_max_speed || (vel.x < 0.f && !moving_left))
                 accel = _x_slowdown;
         }
 
-        if (vel.x < _max_speed)
-            accel += _cur_x_accel_r * (_accel_left_reset ? _accel_f : 1.f);
-        if (vel.x > -_max_speed)
-            accel += _cur_x_accel_l * (!_accel_left_reset ? _accel_f : 1.f);
+        if (vel.x < _max_speed) {
+            auto mov_accel = move_accel_r * _accel_left_f;
+            auto new_vel   = vel.x + mov_accel * timestep;
+            if (new_vel < _max_speed)
+                accel += mov_accel;
+            else
+                vel.x = _max_speed;
+        }
+        if (vel.x > -_max_speed) {
+            auto mov_accel = move_accel_l * _accel_right_f;
+            auto new_vel   = vel.x + mov_accel * timestep;
+            if (new_vel > -_max_speed)
+                accel += mov_accel;
+            else
+                vel.x = -_max_speed;
+        }
 
-        bool moving = !is_float_zero(_cur_x_accel_r) || !is_float_zero(_cur_x_accel_r);
         float prev_v = vel.x;
         vel.x += accel * timestep;
-        if (!moving && ((prev_v < 0.f && vel.x > 0.f) || (prev_v > 0.f && vel.x < 0.f)))
-            vel.x = 0.f;
+        if (!moving && ((prev_v < 0.f && vel.x > 0.f) || (prev_v > 0.f && vel.x < 0.f))) {
+            vel.x                 = 0.f;
+            _current_acceleration = {0.f, 0.f};
+        }
+        else {
+            _current_acceleration = {accel, 0.f};
+        }
 
         _collision_box->velocity(vel);
 
@@ -429,8 +469,8 @@ public:
         target.display();
     }
 
-    void draw(sf::RenderWindow& wnd, float interpolation_factor, float timestep) {
-        auto pos = _collision_box->get_position();
+    void draw(sf::RenderWindow& wnd, float interpolation_factor, float timestep, bool gravity_for_bullets = false) {
+        auto pos      = _collision_box->get_position();
         auto next_pos = pos + _collision_box->get_velocity() * timestep;
 
         pos = lerp(pos, next_pos, interpolation_factor);
@@ -481,7 +521,7 @@ public:
             auto [lh, rh] =
                 _pistol.draw(pos + vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y),
                              _on_left,
-                             _long_shot_enabled,
+                             gravity_for_bullets && _long_shot_enabled,
                              wnd,
                              _collision_box->get_velocity());
             _left_hand.setPosition(lh);
@@ -559,6 +599,16 @@ public:
 
     void tracer_color(sf::Color value) {
         _tracer_color = value;
+    }
+
+    [[nodiscard]]
+    const vec2f& acceleration() const {
+        return _current_acceleration;
+    }
+
+    [[nodiscard]]
+    bool is_walking() const {
+        return !is_float_zero(_cur_x_accel_l) ^ !is_float_zero(_cur_x_accel_r);
     }
 
     [[nodiscard]]
@@ -711,15 +761,17 @@ private:
 
     vec2f _size;
 
-    bool  _accel_left_reset = false;
-    float _accel_f    = 1.f;
-    float _max_speed  = 280.f;
-    float _x_accel    = 2250.f;
-    float _x_slowdown = 700.f;
-    float _jump_speed = 620.f;
+    float _accel_left_f     = 1.f;
+    float _accel_right_f    = 1.f;
+    float _max_speed        = 280.f;
+    float _x_accel          = 1550.f; // 2250.f;
+    float _x_slowdown       = 700.f;
+    float _jump_speed       = 620.f;
 
     float _cur_x_accel_l = 0.f;
     float _cur_x_accel_r = 0.f;
+
+    vec2f _current_acceleration = {0.f, 0.f};
 
     u32 jumps_left = 1;
     u32 max_jumps = 1;
@@ -793,8 +845,7 @@ public:
     }
 
     void reset_accel_f(bool left_only) {
-        _accel_f = 0.f;
-        _accel_left_reset = left_only;
+        (left_only ? _accel_left_f : _accel_right_f) = 0.f;
     }
 
     void smooth_velocity_set(const vec2f& value, float smooth_factor = 0.25f) {
@@ -898,6 +949,11 @@ public:
     [[nodiscard]]
     u32 get_available_jumps() const {
         return _collision_box->is_lock_y() ? jumps_left + 1 : jumps_left;
+    }
+
+    [[nodiscard]]
+    bool long_shot_enabled() const {
+        return _long_shot_enabled;
     }
 
     /*

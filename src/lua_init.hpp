@@ -28,22 +28,25 @@
         }                                                                                                              \
     }
 
+using lua_timer_t = std::chrono::steady_clock::time_point;
+
 template <>
 struct luacpp::typespec_list_s<0> {
     using type = std::tuple<typespec<dfdh::vec2f, LUA_TNAME("vec2f")>,
-                            typespec<dfdh::player_name_t, LUA_TNAME("player_name_t")>,
-                            typespec<dfdh::ai_player_t, LUA_TNAME("ai_player")>,
-                            typespec<dfdh::ai_physic_sim_t, LUA_TNAME("ai_physic_sim")>,
-                            typespec<dfdh::ai_level_t, LUA_TNAME("ai_level")>,
-                            typespec<dfdh::ai_bullet_t, LUA_TNAME("ai_bullet")>,
-                            typespec<dfdh::ai_platform_t, LUA_TNAME("ai_platform")>,
-                            typespec<dfdh::ai_data_t, LUA_TNAME("ai_data")>,
+                            typespec<dfdh::ai_player_t, LUA_TNAME("ai_player_t")>,
+                            typespec<dfdh::ai_physic_sim_t, LUA_TNAME("ai_physic_sim_t")>,
+                            typespec<dfdh::ai_level_t, LUA_TNAME("ai_level_t")>,
+                            typespec<dfdh::ai_bullet_t, LUA_TNAME("ai_bullet_t")>,
+                            typespec<dfdh::ai_platform_t, LUA_TNAME("ai_platform_t")>,
+                            typespec<dfdh::ai_data_t, LUA_TNAME("ai_data_t")>,
+                            typespec<dfdh::ai_operator_base*, LUA_TNAME("ai_operator_t")>,
                             typespec<dfdh::game_state*, LUA_TNAME("game_state")>,
                             typespec<sf::Event, LUA_TNAME("sfml_event")>,
                             typespec<dfdh::cfg*, LUA_TNAME("cfg_ref")>,
                             typespec<dfdh::cfg, LUA_TNAME("cfg_t")>,
                             typespec<dfdh::cfg_section<false>*, LUA_TNAME("cfg_section_ref")>,
-                            typespec<dfdh::cfg_value<std::string, false>, LUA_TNAME("cfg_value_t")>>;
+                            typespec<dfdh::cfg_value<std::string, false>, LUA_TNAME("cfg_value_t")>,
+                            typespec<lua_timer_t, LUA_TNAME("timer")>>;
 };
 
 #include <luaffi/luacpp_ctx.hpp>
@@ -91,13 +94,37 @@ inline luacpp::explicit_return lua_return_cfg_value(luacpp::luactx& ctx, cfg_val
     return {ctx, str};
 }
 
+inline void lua_log_init(luacpp::luactx& ctx) {
+    ctx.annotate({.argument_names = {"level", "message"}});
+    ctx.provide(LUA_TNAME("log_impl"), [](const std::string& level, const std::string& str) {
+        if (level.starts_with("warn")) {
+            if (level.find("upd") != std::string::npos)
+                LOG_WARN_UPDATE("{}", str);
+            else
+                LOG_WARN("{}", str);
+        }
+        else if (level.starts_with("err")) {
+            if (level.find("upd") != std::string::npos)
+                LOG_ERR_UPDATE("{}", str);
+            else
+                LOG_ERR("{}", str);
+        }
+        else {
+            if (level.find("upd") != std::string::npos)
+                LOG_INFO_UPDATE("{}", str);
+            else
+                LOG_INFO("{}", str);
+        }
+    });
+}
+
 inline void lua_cfg_init(luacpp::luactx& ctx) {
     using cfg_ptr_t = cfg*;
-    ctx.annotate_args("config", "section_name");
+    ctx.annotate({.argument_names = {"config", "section_name"}});
     ctx.provide_member<cfg*>(LUA_TNAME("get_section"), [](const cfg_ptr_t& conf, const std::string& section_name) {
         return conf->try_get_section({section_name});
     });
-    ctx.annotate_args("config", "section_name");
+    ctx.annotate({.argument_names = {"config", "section_name"}});
     ctx.provide_member<cfg>(LUA_TNAME("get_section"), [](cfg& conf, const std::string& section_name) {
         return conf.try_get_section({section_name});
     });
@@ -119,15 +146,15 @@ inline void lua_cfg_init(luacpp::luactx& ctx) {
                                         ctx.get_new(v);
                                         conf.set_readonly(v);
                                     }}}});
-    ctx.annotate_args("config_path");
+    ctx.annotate({.argument_names = {"config_path"}});
     ctx.provide_member<cfg>(LUA_TNAME("open"), [](const std::string& path) { return cfg(path); });
 
-    ctx.annotate_args("config_path");
+    ctx.annotate({.argument_names = {"config_path"}});
     ctx.provide_member<cfg>(LUA_TNAME("new"),
                             [](const std::string& path) { return cfg(path, cfg_mode::create_if_not_exists); });
     ctx.provide_member<cfg>(LUA_TNAME("commit"), [](cfg& conf) { conf.commit(); });
 
-    ctx.annotate_args("config", "section_name", "preffered_file_path", "insert_mode");
+    ctx.annotate({.argument_names = {"config", "section_name", "preffered_file_path", "insert_mode"}});
     ctx.provide_member<cfg>(
         LUA_TNAME("section"),
         [](cfg& conf, const std::string& section_name) { return &conf.get_or_create(section_name); },
@@ -171,17 +198,17 @@ inline void lua_cfg_init(luacpp::luactx& ctx) {
     static constexpr auto list_sections_f = [](cfg_ptr_t conf) {
         return conf->list_sections();
     };
-    ctx.annotate_args("config");
+    ctx.annotate({.argument_names = {"config"}});
     ctx.provide_member<cfg_ptr_t>(LUA_TNAME("list_sections"), list_sections_f);
-    ctx.annotate_args("config");
+    ctx.annotate({.argument_names = {"config"}});
     ctx.provide_member<cfg>(LUA_TNAME("list_sections"), list_sections_f);
 
     static constexpr auto has_section_f = [](cfg_ptr_t conf, const std::string& section_name) {
         return conf->has_section(section_name);
     };
-    ctx.annotate_args("config", "section_name");
+    ctx.annotate({.argument_names = {"config", "section_name"}});
     ctx.provide_member<cfg_ptr_t>(LUA_TNAME("has_section"), has_section_f);
-    ctx.annotate_args("config", "section_name");
+    ctx.annotate({.argument_names = {"config", "section_name"}});
     ctx.provide_member<cfg>(LUA_TNAME("has_section"), has_section_f);
 
     using section_ptr_t = cfg_section<false>*;
@@ -212,80 +239,171 @@ inline void lua_vec2f_init(luacpp::luactx& ctx) {
                               [](const vec2f& v) { return std::to_string(v.x) + " " + std::to_string(v.y); });
 }
 
-inline void lua_player_name_init(luacpp::luactx& ctx) {
-    ctx.provide_member<player_name_t>(
-        LUA_TNAME("new"), [] { return player_name_t{}; }, [](const std::string& str) { return player_name_t{str}; });
-    ctx.provide_member<player_name_t>(LUA_TNAME("__tostring"), [](const player_name_t& v) { return std::string(v); });
+inline void lua_timer_init(luacpp::luactx& ctx) {
+    ctx.annotate({.comment = "creates timer"});
+    ctx.annotate({.comment = "makes timer copy", .argument_names = {"tm"}});
+    ctx.provide(
+        LUA_TNAME("timer.new"),
+        []() { return lua_timer_t(std::chrono::steady_clock::now()); },
+        [](const lua_timer_t& t) { return t; });
+    ctx.annotate({.comment = "get elapsed time in seconds"});
+    ctx.provide_member<lua_timer_t>(LUA_TNAME("elapsed"), [](const lua_timer_t& t) {
+        auto tp = std::chrono::steady_clock::now();
+        return std::chrono::duration_cast<std::chrono::duration<double>>(tp - t).count();
+    });
+    ctx.annotate({.comment = "resets the timer"});
+    ctx.provide_member<lua_timer_t>(LUA_TNAME("restart"), [](lua_timer_t& t) {
+        t = std::chrono::steady_clock::now();
+    });
+    ctx.annotate({.comment = "get elapsed time in seconds and resets the timer"});
+    ctx.provide_member<lua_timer_t>(LUA_TNAME("tick"), [](lua_timer_t& t) {
+        auto tp  = std::chrono::steady_clock::now();
+        auto res = std::chrono::duration_cast<std::chrono::duration<double>>(tp - t).count();
+        t = tp;
+        return res;
+    });
 }
 
 inline void lua_ai_instance_init(luacpp::luactx& ctx) {
     lua_vec2f_init(ctx);
-    lua_player_name_init(ctx);
+    lua_log_init(ctx);
+    lua_timer_init(ctx);
 
-    ctx.set_member_table(luacpp::member_table<ai_player_t>{lua_getez(pos),
-                                                           lua_getez(dir),
-                                                           lua_getez(size),
-                                                           lua_getez(vel),
-                                                           lua_getez(barrel_pos),
-                                                           lua_getez(name),
-                                                           lua_getez(available_jumps),
-                                                           lua_getez(x_accel),
-                                                           lua_getez(x_slowdown),
-                                                           lua_getez(jump_speed),
-                                                           lua_getez(max_jump_dist),
-                                                           lua_getez(max_vel_x),
-                                                           lua_getez(gun_dispersion),
-                                                           lua_getez(group),
-                                                           lua_getez(gun_bullet_vel),
-                                                           lua_getez(gun_fire_rate),
-                                                           lua_getez(on_left),
-                                                           lua_getez(is_y_locked)});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "integer"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "integer"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "integer"});
+    ctx.annotate({.explicit_type = "integer"});
+    ctx.annotate({.explicit_type = "boolean"});
+    ctx.annotate({.explicit_type = "boolean"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "boolean"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "string"});
+    ctx.annotate({.explicit_type = "boolean"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.set_member_table(luacpp::member_table<ai_player_t>{
+        lua_getez(acceleration),
+        lua_getez(available_jumps),
+        lua_getez(barrel_pos),
+        lua_getez(dir),
+        lua_getez(group),
+        lua_getez(gun_bullet_vel),
+        lua_getez(gun_dispersion),
+        lua_getez(gun_fire_rate),
+        lua_getez(gun_hit_power),
+        lua_getez(gun_mag_elapsed),
+        lua_getez(gun_mag_size),
+        lua_getez(is_walking),
+        lua_getez(is_y_locked),
+        lua_getez(jump_speed),
+        lua_getez(long_shot_dir),
+        lua_getez(long_shot_enabled),
+        lua_getez(max_jump_dist),
+        lua_getez(max_vel_x),
+        lua_getez(name),
+        lua_getez(on_left),
+        lua_getez(pos),
+        lua_getez(size),
+        lua_getez(vel),
+        lua_getez(x_accel),
+        lua_getez(x_slowdown),
+    });
+    ctx.provide_member<ai_player_t>(LUA_TNAME("__tostring"), [](const ai_player_t& pl) {
+        std::string res;
+        /* XXX: implement me */
+        return res;
+    });
 
-    ctx.set_member_table(
-        luacpp::member_table<ai_physic_sim_t>{lua_getez(gravity), lua_getez(time_speed), lua_getez(last_rps)});
+    ctx.annotate({.explicit_type = "boolean"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "integer"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.set_member_table(luacpp::member_table<ai_physic_sim_t>{
+        lua_getez(enable_gravity_for_bullets),
+        lua_getez(gravity),
+        lua_getez(last_rps),
+        lua_getez(time_speed),
+    });
 
-    ctx.set_member_table(luacpp::member_table<ai_level_t>{lua_getez(level_size)});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.set_member_table(luacpp::member_table<ai_level_t>{
+        lua_getez(level_size),
+        lua_getez(platforms_bound_end_x),
+        lua_getez(platforms_bound_start_x),
+    });
 
-    ctx.set_member_table(
-        luacpp::member_table<ai_bullet_t>{lua_getez(pos), lua_getez(vel), lua_getez(hit_mass), lua_getez(group)});
+    ctx.annotate({.explicit_type = "integer"});
+    ctx.annotate({.explicit_type = "number"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.set_member_table(luacpp::member_table<ai_bullet_t>{
+        lua_getez(group),
+        lua_getez(hit_mass),
+        lua_getez(pos),
+        lua_getez(vel),
+    });
 
+    ctx.annotate({.explicit_type = "vec2f"});
+    ctx.annotate({.explicit_type = "vec2f"});
     ctx.set_member_table(luacpp::member_table<ai_platform_t>{lua_getez(pos1), lua_getez(pos2)});
 
+
+    ctx.annotate({.explicit_type = "table<integer, ai_bullet_t>"});
+    ctx.annotate({.explicit_type = "ai_level_t"});
+    ctx.annotate({.explicit_type = "ai_physic_sim_t"});
+    ctx.annotate({.explicit_type = "table<integer, table<integer, vec2f>>"});
+    ctx.annotate({.explicit_type = "table<integer, ai_platform_t>"});
+    ctx.annotate({.explicit_type = "table<string, ai_player_t>"});
     ctx.set_member_table(luacpp::member_table<ai_data_t>{
-        lua_getez(players),
         lua_getez(bullets),
-        lua_getez(physic_sim),
-        lua_getez(platforms),
-        lua_getez(platform_map),
         lua_getez(level),
+        lua_getez(physic_sim),
+        lua_getez(platform_map),
+        lua_getez(platforms),
+        lua_getez(players),
+    });
+
+    ctx.annotate({.explicit_type = "string"});
+    ctx.annotate({.explicit_type = "string"});
+    using ai_operator_base_p = ai_operator_base*;
+    ctx.set_member_table(
+        luacpp::member_table<ai_operator_base_p>{{"player_name", {[](const ai_operator_base_p& o, luacpp::luactx& ctx) {
+                                                      ctx.push(o->player_name());
+                                                  }}},
+                                                 {"difficulty", {[](const ai_operator_base_p& o, luacpp::luactx& ctx) {
+                                                      ctx.push(o->difficulty());
+                                                  }}}
+
+        });
+
+    ctx.provide_member<ai_operator_base*>(LUA_TNAME("produce_action"), [](ai_operator_base_p& o, int action) {
+        if (action < 0 || action >= int(ai_action::COUNT)) {
+            LOG_ERR("lua ai operator: invalid action with index {}", action);
+            return;
+        }
+        o->produce_action(ai_action(action));
     });
 }
 
 inline void lua_init(luacpp::luactx& ctx) {
     lua_vec2f_init(ctx);
-    lua_player_name_init(ctx);
-
-    ctx.annotate_args("level", "message");
-    ctx.provide(LUA_TNAME("log"), [](const std::string& level, const std::string& str) {
-        if (level.starts_with("warn")) {
-            if (level.find("upd") != std::string::npos)
-                LOG_WARN_UPDATE("{}", str);
-            else
-                LOG_WARN("{}", str);
-        }
-        else if (level.starts_with("err")) {
-            if (level.find("upd") != std::string::npos)
-                LOG_ERR_UPDATE("{}", str);
-            else
-                LOG_ERR("{}", str);
-        }
-        else {
-            if (level.find("upd") != std::string::npos)
-                LOG_INFO_UPDATE("{}", str);
-            else
-                LOG_INFO("{}", str);
-        }
-    });
+    lua_log_init(ctx);
+    lua_timer_init(ctx);
 
     /* Game state */
     using game_state_p = game_state*;
@@ -325,18 +443,21 @@ inline void lua_init(luacpp::luactx& ctx) {
 
 void luactx_mgr::load() {
     std::string file_name = "dfdh";
-    std::string assist_file_name = "__assist";
+    std::string assist_file_name = "_assist";
     if (_instance_name == "ai") {
         file_name += "_ai";
         assist_file_name += "_ai";
     }
 
     try {
-        auto path = fs::current_path() / "data/scripts";
-        _ctx->load_and_call((path / (file_name + ".lua")).string().data());
+        auto dir = fs::current_path() / "data/scripts";
+        auto fullpath = (dir / (file_name + ".lua")).string();
+        //LOG_INFO("Load lua script \"{}\"", fullpath);
+
+        _ctx->load_and_call(fullpath.data());
         loaded = true;
 
-        auto ofd = std::ofstream(path / (assist_file_name + ".lua"));
+        auto ofd = std::ofstream(dir / (assist_file_name + ".lua"));
         ofd << _ctx->generate_assist();
     }
     catch (const std::exception& e) {
@@ -347,6 +468,13 @@ void luactx_mgr::load() {
 
 luactx_mgr::luactx_mgr(std::string instance_name):
     _ctx(std::make_unique<luacpp::luactx>(true)), _instance_name(std::move(instance_name)) {
+    //LOG_INFO("Init lua instance \"{}\"", _instance_name);
+
+    auto package_path = fs::current_path() / "data/scripts/?.lua";
+    _ctx->enable_implicit_assist(false);
+    _ctx->provide(LUA_TNAME("package.path"), package_path.string());
+    _ctx->enable_implicit_assist();
+
     if (_instance_name == "global")
         lua_init(*_ctx);
     else if (_instance_name == "ai")
@@ -388,6 +516,15 @@ void luactx_mgr::execute_line(const std::string& line) {
     catch (const std::exception& e) {
         LOG_ERR("lua error: {}", e.what());
     }
+}
+
+ai_lua_operator_update_func_t get_ai_lua_operator_update(const std::string& name) {
+    return lua_ai().ctx().extract<void(class ai_operator_base*, const ai_data_t*)>(
+        luacpp::lua_name{"AI"}.dot(name).dot({"update"}));
+}
+
+ai_lua_operator_init_func_t get_ai_lua_operator_init(const std::string& name) {
+    return lua_ai().ctx().extract<void(class ai_operator_base*)>(luacpp::lua_name{"AI"}.dot(name).dot({"init"}));
 }
 
 } // namespace dfdh

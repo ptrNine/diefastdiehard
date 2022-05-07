@@ -80,10 +80,11 @@ public:
 
         init_lua();
         lua().load();
+        lua_ai().load();
     }
 
     void init_lua() {
-        lua().ctx().annotate_args("commands");
+        lua().ctx().annotate({.argument_names = {"commands"}});
         lua().ctx().provide(LUA_TNAME("cmd"), [](const std::string& commands) {
             for (auto cmd : commands / split('\n')) command_buffer().push(std::string(cmd.begin(), cmd.end()));
         });

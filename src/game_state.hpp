@@ -220,7 +220,7 @@ public:
             return false;
         }
 
-        ai_operators.emplace(player_name, ai_operator::create(ai_medium, player_name));
+        ai_operators.emplace(player_name, ai_operator::create(player_name, "medium"));
 
         if (!ai_mgr().running()) {
             ai_provide_level_info();
@@ -281,7 +281,7 @@ public:
         cur_level->draw(wnd);
 
         for (auto& [_, player] : players)
-            player->draw(wnd, sim.interpolation_factor(), sim.last_timestep());
+            player->draw(wnd, sim.interpolation_factor(), sim.last_timestep(), gravity_for_bullets);
 
         blt_mgr.draw(wnd, sim.interpolation_factor(), sim.last_timestep());
 
@@ -377,15 +377,17 @@ public:
         for (auto& [name, ai_op] : ai_operators) {
             auto& player = players.at(name);
 
-            while (auto op = ai_op->consume_task()) {
+            while (auto op = ai_op->consume_action()) {
                 switch (*op) {
-                case ai_operator::t_jump: player->jump(); break;
-                case ai_operator::t_jump_down: player->jump_down(); break;
-                case ai_operator::t_move_left: player->move_left(); break;
-                case ai_operator::t_move_right: player->move_right(); break;
-                case ai_operator::t_stop: player->stop(); break;
-                case ai_operator::t_shot: player->shot(); break;
-                case ai_operator::t_relax: player->relax(); break;
+                case ai_action::jump: player->jump(); break;
+                case ai_action::jump_down: player->jump_down(); break;
+                case ai_action::move_left: player->move_left(); break;
+                case ai_action::move_right: player->move_right(); break;
+                case ai_action::stop: player->stop(); break;
+                case ai_action::shot: player->shot(); break;
+                case ai_action::relax: player->relax(); break;
+                case ai_action::enable_long_shot: player->enable_long_shot(); break;
+                case ai_action::disable_long_shot: player->disable_long_shot(); break;
                 default: break;
                 }
             }
@@ -407,36 +409,43 @@ public:
         ai_mgr().provide_players(players, [gy = sim.gravity().y](const std::shared_ptr<player>& pl) {
             auto& gun = pl->get_gun();
 
-            return ai_player_t{
-                pl->get_position(),
-                pl->collision_box()->get_direction(),
-                pl->get_size(),
-                pl->get_velocity(),
-                pl->barrel_pos(),
-                pl->name(),
-                pl->get_available_jumps(),
-                pl->get_x_accel(),
-                pl->get_x_slowdown(),
-                pl->get_jump_speed(),
-                pl->calc_max_jump_y_dist(gy),
-                pl->get_max_speed(),
-                gun ? gun.get_weapon()->get_dispersion() : 0.01f,
-                pl->get_group(),
-                gun ? gun.get_bullet_vel() : 1500.f,
-                gun ? gun.get_weapon()->get_fire_rate() : 100.f,
-                pl->get_on_left(),
-                pl->collision_box()->is_lock_y()
-            };
+            return ai_player_t{pl->get_position(),
+                               pl->collision_box()->get_direction(),
+                               pl->get_size(),
+                               pl->get_velocity(),
+                               pl->acceleration(),
+                               pl->barrel_pos(),
+                               pl->name(),
+                               pl->get_available_jumps(),
+                               pl->get_x_accel(),
+                               pl->get_x_slowdown(),
+                               pl->get_jump_speed(),
+                               pl->calc_max_jump_y_dist(gy),
+                               pl->get_max_speed(),
+                               gun ? gun.get_weapon()->get_dispersion() : 0.01f,
+                               pl->get_group(),
+                               gun ? gun.get_bullet_vel() : 1500.f,
+                               gun ? gun.wpn()->hit_power() : 0.f,
+                               gun ? gun.get_weapon()->get_fire_rate() : 100.f,
+                               gun ? gun.get_weapon()->mag_size() : 1,
+                               gun ? gun.ammo_elapsed() : 1,
+                               pl->get_on_left(),
+                               pl->collision_box()->is_lock_y(),
+                               pl->long_shot_enabled(),
+                               pl->is_walking(),
+                               gun ? gun.wpn()->long_shot_dir(vec2f(pl->get_on_left() ? -1.f : 1.f, 0.f))
+                                   : vec2f(pl->get_on_left() ? -1.f : 1.f, 0.f)};
         });
 
-        ai_mgr().provide_physic_sim(sim.gravity(), sim.last_speed(), sim.last_rps());
+        ai_mgr().provide_physic_sim(sim.gravity(), sim.last_speed(), sim.last_rps(), gravity_for_bullets);
     }
 
     void ai_provide_level_info() {
         if (!cur_level)
             return;
 
-        ai_mgr().provide_level(cur_level->level_size());
+        /* TODO: move platforms into the ai_level_t */
+        ai_mgr().provide_level({cur_level->level_size()});
         ai_mgr().provide_platforms(cur_level->get_platforms(), [](const level::platform_t& pl) {
             auto pos = pl.ph.get_position();
             auto len = pl.ph.length();
@@ -468,7 +477,7 @@ public:
     std::optional<cfg_value_control>                      cfgval_ctrl;
     cfg_watcher                                           conf_watcher;
 
-    vec2f                                                 cam_pos = {0.f, 0.f};
+    vec2f cam_pos = {0.f, 0.f};
 
     bool on_game             = false;
     bool debug_physics       = false;

@@ -33,7 +33,6 @@ public:
     template <typename NameT, typename... Ts>
     auto try_call_proc(bool game_loop, NameT name, Ts&&... args);
 
-
 public:
     luactx_mgr(const luactx_mgr&) = delete;
     luactx_mgr& operator=(const luactx_mgr&) = delete;
