@@ -70,6 +70,7 @@ public:
 
     void init_commands() {
         command_buffer().add_handler("log", &diefastdiehard::cmd_log, this);
+        command_buffer().add_handler("profiler", &diefastdiehard::enable_profiler_print, static_cast<engine*>(this));
     }
 
     void on_init(args_view args) final {

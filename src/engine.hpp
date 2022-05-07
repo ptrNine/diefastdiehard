@@ -119,12 +119,9 @@ public:
                 post_command_update();
             }
 
-
-            /*
-            loop_prof.try_print([](auto& prof) {
-                LOG("prof: {}", prof);
-            });
-            */
+            if (profiler_print) {
+                loop_prof.try_print([](auto& prof) { LOG("min|max|avg: {}", prof); });
+            }
         }
 
 end:
@@ -159,6 +156,10 @@ end:
         _ctx_init__.on_resize(width, height);
     }
 
+    void enable_profiler_print(bool value) {
+        profiler_print = value;
+    }
+
 private:
     global_ctx& _ctx_init__ = global_ctx::instance();
 
@@ -170,6 +171,7 @@ private:
     devconsole       _devcons;
     main_menu        _main_menu;
     profiler         loop_prof;
+    bool             profiler_print = false;
 };
 
 }
