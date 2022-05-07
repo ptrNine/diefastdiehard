@@ -8,7 +8,7 @@
 #include "src/serialization.hpp"
 #include "src/game_state.hpp"
 
-#include "src/lua_init.hpp"
+#include "lua_init.hpp"
 
 #include <SFML/Graphics/RectangleShape.hpp>
 

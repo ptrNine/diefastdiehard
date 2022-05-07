@@ -7,7 +7,7 @@
 
 namespace luacpp {
     class luactx;
-};
+}
 
 namespace dfdh
 {
