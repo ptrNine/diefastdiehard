@@ -47,6 +47,29 @@ measure() {
     echo "scale=2; $(($(mstime) - start_tm))/1000" | bc -l
 }
 
+make_includes() {
+    local IFS=$'\n'
+    for include in ${1//;/$'\n'}; do
+        local arg="-I"
+        [ "${include%:*}" = "system" ] && arg="-isystem"
+        printf '%s ' "$arg \"${include##*:}\""
+    done
+}
+
+include_list() {
+    while [ ! -z "$1" ]; do
+        printf '%s;' "$1"
+        shift
+    done
+}
+
+is_commands_equal() {
+    local cmd="$1"
+    local path="$2"
+    [ "command=\"$cmd\"" == "$(grep 'command=' "$path" 2>/dev/null)" ]
+    return
+}
+
 build_static_lib() {
     local name="$1"
     local build_source="$2"
@@ -55,25 +78,20 @@ build_static_lib() {
     local debug="$5"
     local flags="$6"
     local libs="$7"
+    local includes="$8"
 
     if [ ! -z "$TARGET" ] && [ "$TARGET" != "$name" ]; then
         return
     fi
 
+    local already_built=false
     local depinfo=
-    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
-        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
-            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
-            -I "$(pwd)/$builddir/3rd/include" \
+    [ -f "$(pwd)/$builddir/hpp_depinfo" ] && \
+        depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            $(make_includes "$includes") \
             --hash -C "$(pwd)/$builddir/.ezbld/$name-depinfo" \
-            "$(pwd)/$build_source"); then
-            colored lpurple "$name already built"
-            return 0
-        fi
-    fi
-
-    local start_tm=$(mstime)
-    colored yellow "Building lib$name.a ... " n
+            "$(pwd)/$build_source") && \
+        already_built=true
 
     local cmd="$(command -v "$CXX_COMPILER") -c -std=c++20 \
         $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
@@ -83,20 +101,29 @@ build_static_lib() {
         -L '$(pwd)/$builddir' \
         -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
         -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
-        -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
-        -isystem '$(pwd)/$builddir/3rd/include' \
+        $(make_includes "$includes") \
         '$(pwd)/$build_source' \
         -o '$(pwd)/$builddir/$name.o' \
         $libs"
     cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
+    local cmd_path="$builddir/.ezbld/$name-command"
+    ! is_commands_equal "$cmd" "$cmd_path" && already_built=false
+
+    if [ $already_built = true ]; then
+        colored lpurple "$name already built"
+        return 0
+    fi
+
+    local start_tm=$(mstime)
+    colored yellow "Building lib$name.a ... " n
     eval $cmd || fail "Build failed"
 
     ar rcs "$(pwd)/$builddir/lib$name.a" "$(pwd)/$builddir/$name.o" || fail "Build failed"
     rm -f "$builddir/$name.o"
 
     echo "$depinfo" > "$(pwd)/$builddir/.ezbld/$name-depinfo"
-    printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$builddir/.ezbld/$name-command"
+    printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$cmd_path"
 
     colored lgreen "done! $(measure $start_tm)s"
 }
@@ -109,25 +136,20 @@ build_executable() {
     local debug="$5"
     local flags="$6"
     local libs="$7"
+    local includes="$8"
 
     if [ ! -z "$TARGET" ] && [ "$TARGET" != "$name" ]; then
         return
     fi
 
+    local already_built=false
     local depinfo=
-    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
-        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
-            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
-            -I "$(pwd)/$builddir/3rd/include" \
+    [ -f "$(pwd)/$builddir/hpp_depinfo" ] && \
+        depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            $(make_includes "$includes") \
             --hash -C "$(pwd)/$builddir/.ezbld/$name-depinfo" \
-            "$(pwd)/$build_source"); then
-            colored lpurple "$name already built"
-            return 0
-        fi
-    fi
-
-    local start_tm=$(mstime)
-    colored yellow "Building $name ... " n
+            "$(pwd)/$build_source") && \
+        already_built=true
 
     local cmd="$(command -v "$CXX_COMPILER") -std=c++20 \
         $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
@@ -137,17 +159,26 @@ build_executable() {
         -L '$(pwd)/$builddir' \
         -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
         -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
-        -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
-        -isystem '$(pwd)/$builddir/3rd/include' \
+        $(make_includes "$includes") \
         '$(pwd)/$build_source' \
         -o '$(pwd)/$builddir/$name' \
         $libs"
     cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
+    local cmd_path="$builddir/.ezbld/$name-command"
+    ! is_commands_equal "$cmd" "$cmd_path" && already_built=false
+
+    if [ $already_built = true ]; then
+        colored lpurple "$name already built"
+        return 0
+    fi
+
+    local start_tm=$(mstime)
+    colored yellow "Building $name ... " n
     eval $cmd || fail "Build failed"
 
     echo "$depinfo" > "$(pwd)/$builddir/.ezbld/$name-depinfo"
-    printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$builddir/.ezbld/$name-command"
+    printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$cmd_path"
 
     colored lgreen "done! $(measure $start_tm)s"
 }
@@ -159,21 +190,33 @@ codegen_step() {
     local generator_name="$4"
     local generator_cpp="$5"
     local output_header="$6"
+    local includes="$7"
 
     if [ ! -z "$TARGET" ] && [ "$TARGET" != "$name" ]; then
         return
     fi
 
+    local already_built=false
     local depinfo=
-    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
-        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
-            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
-            -I "$(pwd)/$builddir/3rd/include" \
+    [ -f "$(pwd)/$builddir/hpp_depinfo" ] && \
+        depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            $(make_includes "$includes") \
             --hash -C "$(pwd)/$builddir/.ezbld/codegen-$generator_name-depinfo" \
-            "$(pwd)/$generator_cpp"); then
-            colored lpurple "$generator_name already generated"
-            return 0
-        fi
+            "$(pwd)/$generator_cpp") && \
+        already_built=true
+
+    local cmd="$CXX_COMPILER -E -fdiagnostics-color=always \
+        $(make_includes "$includes") \
+        \"$input_header\" 2>\"$(pwd)/$builddir/.ezbld/_temp_stderr\" | \"$builddir/$generator_name\" \
+        > \"$output_header\""
+    cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
+
+    local cmd_path="$builddir/.ezbld/codegen-$generator_name-command"
+    ! is_commands_equal "$cmd" "$cmd_path" && already_built=false
+
+    if [ $already_built = true ]; then
+        colored lpurple "$generator_name already generated"
+        return 0
     fi
 
     build_executable \
@@ -181,18 +224,19 @@ codegen_step() {
         "$generator_cpp" \
         "$builddir" \
         "$CXX_COMPILER" \
-        false
+        "" \
+        "" \
+        "" \
+        "$includes"
 
     local start_tm=$(mstime)
     colored yellow "Generating $output_header ... " n
-    $CXX_COMPILER -E \
-        -isystem "$(pwd)/$builddir/3rd/include" \
-        -isystem "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
-        "$input_header" 2>/dev/null | "$builddir/$generator_name" > "$output_header" \
-        || fail "Generation of $output_header failed"
-    colored lgreen "done! $(measure $start_tm)s"
+    eval $cmd || (cat "$(pwd)/$builddir/.ezbld/_temp_stderr"; fail "Generation of $output_header failed")
 
     echo "$depinfo" > "$(pwd)/$builddir/.ezbld/codegen-$generator_name-depinfo"
+    printf '%s\n%s\n' "source=\"$input_header\"" "command=\"$cmd\"" > "$cmd_path"
+
+    colored lgreen "done! $(measure $start_tm)s"
 }
 
 make_pch() {
@@ -201,27 +245,22 @@ make_pch() {
     local CXX_COMPILER="$3"
     local debug="$4"
     local flags="$5"
+    local includes="$6"
     local name='PCH'
 
     [ -f "$location" ] || return 0
 
+    local already_built=false
     local depinfo=
-    if [ -f "$(pwd)/$builddir/hpp_depinfo" ]; then
-        if depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
-            -I "$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
-            -I "$(pwd)/$builddir/3rd/include" \
+    [ -f "$(pwd)/$builddir/hpp_depinfo" ] && \
+        depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            $(make_includes "$includes") \
             --hash -C "$(pwd)/$builddir/.ezbld/pch-$name-depinfo" \
             "$(pwd)/$location") && \
-            [ "$(cat "$location.gch.builddir" 2>/dev/null)" == "$builddir" ] && \
-            [ -f "$location.gch" ]
-        then
-            colored lpurple "$name already built"
-            return 0
-        fi
-    fi
+    [ "$(cat "$location.gch.builddir" 2>/dev/null)" == "$builddir" ] && \
+    [ -f "$location.gch" ] && \
+        already_built=true
 
-    local start_tm=$(mstime)
-    colored yellow "Making precompiled header $location ... " n
     local cmd="$(command -v "$CXX_COMPILER") -std=c++20 -c \
         $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
         $flags \
@@ -230,18 +269,26 @@ make_pch() {
         -L '$(pwd)/$builddir' \
         -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib64' \
         -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
-        -isystem '$(pwd)/$builddir/3rd/include' \
-        -isystem '$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1' \
+        $(make_includes "$includes") \
         '$(pwd)/$location' \
         -o $location.gch"
     cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
+    local cmd_path="$builddir/.ezbld/pch-$name-command"
+    ! is_commands_equal "$cmd" "$cmd_path" && already_built=false
+
+    if [ $already_built = true ]; then
+        colored lpurple "$name already built"
+        return 0
+    fi
+
+    local start_tm=$(mstime)
+    colored yellow "Making precompiled header $location ... " n
     eval $cmd || fail " Failed"
 
     echo "$depinfo" > "$(pwd)/$builddir/.ezbld/pch-$name-depinfo"
     echo "$builddir" > "$location.gch.builddir"
-
-    MAKED_PCH="$location"
+    printf '%s\n%s\n' "source=\"$location.gch\"" "command=\"$cmd\"" > "$cmd_path"
 
     colored lgreen "done! $(measure $start_tm)s"
 }
@@ -460,7 +507,11 @@ $([ "$asan" == true ] && asan_flags)
         "$builddir" \
         "$CXX_COMPILER" \
         "$debug" \
-        "$hardening_flags"
+        "$hardening_flags" \
+        "$(include_list \
+            "system:$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+            "system:$(pwd)/$builddir/3rd/include" \
+        )"
 
     build_static_lib \
         nuklear \
@@ -469,7 +520,10 @@ $([ "$asan" == true ] && asan_flags)
         "$CXX_COMPILER" \
         "$debug" \
         "$hardening_flags" \
-        "-lsfml-system -lsfml-window -lsfml-graphics -lGL -lGLEW"
+        "-lsfml-system -lsfml-window -lsfml-graphics -lGL -lGLEW" \
+        "$(include_list \
+            "system:$(pwd)/$builddir/3rd/include" \
+        )"
 
     codegen_step \
         "$builddir" \
@@ -477,7 +531,10 @@ $([ "$asan" == true ] && asan_flags)
         src/net_actions.hpp \
         net_actions_generator \
         src/net_actions_generator.cpp \
-        src/net_actions_generated.hpp
+        src/net_actions_generated.hpp \
+        "$(include_list \
+            "system:$(pwd)/$builddir/3rd/include" \
+        )"
 
     codegen_step \
         "$builddir" \
@@ -485,7 +542,10 @@ $([ "$asan" == true ] && asan_flags)
         "$builddir/3rd/include/SFML/Window/Keyboard.hpp" \
         sfml_key_generator \
         src/key_generator.cpp \
-        src/key_generated.hpp
+        src/key_generated.hpp \
+        "$(include_list \
+            "system:$(pwd)/$builddir/3rd/include" \
+        )"
 
     codegen_step \
         "$builddir" \
@@ -493,7 +553,10 @@ $([ "$asan" == true ] && asan_flags)
         "$builddir/3rd/include/SFML/Window/Event.hpp" \
         sfml_event_type_generator \
         src/event_type_generator.cpp \
-        src/event_type_generated.hpp
+        src/event_type_generated.hpp \
+        "$(include_list \
+            "system:$(pwd)/$builddir/3rd/include" \
+        )"
 
 
     build_executable \
@@ -503,7 +566,13 @@ $([ "$asan" == true ] && asan_flags)
         "$CXX_COMPILER" \
         "$debug" \
         "$hardening_flags" \
-        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lsfml-audio -lpthread -lGL -lGLEW -lluajit-5.1"
+        "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lsfml-audio -lpthread -lGL -lGLEW -lluajit-5.1" \
+        "$(include_list \
+            "system:$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
+            "system:$(pwd)/$builddir/3rd/include" \
+            "$(pwd)/src" \
+            "$(pwd)/src/script" \
+        )"
 
     build_executable \
         cfg_test \
@@ -512,7 +581,12 @@ $([ "$asan" == true ] && asan_flags)
         "$CXX_COMPILER" \
         "$debug" \
         "$hardening_flags" \
-        "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2"
+        "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2" \
+        "$(include_list \
+            "system:$(pwd)/$builddir/3rd/include" \
+            "$(pwd)/src" \
+            "$(pwd)/src/script" \
+        )"
 
 #    build_executable \
 #        gui-test \
