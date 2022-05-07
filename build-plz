@@ -327,19 +327,27 @@ install_headers() {
 
 gen_compodb() {
     local builddir="$1"
+    local specific_file="$2"
 
     echo "[" > ./compile_commands.json
 
     local targets="$(ls $builddir/.ezbld/*-command)"
-    local count=$(echo "$targets" | wc -w);
+    local count=
+    [ -z "$specific_file" ] && count=$(echo "$targets" | wc -w) || count=1
     local idx=0
 
     for f in $targets; do
+        local source=
+        local command=
+        . "$f"
+
+        if [ ! -z "$specific_file" ] && [ "$specific_file" != "${source##*/}" ]; then
+            continue
+        fi
+
         idx=$((idx+1))
         local end_seq="},"
         [ $idx = $count ] && end_seq="}"
-
-        . "$f"
 
         cat >> ./compile_commands.json <<EOF
 {
@@ -365,6 +373,7 @@ _build() {
     local builddir='./easybuild'
     local rebuild_submodules=false
     local compodb=false
+    local compodb_source=
     local debug=false
     local asan=false
     local android_abi=
@@ -381,6 +390,10 @@ _build() {
             ;;
         --rebuild-subs)
             rebuild_submodules=true
+            ;;
+        --compodb=*)
+            compodb=true
+            compodb_source="${1#*=}"
             ;;
         --compodb)
             compodb=true
@@ -584,8 +597,6 @@ $([ "$asan" == true ] && asan_flags)
         "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2" \
         "$(include_list \
             "system:$(pwd)/$builddir/3rd/include" \
-            "$(pwd)/src" \
-            "$(pwd)/src/script" \
         )"
 
 #    build_executable \
@@ -597,7 +608,7 @@ $([ "$asan" == true ] && asan_flags)
 #        "$hardening_flags" \
 #        "-lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lGL -lGLEW"
 
-    [ "$compodb" = true ] && gen_compodb "$builddir"
+    [ "$compodb" = true ] && gen_compodb "$builddir" "$compodb_source"
 
     eval $run_args
 }
