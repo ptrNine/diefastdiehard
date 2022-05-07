@@ -79,16 +79,21 @@ public:
             gs.debug_physics = true;
 
         init_lua();
-        lua().load();
-        lua_ai().load();
     }
 
     void init_lua() {
-        lua().ctx().annotate({.argument_names = {"commands"}});
-        lua().ctx().provide(LUA_TNAME("cmd"), [](const std::string& commands) {
+        lua.emplace(luactx_mgr::global(true));
+
+        lua->ctx().annotate({.argument_names = {"commands"}});
+        lua->ctx().provide(LUA_TNAME("cmd"), [](const std::string& commands) {
             for (auto cmd : commands / split('\n')) command_buffer().push(std::string(cmd.begin(), cmd.end()));
         });
-        lua().ctx().provide(LUA_TNAME("GS"), &gs);
+        lua->ctx().provide(LUA_TNAME("GS"), &gs);
+
+        lua_handle_event = lua->get_caller<void(const sf::Event&)>("G.handle_event", 2s, true);
+        lua_game_update  = lua->get_caller<void(game_state*)>("G.game_update", 2s, true);
+
+        lua->load();
     }
 
     void on_destroy() final {
@@ -98,7 +103,7 @@ public:
 
     void handle_event(const sf::Event& evt) final {
         gs.handle_event(evt);
-        lua().try_call_proc(true, LUA_TNAME("G.handle_event"), evt);
+        lua_handle_event(evt);
     }
 
     void ui_update() final {
@@ -128,7 +133,7 @@ public:
 
     void game_update() final {
         gs.game_update();
-        lua().try_call_proc(true, LUA_TNAME("G.game_update"), &gs);
+        lua_game_update(&gs);
     }
 
     void post_command_update() override {
@@ -142,6 +147,12 @@ public:
                 break;
             }
             gs.events.pop();
+        }
+
+        if (gs.lua_cmd_enabled) {
+            for (auto& cmd : gs.lua_cmd_queue)
+                lua->execute_line(cmd);
+            gs.lua_cmd_queue.clear();
         }
     }
 
@@ -270,6 +281,10 @@ private:
 
     timer    cam_timer;
     sf::View _view;
+
+    std::optional<luactx_mgr>          lua;
+    lua_caller<void(const sf::Event&)> lua_handle_event;
+    lua_caller<void(game_state*)>      lua_game_update;
 };
 }
 

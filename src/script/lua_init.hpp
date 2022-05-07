@@ -39,7 +39,6 @@ void luactx_mgr::load() {
     try {
         auto dir = fs::current_path() / "data/scripts";
         auto fullpath = (dir / (file_name + ".lua")).string();
-        //LOG_INFO("Load lua script \"{}\"", fullpath);
 
         _ctx->load_and_call(fullpath.data());
         loaded = true;
@@ -48,12 +47,12 @@ void luactx_mgr::load() {
         ofd << _ctx->generate_assist();
     }
     catch (const std::exception& e) {
-        LOG_ERR("lua: {}", e.what());
+        LOG_ERR("lua load failed: {}", e.what());
         loaded = false;
     }
 }
 
-luactx_mgr::luactx_mgr(std::string instance_name):
+luactx_mgr::luactx_mgr(std::string instance_name, bool deferred_load):
     _ctx(std::make_unique<luacpp::luactx>(true)), _instance_name(std::move(instance_name)) {
     //LOG_INFO("Init lua instance \"{}\"", _instance_name);
 
@@ -68,32 +67,9 @@ luactx_mgr::luactx_mgr(std::string instance_name):
         lua_ai_instance_init(*_ctx);
     else
         throw std::runtime_error("Invalid lua instance name: " + _instance_name);
-}
 
-template <typename NameT, typename... Ts>
-auto luactx_mgr::try_call_proc(bool game_loop, NameT name, Ts&&... args) {
-    if (game_loop) {
-        auto now               = std::chrono::steady_clock::now();
-        auto [pos, was_insert] = call_history.emplace(std::string_view(NameT{}),
-                                                      failed_info{std::chrono::steady_clock::time_point{}, false});
-        if (!was_insert && now - pos->second.time < std::chrono::seconds(1))
-            return;
-    }
-
-    try {
-        _ctx->extract<void(Ts...)>(name)(std::forward<Ts>(args)...);
-        if (game_loop)
-            call_history.at(std::string_view(NameT{})).failed = false;
-    }
-    catch (const std::exception& e) {
-        if (game_loop) {
-            auto& info = call_history.at(std::string_view(NameT{}));
-            info.time = std::chrono::steady_clock::now();
-            if (!info.failed)
-                LOG_ERR("lua error: {}", e.what());
-            info.failed = true;
-        }
-    }
+    if (!deferred_load)
+        load();
 }
 
 void luactx_mgr::execute_line(const std::string& line) {
@@ -105,13 +81,118 @@ void luactx_mgr::execute_line(const std::string& line) {
     }
 }
 
-ai_lua_operator_update_func_t get_ai_lua_operator_update(const std::string& name) {
-    return lua_ai().ctx().extract<void(class ai_operator_base*, const ai_data_t*)>(
-        luacpp::lua_name{"AI"}.dot(name).dot({"update"}));
+using namespace std::chrono_literals;
+
+template <typename F>
+class lua_caller {
+public:
+    using lua_func_t = decltype(luacpp::luactx().extract<F>(luacpp::lua_name{""}));
+    using return_t   = typename luacpp::details::lua_function_traits<std::add_pointer_t<F>>::return_t;
+
+    template <typename RT>
+    static auto empty_return() {
+        if constexpr (!std::is_same_v<RT, void>)
+            return std::optional<RT>();
+    }
+
+    lua_caller() = default;
+    lua_caller(luacpp::luactx*           ictx,
+               std::string               function_name,
+               std::chrono::microseconds iretry_timeout  = 0us,
+               bool                      isuppress_error = false):
+        ctx(ictx),
+        func_name(std::move(function_name)),
+        retry_timeout(iretry_timeout),
+        suppress_error(isuppress_error) {}
+
+    template <typename... Ts>
+    decltype(empty_return<return_t>()) operator()(Ts&&... args) {
+        if (!ctx)
+            return empty_return<return_t>();
+
+        if (function) {
+            return try_call(std::forward<Ts>(args)...);
+        }
+        else {
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_fail_tp < retry_timeout)
+                return empty_return<return_t>();
+
+            try {
+                function.emplace(ctx->extract<F>(func_name));
+                return try_call(std::forward<Ts>(args)...);
+            }
+            catch (const std::exception& e) {
+                if (!suppress_error)
+                    LOG_ERR("lua extract failed: {}", e.what());
+
+                function.reset();
+                last_fail_tp = std::chrono::steady_clock::now();
+                return empty_return<return_t>();
+            }
+        }
+    }
+
+    explicit operator bool() const {
+        return function;
+    }
+
+private:
+    template <typename... Ts>
+    decltype(empty_return<return_t>()) try_call(Ts&&... args) {
+        try {
+            return (*function)(std::forward<Ts>(args)...);
+        }
+        catch (const std::exception& e) {
+            if (!suppress_error)
+                LOG_ERR("lua call failed: {}", e.what());
+
+            function.reset();
+            last_fail_tp = std::chrono::steady_clock::now();
+            return empty_return<return_t>();
+        }
+    }
+
+private:
+    luacpp::luactx*                       ctx            = nullptr;
+    std::chrono::steady_clock::time_point last_fail_tp   = std::chrono::steady_clock::now();
+    luacpp::lua_name                      func_name      = {{}};
+
+public:
+    std::chrono::microseconds retry_timeout{0};
+    bool                      suppress_error = false;
+
+private:
+    std::optional<lua_func_t> function;
+};
+
+template <typename F, typename... ArgsT>
+auto luactx_mgr::try_call_function(std::string name, ArgsT&&... args) -> decltype(_opt_return<F>()()) {
+    try {
+        if constexpr (!std::is_same_v<typename luacpp::details::lua_function_traits<std::add_pointer_t<F>>::return_t, void>)
+            return _ctx->extract<F>(luacpp::lua_name{std::move(name)})(std::forward<ArgsT>(args)...);
+         _ctx->extract<F>(luacpp::lua_name{std::move(name)})(std::forward<ArgsT>(args)...);
+         return true;
+    }
+    catch (std::exception&) {
+        return {};
+    }
 }
 
-ai_lua_operator_init_func_t get_ai_lua_operator_init(const std::string& name) {
-    return lua_ai().ctx().extract<void(class ai_operator_base*)>(luacpp::lua_name{"AI"}.dot(name).dot({"init"}));
+template <typename F, typename... ArgsT>
+auto luactx_mgr::call_function(std::string name, ArgsT&&... args) -> typename _opt_return<F>::return_t {
+    return _ctx->extract<F>(luacpp::lua_name{std::move(name)})(std::forward<ArgsT>(args)...);
+}
+
+template <typename F>
+lua_caller<F> luactx_mgr::get_caller(std::string name, std::chrono::microseconds retry_timeout, bool suppress_error) {
+    return lua_caller<F>(_ctx.get(), std::move(name), retry_timeout, suppress_error);
+}
+
+template <typename F>
+std::function<F>
+luactx_mgr::get_caller_type_erased(std::string name, std::chrono::microseconds retry_timeout, bool suppress_error) {
+    return {get_caller<F>(std::move(name), retry_timeout, suppress_error)};
 }
 
 } // namespace dfdh

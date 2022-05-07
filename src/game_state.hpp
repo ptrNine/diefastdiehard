@@ -453,6 +453,10 @@ public:
         });
     }
 
+    void lua_schedule_execution(const std::string& code) {
+        lua_cmd_queue.push_back(code);
+    }
+
     physic_simulation  sim;
     bullet_mgr         blt_mgr;
     instant_kick_mgr   kick_mgr;
@@ -476,12 +480,14 @@ public:
     std::unique_ptr<player_configurator_ui>               pconf_ui;
     std::optional<cfg_value_control>                      cfgval_ctrl;
     cfg_watcher                                           conf_watcher;
+    std::vector<std::string>                              lua_cmd_queue;
 
     vec2f cam_pos = {0.f, 0.f};
 
     bool on_game             = false;
     bool debug_physics       = false;
     bool gravity_for_bullets = true;
+    bool lua_cmd_enabled     = true;
 };
 
 } // namespace dfdh

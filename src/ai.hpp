@@ -262,10 +262,27 @@ public:
         return _data;
     }
 
-private:
-    ai_mgr_singleton() {
-        luactx_mgr::ai_instance();
+    struct ai_luactx_mtxlock {
+    public:
+        ai_luactx_mtxlock(luactx_mgr& ilua, std::mutex& imtx): lua(ilua), mtx(imtx) {
+            mtx.lock();
+        }
+        ~ai_luactx_mtxlock() {
+            mtx.unlock();
+        }
+
+        luactx_mgr& lua;
+
+    private:
+        std::mutex& mtx;
+    };
+
+    ai_luactx_mtxlock luactx() {
+        return {lua, mtx};
     }
+
+private:
+    ai_mgr_singleton() = default;
 
     ~ai_mgr_singleton() {
         if (_work)
@@ -282,6 +299,7 @@ public:
     std::atomic<bool>                     _stopped;
     timer                                 _timer;
     std::thread                           _thread;
+    luactx_mgr                            lua = luactx_mgr::ai();
 
 private:
     mutable std::mutex mtx;
@@ -510,23 +528,24 @@ private:
     bool  _jump_was        = false;
 };
 
-using ai_lua_operator_update_func_t = std::function<void(ai_operator_base*, const ai_data_t*)>;
-using ai_lua_operator_init_func_t = std::function<void(ai_operator_base*)>;
-
-ai_lua_operator_update_func_t get_ai_lua_operator_update(const std::string& name);
-ai_lua_operator_init_func_t   get_ai_lua_operator_init(const std::string& name);
-
 class ai_operator_lua : public ai_operator_base {
 public:
+    using update_func_t = void(ai_operator_base*, const ai_data_t*);
+    using init_func_t   = void(ai_operator_base*);
+
     ai_operator_lua(const player_name_t& player_name, std::string operator_name):
         ai_operator_base(player_name), _operator_name(std::move(operator_name)) {
+
+        auto lua = ai_mgr().luactx();
+
         try {
-            get_ai_lua_operator_init(_operator_name)(this);
+            lua.lua.call_function<init_func_t>("AI." + _operator_name + ".init", this);
         }
         catch (const std::exception& e) {
             LOG_WARN("AI.{}.init() is missing or its execution failed: {}", _operator_name, e.what());
         }
-        _lua_update_func = get_ai_lua_operator_update(_operator_name);
+
+        _update_func = lua.lua.get_caller_type_erased<update_func_t>("AI." + _operator_name + ".update", 2s);
     }
 
     std::string difficulty() const final {
@@ -534,12 +553,12 @@ public:
     }
 
     void work(const ai_data_t& ai_data) final {
-        _lua_update_func(this, &ai_data);
+        _update_func(this, &ai_data);
     }
 
 private:
-    std::string                   _operator_name;
-    ai_lua_operator_update_func_t _lua_update_func;
+    std::string                  _operator_name;
+    std::function<update_func_t> _update_func;
 };
 
 std::unique_ptr<ai_operator_base> ai_operator_base::create(const player_name_t& player_name,
