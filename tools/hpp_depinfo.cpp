@@ -119,10 +119,13 @@ bool depinfo(const fs::path& file_path, bool is_system_include) {
 int main(int, char** argv) {
     for (auto argp = argv + 1; *argp; ++argp) {
         auto arg = std::string_view(*argp);
-        if (arg == "-I") {
+        if (arg == "-I" || arg == "-isystem") {
             ++argp;
             if (*argp) {
-                includes.push_back(fs::weakly_canonical(*argp));
+                auto path = std::string_view(*argp);
+                if (path.size() >= 2 && path.front() == '"' && path.back() == '"')
+                    path = path.substr(1, path.size() - 2);
+                includes.push_back(fs::weakly_canonical(path));
                 continue;
             }
             else {
