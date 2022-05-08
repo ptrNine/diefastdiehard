@@ -25,43 +25,75 @@ public:
     };
 
     struct profiler_scope {
-        profiler_scope(std::string measure_name, profiler& prof_instance):
-            name(std::move(measure_name)), prof(prof_instance) {
+        profiler_scope(std::string measure_name, profiler& prof_instance, bool increment_counter = true):
+            name(std::move(measure_name)), prof(prof_instance), increment(increment_counter) {
             prof.start(name);
         }
 
         ~profiler_scope() {
-            prof.end(name);
+            prof.end(name, increment);
         }
 
         std::string name;
         profiler&   prof;
+        bool        increment;
     };
 
     void start(const std::string& measure_name) {
         measures[measure_name].start = std::chrono::steady_clock::now();
     }
 
-    void end(const std::string& measure_name) {
+    void end(const std::string& measure_name, bool increment_counter) {
         auto found = measures.find(measure_name);
         if (found != measures.end()) {
             auto& cur = found->second;
             auto  dur = std::chrono::steady_clock::now() - found->second.start;
-            ++cur.count;
             cur.dur_sum += dur;
-            if (dur > cur.last_max_dur)
-                cur.last_max_dur = dur;
-            if (dur < cur.last_min_dur)
-                cur.last_min_dur = dur;
+            if (increment_counter) {
+                ++cur.count;
+                if (dur > cur.last_max_dur)
+                    cur.last_max_dur = dur;
+                if (dur < cur.last_min_dur)
+                    cur.last_min_dur = dur;
+            }
         }
     }
 
-    profiler_scope scope(const std::string& measure_name) {
-        return {measure_name, *this};
+    profiler_scope scope(const std::string& measure_name, bool increment_counter = true) {
+        return {measure_name, *this, increment_counter};
     }
 
     friend std::ostream& operator<<(std::ostream& os, const profiler& prof) {
-        print_any(os, prof.measures);
+        if (prof.short_print_format()) {
+            auto sum = 0.f;
+            for (auto& [_, time] : prof.measures)
+                sum +=
+                    std::chrono::duration_cast<std::chrono::duration<float>>(time.dur_sum).count() / float(time.count);
+
+            print_any(os, '{');
+            for (auto i = prof.measures.begin(); i != prof.measures.end();) {
+                print_any(os, '{');
+
+                print_any(os, i->first);
+                print_any(os, ", ");
+                auto t = 100.f *
+                         (std::chrono::duration_cast<std::chrono::duration<float>>(i->second.dur_sum) /
+                          float(i->second.count))
+                             .count() /
+                         sum;
+                char st[32];
+                sprintf(st, "%05.2f%%", t);
+                print_any(os, st);
+
+                auto next = std::next(i);
+                print_any(os, next == prof.measures.end() ? "}" : "}, ");
+                i = next;
+            }
+            print_any(os, '}');
+        }
+        else {
+            print_any(os, prof.measures);
+        }
         return os;
     }
 
@@ -88,11 +120,21 @@ public:
         }
     }
 
+    [[nodiscard]]
+    bool short_print_format() const {
+        return short_format;
+    }
+
+    void short_print_format(bool value) {
+        short_format = value;
+    }
+
 private:
     std::map<std::string, time_data> measures;
 
     std::chrono::steady_clock::time_point last_print = std::chrono::steady_clock::now();
     std::chrono::nanoseconds              print_period = 1s;
+    bool                                  short_format = true;
 };
 
 }

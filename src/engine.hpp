@@ -97,19 +97,23 @@ public:
             }
 
             {
-                auto prof = loop_prof.scope("ui");
+                auto prof = loop_prof.scope("ui", false);
                 ui_update();
             }
 
             {
-                auto prof = loop_prof.scope("render_upd");
+                auto prof = loop_prof.scope("render");
                 _wnd.clear();
                 render_update(_wnd);
             }
 
             {
-                auto prof = loop_prof.scope("render");
+                auto prof = loop_prof.scope("ui");
                 ui.render();
+            }
+
+            {
+                auto prof = loop_prof.scope("swapbuffers");
                 _wnd.display();
             }
 
@@ -120,7 +124,8 @@ public:
             }
 
             if (profiler_print) {
-                loop_prof.try_print([](auto& prof) { LOG("min|max|avg: {}", prof); });
+                loop_prof.try_print(
+                    [](auto& prof) { LOG(prof.short_print_format() ? "{}" : "min|max|avg: {}", prof); });
             }
         }
 
