@@ -1071,7 +1071,10 @@ inline void stay_away_from_borders(const ai_player_t& player, ai_move_spec& move
 }
 
 inline void ai_operator_native::work(const ai_data_t& ai_data) {
-    auto& player = ai_data.players.at(player_name());
+    auto found = ai_data.players.find(player_name());
+    if (found == ai_data.players.end())
+        return;
+    auto& player = found->second;
 
     auto last_stand_on  = _operated_platforms.stand_on;
     _operated_platforms = find_platform(ai_data.platforms, player);
