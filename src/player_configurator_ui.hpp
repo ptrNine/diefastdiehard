@@ -178,7 +178,7 @@ public:
                         if (nk_input_is_mouse_hovering_rect(in, bounds)) {
                             if (ui.tooltip_begin(300.f)) {
                                 ui_layout_row(ui, 25.f, {80.f, ui_row::dynamic, 40.f});
-                                ui_weapon_property(ui, "hit power", pistol.wpn->hit_power(), 100, 70.f);
+                                ui_weapon_property(ui, "hit power", pistol.wpn->hit_power(), 100, 60.f);
                                 ui_weapon_property(ui, "fire rate", u32(pistol.wpn->fire_rate()), 1000);
                                 ui_weapon_property(ui, "recoil", u32(pistol.wpn->recoil()), 400);
                                 ui_weapon_property(ui, "accuracy", u32(pistol.wpn->accuracy() * 100.f), 100);
