@@ -369,6 +369,20 @@ public:
         return inst;
     }
 
+    static bool is_exists(const std::string& wpn_section_name) {
+        if (!wpn_section_name.starts_with("wpn_"))
+            return false;
+
+        auto sect = cfg::global().try_get_section(wpn_section_name);
+        if (sect) {
+            auto wpn_class = sect->try_get<std::string>("class");
+            if (wpn_class && *wpn_class)
+                return true;
+        }
+
+        return false;
+    }
+
     weapon& load(const std::string& section) {
         auto found = _wpns.find(section);
         if (found != _wpns.end())

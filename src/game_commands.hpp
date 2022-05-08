@@ -11,6 +11,7 @@ public:
     game_commands(game_state& state): gs(state) {
         command_buffer().add_handler("player", &game_commands::cmd_player, this);
         command_buffer().add_handler("player delete", &game_commands::cmd_player_delete, this);
+        command_buffer().add_handler("player wpn", &game_commands::cmd_player_wpn, this);
         command_buffer().add_handler("cfg", &game_commands::cmd_cfg, this);
         command_buffer().add_handler("cfg set", &game_commands::cmd_cfg_set, this);
         command_buffer().add_handler("cfg mode", &game_commands::cmd_cfg_mode, this);
@@ -56,6 +57,7 @@ public:
                    "  player controller[N] [player_name]         - binds specified controller to player\n"
                    "  player controller[N] delete                - deletes specified controller\n"
                    "  player conf [player_name]                  - open configuration ui for player\n"
+                   "  player wpn [player_name] [wpn_section]?    - set/or show player weapon\n"
                    "  player create [player_name|player_params]  - create player\n"
                    "      player_params must be set in \"name=NAME group=INT\" format";
         }
@@ -125,6 +127,25 @@ public:
         }
         else {
             LOG_ERR("player {} not found", player_name);
+        }
+    }
+
+    void cmd_player_wpn(const std::string& player_name, const std::optional<std::string>& wpn_section) {
+        auto found = gs.players.find(player_name);
+        if (found == gs.players.end()) {
+            LOG_ERR("player {} not found", player_name);
+            return;
+        }
+
+        auto& player = *found->second;
+        if (wpn_section) {
+            if (weapon_mgr().is_exists(*wpn_section))
+                player.setup_pistol(*wpn_section);
+            else
+                LOG_ERR("weapon {} not found", *wpn_section);
+        }
+        else {
+            LOG_INFO("player wpn {}: {}", player_name, player.pistol_section());
         }
     }
 
