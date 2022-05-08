@@ -4,12 +4,12 @@
 
 #include "base/types.hpp"
 #include "base/cfg_value_control.hpp"
+#include "ui/player_configurator_ui.hpp"
 #include "bullet.hpp"
 #include "physic_simulation.hpp"
 #include "instant_kick.hpp"
 #include "adjustment_box.hpp"
 #include "player_controller.hpp"
-#include "player_configurator_ui.hpp"
 #include "level.hpp"
 #include "ai.hpp"
 

@@ -3,12 +3,14 @@
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Window/Event.hpp>
 
-#include "nuklear.hpp"
 #include "base/args_view.hpp"
 #include "base/cfg.hpp"
 #include "base/profiler.hpp"
-#include "devconsole.hpp"
-#include "main_menu.hpp"
+
+#include "ui/nuklear.hpp"
+#include "ui/devconsole.hpp"
+#include "ui/main_menu.hpp"
+
 #include "command_buffer.hpp"
 
 namespace dfdh {

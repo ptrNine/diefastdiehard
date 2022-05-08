@@ -2,12 +2,13 @@
 
 #include <iostream>
 
-#include "src/base/serialization.hpp"
-#include "src/engine.hpp"
-#include "src/player_configurator_ui.hpp"
-#include "src/command_buffer.hpp"
-#include "src/game_commands.hpp"
-#include "src/game_state.hpp"
+#include "base/serialization.hpp"
+#include "ui/player_configurator_ui.hpp"
+
+#include "engine.hpp"
+#include "command_buffer.hpp"
+#include "game_commands.hpp"
+#include "game_state.hpp"
 
 #include "script/lua_init.hpp"
 

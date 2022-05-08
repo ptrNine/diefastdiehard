@@ -513,7 +513,11 @@ $([ "$asan" == true ] && asan_flags)
         "$builddir" \
         "$CXX_COMPILER" \
         "$debug" \
-        "$hardening_flags"
+        "$hardening_flags" \
+        "" \
+        "$(include_list \
+            "$(pwd)/src" \
+        )"
 
     make_pch \
         src/stdafx.hpp \
@@ -524,11 +528,12 @@ $([ "$asan" == true ] && asan_flags)
         "$(include_list \
             "system:$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
             "system:$(pwd)/$builddir/3rd/include" \
+            "$(pwd)/src" \
         )"
 
     build_static_lib \
         nuklear \
-        src/nuklear.cpp \
+        src/ui/nuklear.cpp \
         "$builddir" \
         "$CXX_COMPILER" \
         "$debug" \
@@ -584,7 +589,6 @@ $([ "$asan" == true ] && asan_flags)
             "system:$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
             "system:$(pwd)/$builddir/3rd/include" \
             "$(pwd)/src" \
-            "$(pwd)/src/script" \
         )"
 
     build_executable \
@@ -597,6 +601,7 @@ $([ "$asan" == true ] && asan_flags)
         "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2" \
         "$(include_list \
             "system:$(pwd)/$builddir/3rd/include" \
+            "$(pwd)/src" \
         )"
 
 #    build_executable \
