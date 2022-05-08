@@ -28,17 +28,18 @@ class slot_alive_holder {
 public:
     slot_alive_holder(): _v(std::make_shared<internal_slot_mode>()) {}
     slot_alive_holder(const slot_alive_holder&): slot_alive_holder() {}
-    slot_alive_holder(slot_alive_holder&&): slot_alive_holder() {}
+    slot_alive_holder(slot_alive_holder&&) noexcept: slot_alive_holder() {}
     slot_alive_holder& operator=(const slot_alive_holder&) { return *this; }
-    slot_alive_holder& operator=(slot_alive_holder&&) { return *this; }
+    slot_alive_holder& operator=(slot_alive_holder&&) noexcept { return *this; }
 
     ~slot_alive_holder() {
         while (_v.use_count() > 1)
             std::this_thread::sleep_for(1us);
     }
 
+    [[nodiscard]]
     slot_alive_checker checker() const {
-        return slot_alive_checker(_v);
+        return {_v};
     }
 
 private:
@@ -48,6 +49,7 @@ private:
 
 class slot_holder {
 public:
+    [[nodiscard]]
     slot_alive_checker get_checker() const {
         return _online.checker();
     }

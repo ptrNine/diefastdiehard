@@ -27,10 +27,10 @@ local ai_movement = {
     COUNT = 3
 }
 
-local dummy_ai = {}
+local insane_ai = {}
 local players_data = {}
 
-dummy_ai.init = function(ai_operator)
+insane_ai.init = function(ai_operator)
     players_data[ai_operator.player_name] = {
         movement = ai_movement.off
     }
@@ -38,13 +38,13 @@ end
 
 ---@param ai_operator ai_operator_t
 ---@param data ai_data_t
-dummy_ai.update = function(ai_operator, data)
+insane_ai.update = function(ai_operator, data)
     local pl_data = players_data[ai_operator.player_name]
-    dummy_ai_update(ai_operator, data.players[ai_operator.player_name], data, pl_data)
+    insane_ai_update(ai_operator, data.players[ai_operator.player_name], data, pl_data)
 end
 
 AI = {
-    dummy = dummy_ai
+    insane = insane_ai
 }
 
 local insane_shooter_relax_timeout    = 0.5
@@ -125,7 +125,7 @@ end
 ---@param plr ai_player_t
 ---@param world ai_data_t
 ---@param plr_data table<string, any>
-function dummy_ai_update(op, plr, world, plr_data)
+function insane_ai_update(op, plr, world, plr_data)
     target, too_close = insane_shooter(op, plr, world, plr_data)
     insane_survival(op, plr, world, plr_data)
 end
