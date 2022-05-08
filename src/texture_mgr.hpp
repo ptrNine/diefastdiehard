@@ -6,7 +6,7 @@
 
 #include <SFML/Graphics/Texture.hpp>
 
-#include "log.hpp"
+#include "base/log.hpp"
 
 namespace dfdh {
 

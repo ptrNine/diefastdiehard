@@ -42,7 +42,7 @@ int main() {
         "#include <string>\n"
         "#include <map>\n"
         "#include <SFML/Window/Event.hpp>\n"
-        "#include \"log.hpp\"\n"
+        "#include \"base/log.hpp\"\n"
         "\n"
         "namespace dfdh {\n"
         "\n"

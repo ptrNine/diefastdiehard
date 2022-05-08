@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "../src/cfg.hpp"
-#include "../src/vec_math.hpp"
+#include "base/cfg.hpp"
+#include "base/vec_math.hpp"
 
 using namespace std::string_view_literals;
 

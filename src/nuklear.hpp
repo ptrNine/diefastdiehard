@@ -15,7 +15,6 @@
 #include <nuklear.h>
 #include "nuklear_sfml_gl3.h"
 
-#include "types.hpp"
 #include "nuklear_binding.hpp"
 #include "texture_mgr.hpp"
 

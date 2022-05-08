@@ -9,12 +9,12 @@
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/System/Clock.hpp>
 
-#include "types.hpp"
+#include "base/types.hpp"
 #include "physic_point.hpp"
 #include "physic_line.hpp"
 #include "physic_group.hpp"
 #include "physic_platform.hpp"
-#include "log.hpp"
+#include "base/log.hpp"
 
 namespace dfdh {
 

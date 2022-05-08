@@ -3,12 +3,12 @@
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Graphics/Sprite.hpp>
 
-#include "rand_pool.hpp"
+#include "base/rand_pool.hpp"
+#include "base/cfg.hpp"
+#include "base/log.hpp"
 #include "bullet.hpp"
-#include "cfg.hpp"
 #include "texture_mgr.hpp"
 #include "instant_kick.hpp"
-#include "log.hpp"
 #include "sound_mgr.hpp"
 
 namespace dfdh

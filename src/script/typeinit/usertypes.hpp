@@ -1,9 +1,9 @@
 #pragma once
 
-#include "vec2.hpp"
-#include "vec_math.hpp"
+#include "base/vec2.hpp"
+#include "base/vec_math.hpp"
+#include "base/log.hpp"
 #include "ai_types.hpp"
-#include "log.hpp"
 #include "game_state.hpp"
 #include "event_type_generated.hpp"
 

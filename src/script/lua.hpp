@@ -3,7 +3,7 @@
 #include <fstream>
 #include <filesystem>
 
-#include "log.hpp"
+#include "base/log.hpp"
 
 namespace luacpp {
     class luactx;

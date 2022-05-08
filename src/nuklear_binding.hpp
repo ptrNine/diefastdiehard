@@ -1,8 +1,8 @@
 /* Generated with PEngine/lang_tool (and slightly adapted) */
 #pragma once
 
-#include "types.hpp"
-#include "vec2.hpp"
+#include "base/types.hpp"
+#include "base/vec2.hpp"
 
 #include <nuklear.h>
 #include <SFML/Graphics/Color.hpp>

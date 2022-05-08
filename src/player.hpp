@@ -10,12 +10,12 @@
 #include <SFML/Graphics/CircleShape.hpp>
 
 //#include "rand_pool.hpp"
+#include "base/types.hpp"
+#include "base/cfg.hpp"
+#include "base/avg_counter.hpp"
 #include "bullet.hpp"
-#include "types.hpp"
 #include "physic_simulation.hpp"
-#include "cfg.hpp"
 #include "weapon.hpp"
-#include "avg_counter.hpp"
 #include "player_configurator.hpp"
 #include "player_controller.hpp"
 #include "net_actions.hpp"

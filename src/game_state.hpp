@@ -2,7 +2,8 @@
 
 #include <SFML/Graphics/RectangleShape.hpp>
 
-#include "types.hpp"
+#include "base/types.hpp"
+#include "base/cfg_value_control.hpp"
 #include "bullet.hpp"
 #include "physic_simulation.hpp"
 #include "instant_kick.hpp"
@@ -11,7 +12,6 @@
 #include "player_configurator_ui.hpp"
 #include "level.hpp"
 #include "ai.hpp"
-#include "cfg_value_control.hpp"
 
 namespace dfdh {
 

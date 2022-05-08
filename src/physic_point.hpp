@@ -6,9 +6,9 @@
 
 #include <SFML/Graphics/Rect.hpp>
 
-#include "vec2.hpp"
-#include "vec_math.hpp"
-#include "types.hpp"
+#include "base/types.hpp"
+#include "base/vec2.hpp"
+#include "base/vec_math.hpp"
 
 namespace dfdh {
 

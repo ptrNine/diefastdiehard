@@ -1,10 +1,10 @@
 #pragma once
 
-#include "types.hpp"
+#include "base/types.hpp"
+#include "base/fixed_string.hpp"
+#include "base/color.hpp"
+#include "base/vec2.hpp"
 #include "net_basic.hpp"
-#include "fixed_string.hpp"
-#include "color.hpp"
-#include "vec2.hpp"
 
 #define SETUP_COUNTER() \
     namespace details { \

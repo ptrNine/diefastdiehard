@@ -4,12 +4,12 @@
 #include <SFML/Window/Event.hpp>
 
 #include "nuklear.hpp"
+#include "base/args_view.hpp"
+#include "base/cfg.hpp"
+#include "base/profiler.hpp"
 #include "devconsole.hpp"
 #include "main_menu.hpp"
-#include "args_view.hpp"
 #include "command_buffer.hpp"
-#include "cfg.hpp"
-#include "profiler.hpp"
 
 namespace dfdh {
 

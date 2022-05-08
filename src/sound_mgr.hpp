@@ -8,8 +8,8 @@
 #include <SFML/Audio/SoundBuffer.hpp>
 #include <SFML/Audio/Sound.hpp>
 
-#include "log.hpp"
-#include "vec2.hpp"
+#include "base/log.hpp"
+#include "base/vec2.hpp"
 
 namespace dfdh {
 

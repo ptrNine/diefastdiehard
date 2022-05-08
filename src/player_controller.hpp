@@ -1,8 +1,8 @@
 #pragma once
 
-#include "types.hpp"
-#include "cfg.hpp"
-#include "fixed_string.hpp"
+#include "base/types.hpp"
+#include "base/cfg.hpp"
+#include "base/fixed_string.hpp"
 #include "key_generated.hpp"
 
 namespace dfdh {

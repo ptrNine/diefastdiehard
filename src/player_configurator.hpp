@@ -3,10 +3,10 @@
 #include <SFML/Graphics/Color.hpp>
 #include <filesystem>
 
-#include "fixed_string.hpp"
-#include "log.hpp"
-#include "cfg.hpp"
-#include "color.hpp"
+#include "base/fixed_string.hpp"
+#include "base/log.hpp"
+#include "base/cfg.hpp"
+#include "base/color.hpp"
 
 namespace dfdh {
 class player_configurator {

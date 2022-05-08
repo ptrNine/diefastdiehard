@@ -2,7 +2,7 @@
 
 #include <list>
 
-#include "types.hpp"
+#include "base/types.hpp"
 #include "physic_simulation.hpp"
 #include "bullet.hpp"
 

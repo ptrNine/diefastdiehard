@@ -4,10 +4,10 @@
 #include <filesystem>
 #include <optional>
 
-#include "../src/io_tools.hpp"
-#include "../src/split_view.hpp"
-#include "../src/md5.hpp"
-#include "../src/print.hpp"
+#include "base/io_tools.hpp"
+#include "base/split_view.hpp"
+#include "base/md5.hpp"
+#include "base/print.hpp"
 
 using namespace dfdh;
 namespace fs = std::filesystem;

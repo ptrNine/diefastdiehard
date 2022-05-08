@@ -1,7 +1,7 @@
 #pragma once
 
+#include "base/ston.hpp"
 #include "game_state.hpp"
-#include "ston.hpp"
 #include "command_buffer.hpp"
 
 namespace dfdh {

@@ -1,14 +1,15 @@
 #include "src/stdafx.hpp"
 
 #include <iostream>
+
+#include "src/base/serialization.hpp"
 #include "src/engine.hpp"
 #include "src/player_configurator_ui.hpp"
 #include "src/command_buffer.hpp"
 #include "src/game_commands.hpp"
-#include "src/serialization.hpp"
 #include "src/game_state.hpp"
 
-#include "lua_init.hpp"
+#include "script/lua_init.hpp"
 
 #include <SFML/Graphics/RectangleShape.hpp>
 

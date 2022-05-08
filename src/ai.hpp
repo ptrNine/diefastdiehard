@@ -14,12 +14,12 @@
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/System/Clock.hpp>
 
+#include "base/log.hpp"
+#include "base/fixed_string.hpp"
+#include "base/types.hpp"
+#include "base/vec_math.hpp"
+#include "script/lua.hpp"
 #include "ai_types.hpp"
-#include "log.hpp"
-#include "fixed_string.hpp"
-#include "types.hpp"
-#include "vec_math.hpp"
-#include "lua.hpp"
 
 namespace dfdh
 {

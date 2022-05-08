@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types.hpp"
-#include "vec2.hpp"
+#include "base/types.hpp"
+#include "base/vec2.hpp"
 #include "physic_simulation.hpp"
 #include "player.hpp"
 

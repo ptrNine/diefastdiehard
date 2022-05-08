@@ -10,10 +10,10 @@
 #include <sys/socket.h>
 #include <fcntl.h>
 #include <netdb.h>
-#include "log.hpp"
 
-#include "scope_guard.hpp"
-#include "serialization.hpp"
+#include "base/log.hpp"
+#include "base/scope_guard.hpp"
+#include "base/serialization.hpp"
 
 namespace dfdh {
 

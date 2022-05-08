@@ -2,8 +2,8 @@
 
 #include <map>
 
-#include "vec2.hpp"
-#include "fixed_string.hpp"
+#include "base/vec2.hpp"
+#include "base/fixed_string.hpp"
 
 namespace dfdh
 {

@@ -1,13 +1,15 @@
 #pragma once
 
 #include <SFML/Graphics/RenderWindow.hpp>
-#include <filesystem>
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Texture.hpp>
-#include "vec_math.hpp"
-#include "cfg.hpp"
-#include "physic_simulation.hpp"
+
+#include <filesystem>
 #include <vector>
+
+#include "base/vec_math.hpp"
+#include "base/cfg.hpp"
+#include "physic_simulation.hpp"
 
 namespace dfdh {
 

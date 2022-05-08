@@ -1,9 +1,9 @@
 #pragma once
 
-#include "log.hpp"
+#include "base/log.hpp"
+#include "base/vec2.hpp"
 #include "nuklear.hpp"
 #include "command_buffer.hpp"
-#include "vec2.hpp"
 
 namespace dfdh {
 class devconsole {

@@ -6,8 +6,8 @@
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Texture.hpp>
 
+#include "base/types.hpp"
 #include "physic_simulation.hpp"
-#include "types.hpp"
 
 namespace dfdh {
 
