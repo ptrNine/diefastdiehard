@@ -10,6 +10,10 @@ namespace dfdh
 template <typename T>
 struct vec2 {
 public:
+    static constexpr vec2 filled(T iv) {
+        return vec2{iv, iv};
+    }
+
     constexpr vec2() = default;
 
     constexpr vec2(T ix, T iy = T(0)): x(ix), y(iy) {}

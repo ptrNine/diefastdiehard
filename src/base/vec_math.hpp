@@ -46,6 +46,11 @@ inline float inverse_lerp(float x1, float x2, float value) {
     return (value - x1) / (x2 - x1);
 }
 
+template <typename T>
+vec2<T> clamp(const vec2<T>& v, const vec2<T>& min, const vec2<T>& max) {
+    return {std::clamp(v.x, min.x, max.x), std::clamp(v.y, min.y, max.y)};
+}
+
 inline std::ostream& operator<<(std::ostream& o, const sf::Vector2f& v) {
     o << "{" << v.x << ", " << v.y << "}";
     return o;
