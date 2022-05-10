@@ -222,6 +222,8 @@ public:
         for (auto& prim : _lineonly)
             if (prim->is_gravity_enabled())
                 prim->velocity(prim->get_velocity() + _gravity * timestep);
+
+        _prev_timestep = _last_timestep;
     }
 
     static float distance(const sf::Vector3f& line, const vec2f& point) {
@@ -404,6 +406,12 @@ public:
     }
 
     [[nodiscard]]
+    float prev_timestep() const {
+        return _prev_timestep;
+    }
+
+
+    [[nodiscard]]
     u32 last_rps() const {
         return _last_rps;
     }
@@ -454,6 +462,7 @@ private:
     float                                   _collide_dist = 0.001f;
     vec2f                                   _gravity      = {0.f, 9.8f};
     float                                   _last_timestep        = 1.f / 60.f;
+    float                                   _prev_timestep        = 1.f / 60.f;
     u32                                     _last_rps             = 60;
     float                                   _last_speed           = 1.f;
     steady_clock::time_point                _next_update_time     = steady_clock::now();

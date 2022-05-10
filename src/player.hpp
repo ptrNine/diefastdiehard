@@ -302,7 +302,7 @@ public:
         if (_pistol) {
             auto dir       = _on_left ? vec2f{-1.f, 0.f} : vec2f{1.f, 0.f};
             auto pos       = collision_box()->get_position();
-            auto arm_pos_f = _pistol.arm_position_factors(_on_left);
+            auto arm_pos_f = _pistol.arm_position_factors(_on_left, _bobbing);
             pos += vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
 
             if (auto recoil = _pistol.update(pos,
@@ -372,14 +372,16 @@ public:
         vel.x += accel * timestep;
         if (!moving && ((prev_v < 0.f && vel.x > 0.f) || (prev_v > 0.f && vel.x < 0.f))) {
             vel.x                 = 0.f;
-            _current_acceleration = {0.f, 0.f};
+            _movement_acceleration = {0.f, 0.f};
         }
         else {
-            _current_acceleration = {accel, 0.f};
+            _movement_acceleration = {accel, 0.f};
         }
 
         _collision_box->velocity(vel);
 
+        physic_jump_update();
+        physic_weapon_bobbing_update(sim);
         leg_animation_update(timestep, _collision_box->get_position(), vel);
 
         if (_position_trace.size() > 300)
@@ -388,24 +390,12 @@ public:
     }
 
     void jump() {
-        if (_collision_box->is_lock_y() || jumps_left) {
-            auto vel = _collision_box->get_velocity();
-            vel.y = -_jump_speed;
-            _collision_box->velocity(vel);
-
-            if (!_collision_box->is_lock_y())
-                --jumps_left;
-            else
-                _collision_box->unlock_y();
-        }
+        _jump_scheduled = true;
     }
 
     void jump_down() {
         if (_collision_box->is_lock_y()) {
-            _collision_box->unlock_y();
-            auto vel = _collision_box->get_velocity();
-            vel.y += 100.f;
-            _collision_box->velocity(vel);
+            _jump_down_scheduled = true;
         }
     }
 
@@ -517,13 +507,12 @@ public:
         draw_leg_lerp(wnd, timestep, interpolation_factor, _right_leg, _collision_box->get_velocity());
 
         if (_pistol) {
-            auto arm_pos_f = _pistol.arm_position_factors(_on_left);
-            auto [lh, rh] =
-                _pistol.draw(pos + vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y),
-                             _on_left,
-                             gravity_for_bullets && _long_shot_enabled,
-                             wnd,
-                             _collision_box->get_velocity());
+            auto arm_pos_f = _pistol.arm_position_factors(_on_left, _bobbing);
+            auto [lh, rh]  = _pistol.draw(pos + vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y),
+                                         _on_left,
+                                         gravity_for_bullets && _long_shot_enabled,
+                                         wnd,
+                                         _collision_box->get_velocity());
             _left_hand.setPosition(lh);
             _right_hand.setPosition(rh);
             wnd.draw(_left_hand);
@@ -602,8 +591,8 @@ public:
     }
 
     [[nodiscard]]
-    const vec2f& acceleration() const {
-        return _current_acceleration;
+    const vec2f& movement_acceleration() const {
+        return _movement_acceleration;
     }
 
     [[nodiscard]]
@@ -677,6 +666,55 @@ public:
     }
 
 private:
+    static constexpr float bobbing_coef = 0.1f;
+    static constexpr float bobbing_minmax = 0.2f;
+
+    void physic_weapon_bobbing_update(const physic_simulation& sim) {
+        auto gforce = _collision_box->g_force(sim.prev_timestep());
+        if (_collision_box->is_lock_y())
+            gforce += sim.gravity();
+
+        auto  c1       = std::pow(float(sim.last_rps()) / sim.last_speed(), 1.5f) * 0.010758287f;
+        auto  c2       = c1 / (c1 + 1.f);
+        auto  scalar_g = magnitude(sim.gravity());
+        float minmax   = bobbing_minmax * scalar_g / bobbing_coef;
+
+        _bobbing_accel = clamp(_bobbing_accel * c2 + gforce / c1, vec2f::filled(-minmax), vec2f::filled(minmax));
+
+        bool bobbing_x_on = std::abs(_bobbing_accel.x) > 0.5f;
+        bool bobbing_y_on = std::abs(_bobbing_accel.y) > 0.5f;
+
+        auto bobbing_f = (1.f / magnitude(sim.gravity())) * -bobbing_coef;
+        _bobbing.x = bobbing_x_on ? _bobbing_accel.x * bobbing_f : 0.f;
+        _bobbing.y = bobbing_y_on ? _bobbing_accel.y * bobbing_f : 0.f;
+    }
+
+    void physic_jump_update() {
+        if (_jump_scheduled) {
+            if (_collision_box->is_lock_y() || jumps_left) {
+                auto vel = _collision_box->get_velocity();
+                vel.y    = -_jump_speed;
+                _collision_box->velocity(vel);
+
+                if (!_collision_box->is_lock_y())
+                    --jumps_left;
+                else
+                    _collision_box->unlock_y();
+            }
+            _jump_scheduled = false;
+        }
+
+        if (_jump_down_scheduled) {
+            if (_collision_box->is_lock_y()) {
+                _collision_box->unlock_y();
+                auto vel = _collision_box->get_velocity();
+                vel.y += 100.f;
+                _collision_box->velocity(vel);
+            }
+            _jump_down_scheduled = false;
+        }
+    }
+
     void leg_animation_update(float timestep, const vec2f& pos, const vec2f& vel) {
         auto vx = vel.x;
         float jump_f = 0.2f;
@@ -771,7 +809,9 @@ private:
     float _cur_x_accel_l = 0.f;
     float _cur_x_accel_r = 0.f;
 
-    vec2f _current_acceleration = {0.f, 0.f};
+    vec2f _movement_acceleration = {0.f, 0.f};
+    vec2f _bobbing_accel         = {0.f, 0.f};
+    vec2f _bobbing               = {0.f, 0.f};
 
     u32 jumps_left = 1;
     u32 max_jumps = 1;
@@ -786,6 +826,9 @@ private:
     bool _jump_pressed       = false;
     bool _jump_down_pressed  = false;
     bool _long_shot_enabled  = false;
+
+    bool _jump_scheduled      = false;
+    bool _jump_down_scheduled = false;
 
     int _group = 0;
 
@@ -808,7 +851,7 @@ public:
     vec2f barrel_pos() const {
         if (_pistol) {
             auto pos       = collision_box()->get_position();
-            auto arm_pos_f = _pistol.arm_position_factors(_on_left);
+            auto arm_pos_f = _pistol.arm_position_factors(_on_left, _bobbing);
             pos += vec2f(_size.x * arm_pos_f.x, _size.y * arm_pos_f.y);
             return pos + _pistol.shot_displacement(_on_left ? vec2f{-1.f, 0.f}
                                                             : vec2f{1.f, 0.f});

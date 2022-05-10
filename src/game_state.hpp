@@ -413,7 +413,7 @@ public:
                                pl->collision_box()->get_direction(),
                                pl->get_size(),
                                pl->get_velocity(),
-                               pl->acceleration(),
+                               pl->movement_acceleration(),
                                pl->barrel_pos(),
                                pl->name(),
                                pl->get_available_jumps(),

@@ -88,6 +88,11 @@ public:
         return _position + _prev_dir * _prev_scalar_velocity * timestep * f;
     }
 
+    [[nodiscard]]
+    vec2f g_force(float timestep) const {
+        return ((_dir * _scalar_velocity) - (_prev_dir * _prev_scalar_velocity)) / timestep;
+    }
+
 protected:
     vec2f                       _position;
     vec2f                       _dir;

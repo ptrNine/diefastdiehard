@@ -93,6 +93,7 @@ public:
             case 1: return 1500.f;
             case 2: return 1800.f;
             case 3: return 2100.f;
+            case 4: return 10000.f;
             default: return 1500.f;
         }
     }
@@ -120,6 +121,7 @@ public:
         _bullet_vel_tier = sect.value<u32>("bullet_velocity_tier");
         _long_shot_angle = sect.value<float>("long_shot_angle");
         _shot_snd_path   = sect.value_or_default("shot_sound", "none"s);
+        _mass            = sect.value_or_default("mass", 0.5f);
 
         if (_eject_shell) {
             _shell_pos   = sect.value<vec2f>("shell_pos");
@@ -274,6 +276,7 @@ private:
     float      _shell_vel;
     u32        _shell_frame;
     sf::Sprite _shell_sprite;
+    float      _mass;
 
     std::string _shot_snd_path;
 
@@ -482,11 +485,11 @@ public:
         return _wpn == nullptr;
     }
 
-    vec2f arm_position_factors(bool lefty) const {
+    vec2f arm_position_factors(bool lefty, const vec2f& bobbing = {0.f, 0.f}) const {
         if (_wpn)
-            return _wpn->arm_position_factors(lefty);
+            return _wpn->arm_position_factors(lefty) + bobbing * _wpn->_mass;
         else
-            return lefty ? vec2f(0.f, -0.4f) : vec2f(1.f, -0.4f);
+            return (lefty ? vec2f(0.f, -0.4f) : vec2f(1.f, -0.4f)) + bobbing * 0.01f;
     }
 
     operator bool() const {
