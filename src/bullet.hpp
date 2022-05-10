@@ -14,7 +14,7 @@ namespace dfdh {
 class bullet_sprite_cache {
 public:
     static constexpr float bullet_x_max = 150.f;
-    static constexpr float bullet_y = 15.f;
+    static constexpr float bullet_y = 19.f;
 
     static bullet_sprite_cache& instance() {
         static bullet_sprite_cache inst;
@@ -193,9 +193,10 @@ public:
                            x_sz / bullet_sprite_cache::bullet_x_max,
                            std::clamp(i->physic()->scalar_velocity() / 2100.f, 0.f, 1.f)) *
                       bullet_sprite().scale_f().x;
+            auto yf = std::pow(i->physic()->get_mass(), 0.4f) * bullet_sprite().scale_f().y;
 
             auto& blt_sprite = bullet_sprite().sprite(i->color());
-            blt_sprite.setScale(xf, bullet_sprite().scale_f().y);
+            blt_sprite.setScale(xf, yf);
             blt_sprite.setPosition(pos);
             blt_sprite.setRotation(angle * 180.f / M_PIf32);
             wnd.draw(blt_sprite);
