@@ -2240,7 +2240,9 @@ public:
                         if (pos != wd_to_dir_path.end()) {
                             auto filename = p + sizeof(evt);
                             auto path = pos->second + "/" + filename;
-                            update(evt.wd, path, watched_sections.at(path));
+                            auto found_sect = watched_sections.find(path);
+                            if (found_sect != watched_sections.end())
+                                update(evt.wd, path, found_sect->second);
                         }
 
                         p += evt.len;
