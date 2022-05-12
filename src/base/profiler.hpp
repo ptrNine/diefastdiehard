@@ -19,7 +19,7 @@ public:
         u64                                   count        = 0;
 
         friend std::ostream& operator<<(std::ostream& os, const time_data& time) {
-            fprint(os, time.last_min_dur, '|', time.last_max_dur, '|', time.dur_sum / time.count);
+            fprint(os, time.last_min_dur, '|', time.last_max_dur, '|', time.dur_sum / (time.count ? time.count : 1));
             return os;
         }
     };
@@ -111,6 +111,15 @@ public:
         }
     }
 
+    void print_once(auto&& print_callback) {
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_print >= print_period) {
+            last_print = now + std::chrono::days(1);
+            print_callback(*this);
+            reset();
+        }
+    }
+
     void reset() {
         for (auto& [_, time] : measures) {
             time.count        = 0;
@@ -118,6 +127,14 @@ public:
             time.last_min_dur = 24h;
             time.last_max_dur = 0s;
         }
+    }
+
+    bool print_ready() {
+        return std::chrono::steady_clock::now() - last_print >= print_period;
+    }
+
+    void reset_timer() {
+        last_print = std::chrono::steady_clock::now();
     }
 
     [[nodiscard]]

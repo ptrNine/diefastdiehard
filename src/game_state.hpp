@@ -4,6 +4,7 @@
 
 #include "base/types.hpp"
 #include "base/cfg_value_control.hpp"
+#include "base/signals.hpp"
 #include "ui/player_configurator_ui.hpp"
 #include "bullet.hpp"
 #include "physic_simulation.hpp"
@@ -350,7 +351,8 @@ public:
                 if (controlled_players.contains(pl->name()) || ai_operators.contains(pl->name())) {
                     std::vector<bullet_data_t> bullets;
                     float                      mass = 0.f;
-                    pl->game_update(sim, blt_mgr, cam_pos, gravity_for_bullets, true, bullet_spawn_callback{&bullets, &mass});
+                    pl->game_update(
+                        sim, blt_mgr, cam_pos, gravity_for_bullets, true, bullet_spawn_callback{&bullets, &mass});
                 }
                 else {
                     pl->game_update(sim, blt_mgr, cam_pos, gravity_for_bullets, false, {});
@@ -365,6 +367,11 @@ public:
 
             if (!ai_operators.empty())
                 ai_operators_consume();
+
+            if (ai_profiler_enabled)
+                ai_mgr().profiler_print([](auto& prof) {
+                    LOG(prof.short_print_format() ? "ai worker: {}" : "ai_worker: min|max|avg: {}", prof);
+                });
         }
         else {
             sim.update_pass();
@@ -488,6 +495,7 @@ public:
     bool debug_physics       = false;
     bool gravity_for_bullets = true;
     bool lua_cmd_enabled     = true;
+    bool ai_profiler_enabled = false;
 };
 
 } // namespace dfdh

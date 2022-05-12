@@ -18,6 +18,7 @@
 #include "base/fixed_string.hpp"
 #include "base/types.hpp"
 #include "base/vec_math.hpp"
+#include "base/profiler.hpp"
 #include "script/lua.hpp"
 #include "ai_types.hpp"
 
@@ -85,7 +86,7 @@ public:
     virtual void work(const ai_data_t& ai_data) = 0;
 
 private:
-    player_name_t         _player_name;
+    const player_name_t   _player_name;
     std::queue<ai_action> _actions;
     mutable std::mutex    mtx;
 };
@@ -126,19 +127,7 @@ public:
         return oper->difficulty();
     }
 
-    void set_difficulty(const std::string& difficulty) {
-        if (difficulty == oper->difficulty())
-            return;
-
-        std::lock_guard lock{oper->mutex()};
-        auto new_oper = ai_operator_base::create(oper->player_name(), difficulty);
-
-        /* Steal actions from old operator and stop&relax */
-        new_oper->unsafe_steal_actions(*oper);
-        new_oper->unsafe_produce_actions(ai_action::relax, ai_action::stop, ai_action::disable_long_shot);
-
-        oper = std::move(new_oper);
-    }
+    void set_difficulty(const std::string& difficulty);
 
     void work(const ai_data_t& ai_data) {
         oper->work(ai_data);
@@ -232,16 +221,17 @@ public:
 
     void worker() {
         while (_work) {
-            float step = 1.f / static_cast<float>(_data.physic_sim.last_rps);
-            if (_timer.elapsed() > step) {
-                _timer.restart();
+            auto step = std::chrono::microseconds(u64(1000000) / _data.physic_sim.last_rps);
 
+            auto now = std::chrono::steady_clock::now();
+            {
                 std::lock_guard lock{mtx};
                 worker_op();
             }
-
-            /* TODO: dynamic step */
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            auto prof = _prof.scope("wait");
+            auto elapsed = std::chrono::steady_clock::now() - now;
+            if (elapsed < step)
+                std::this_thread::sleep_for(step - elapsed);
         }
         _stopped = true;
     }
@@ -260,6 +250,12 @@ public:
 
     const ai_data_t& data() const {
         return _data;
+    }
+
+    template <typename F>
+    void profiler_print(F&& print_callback) {
+        std::lock_guard lock{_prof_mtx};
+        _ts_prof.print_once(std::forward<F>(print_callback));
     }
 
     struct ai_luactx_mtxlock {
@@ -283,7 +279,6 @@ public:
 
 private:
     ai_mgr_singleton() = default;
-
     ~ai_mgr_singleton() {
         if (_work)
             worker_stop();
@@ -297,11 +292,17 @@ public:
     std::map<player_name_t, ai_operator*> _operators;
     std::atomic<bool>                     _work;
     std::atomic<bool>                     _stopped;
-    timer                                 _timer;
+    //timer                                 _timer;
+    //std::chrono::steady_clock::time_point _next_time = std::chrono::steady_clock::now();
     std::thread                           _thread;
     luactx_mgr                            lua = luactx_mgr::ai();
 
+    profiler   _prof;
+    profiler   _ts_prof;
+    std::mutex _prof_mtx;
+
 private:
+    friend class ai_operator;
     mutable std::mutex mtx;
 
 private:
@@ -356,6 +357,21 @@ private:
 
 inline ai_mgr_singleton& ai_mgr() {
     return ai_mgr_singleton::instance();
+}
+
+void ai_operator::set_difficulty(const std::string& difficulty) {
+    if (difficulty == oper->difficulty())
+        return;
+
+    auto new_oper = ai_operator_base::create(oper->player_name(), difficulty);
+
+    std::lock_guard lock{ai_mgr().mtx};
+
+    /* Steal actions from old operator and stop&relax */
+    new_oper->unsafe_steal_actions(*oper);
+    new_oper->unsafe_produce_actions(ai_action::relax, ai_action::stop, ai_action::disable_long_shot);
+
+    oper = std::move(new_oper);
 }
 
 ai_operator::ai_operator(ctor_access&, const player_name_t& player_name, const std::string& difficulty):
@@ -557,7 +573,7 @@ public:
     }
 
 private:
-    std::string                  _operator_name;
+    const std::string            _operator_name;
     std::function<update_func_t> _update_func;
 };
 
@@ -627,8 +643,8 @@ easy_ai_find_nearest(const ai_player_t&                          it,
 inline auto calc_dist_to_platform(const ai_platform_t& plat, const ai_player_t& plr) {
     if (plr.pos.x > plat.pos2.x)
         return plat.pos2 - plr.pos;
-    else if (plr.pos.x < plat.pos1.x)
-        return plat.pos1 - plr.pos;
+    else if (plr.pos.x + plr.size.x < plat.pos1.x)
+        return plat.pos1 - (plr.pos + plr.size.x);
     else
         return vec2f(0.f, plat.pos1.y - plr.pos.y);
 }
@@ -1220,8 +1236,18 @@ inline void ai_operator_native::work(const ai_data_t& ai_data) {
 }
 
 inline void ai_mgr_singleton::worker_op() {
-    for (auto& [_, oper_ptr] : _operators)
+    for (auto& [oper_name, oper_ptr] : _operators) {
+        auto prof = _prof.scope(oper_name);
         oper_ptr->work(_data);
+    }
+    if (_prof.print_ready()) {
+        {
+            std::lock_guard lock{_prof_mtx};
+            _ts_prof = _prof;
+        }
+        _prof.reset();
+        _prof.reset_timer();
+    }
 }
 
 } // namespace dfdh

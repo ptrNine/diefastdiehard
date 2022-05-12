@@ -28,6 +28,7 @@ public:
         command_buffer().add_handler("level", &game_commands::cmd_level, this);
         command_buffer().add_handler("ai", &game_commands::cmd_ai, this);
         command_buffer().add_handler("ai difficulty", &game_commands::cmd_ai_difficulty, this);
+        command_buffer().add_handler("ai profiler", &game_commands::cmd_ai_profiler, this);
         command_buffer().add_handler("shutdown", &game_commands::cmd_shutdown, this);
         command_buffer().add_handler("sound volume", &game_commands::cmd_sound_volume, this);
 
@@ -98,7 +99,8 @@ public:
                    "  ai list                                    - lists all operated player names\n"
                    "  ai bind [player_name]                      - binds player to the ai operator\n"
                    "  ai difficulty [player_name] [difficulty]?  - shows or setups ai difficulty\n"
-                   "    difficulty: easy medium hard";
+                   "    difficulty: easy medium hard\n"
+                   "  ai profiler [on/off]                       - enable/disable ai profiler";
         }
         else if (gs.lua_cmd_enabled && cmd == "lua") {
             help = "Lua interpreter\n"
@@ -462,6 +464,10 @@ public:
         else {
             LOG_INFO("ai difficulty {}: {}", player_name, found->second->difficulty());
         }
+    }
+
+    void cmd_ai_profiler(bool value) {
+        gs.ai_profiler_enabled = value;
     }
 
     void cmd_ai(const std::string& cmd, const std::optional<std::string>& value) {
