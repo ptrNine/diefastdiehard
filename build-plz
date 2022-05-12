@@ -246,9 +246,11 @@ make_pch() {
     local debug="$4"
     local flags="$5"
     local includes="$6"
-    local name='PCH'
 
-    [ -f "$location" ] || return 0
+    local name="${location##*/}"
+    name="${name%%.*}"
+    local output_dir="$builddir/gch"
+    local output="$output_dir/${location##*/}.gch"
 
     local already_built=false
     local depinfo=
@@ -257,8 +259,6 @@ make_pch() {
             $(make_includes "$includes") \
             --hash -C "$(pwd)/$builddir/.ezbld/pch-$name-depinfo" \
             "$(pwd)/$location") && \
-    [ "$(cat "$location.gch.builddir" 2>/dev/null)" == "$builddir" ] && \
-    [ -f "$location.gch" ] && \
         already_built=true
 
     local cmd="$(command -v "$CXX_COMPILER") -std=c++20 -c \
@@ -271,24 +271,25 @@ make_pch() {
         -L '$(pwd)/$builddir/submodules/luacpp/3rd/lib' \
         $(make_includes "$includes") \
         '$(pwd)/$location' \
-        -o $location.gch"
+        -o '$output'"
     cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
     local cmd_path="$builddir/.ezbld/pch-$name-command"
     ! is_commands_equal "$cmd" "$cmd_path" && already_built=false
 
     if [ $already_built = true ]; then
-        colored lpurple "$name already built"
+        colored lpurple "pch $name already built"
         return 0
     fi
 
     local start_tm=$(mstime)
     colored yellow "Making precompiled header $location ... " n
+
+    mkdir -p "$output_dir"
     eval $cmd || fail " Failed"
 
     echo "$depinfo" > "$(pwd)/$builddir/.ezbld/pch-$name-depinfo"
-    echo "$builddir" > "$location.gch.builddir"
-    printf '%s\n%s\n' "source=\"$location.gch\"" "command=\"$cmd\"" > "$cmd_path"
+    printf '%s\n%s\n' "source=\"$location\"" "command=\"$cmd\"" > "$cmd_path"
 
     colored lgreen "done! $(measure $start_tm)s"
 }
@@ -586,6 +587,7 @@ $([ "$asan" == true ] && asan_flags)
         "$hardening_flags" \
         "-lboost_context -lboost_fiber -lnuklear -lsfml-system -lsfml-window -lsfml-graphics -lsfml-network -lsfml-audio -lpthread -lGL -lGLEW -lluajit-5.1" \
         "$(include_list \
+            "$builddir/gch" \
             "system:$(pwd)/$builddir/submodules/luacpp/3rd/include/luajit-2.1" \
             "system:$(pwd)/$builddir/3rd/include" \
             "$(pwd)/src" \
