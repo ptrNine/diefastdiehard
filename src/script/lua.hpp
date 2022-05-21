@@ -54,13 +54,7 @@ public:
     void load();
 
     void execute_line(const std::string& line);
-
-    template <typename F, typename... ArgsT>
-    decltype(_opt_return<F>()()) try_call_function(std::string name, ArgsT&&... args);
-
-    template <typename F, typename... ArgsT>
-    typename _opt_return<F>::return_t call_function(std::string name, ArgsT&&... args);
-
+ 
     template <typename F>
     lua_caller<F>
     get_caller(std::string name, std::chrono::microseconds retry_timeout = 0us, bool suppress_error = false);

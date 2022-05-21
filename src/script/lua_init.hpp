@@ -30,7 +30,8 @@ inline void lua_global_instance_init(luacpp::luactx& ctx) {
 
 void luactx_mgr::load() {
     std::string file_name = "dfdh";
-    std::string assist_file_name = "_assist";
+    std::string assist_file_name = "assist";
+
     if (_instance_name == "ai") {
         file_name += "_ai";
         assist_file_name += "_ai";
@@ -43,8 +44,22 @@ void luactx_mgr::load() {
         _ctx->load_and_call(fullpath.data());
         loaded = true;
 
-        auto ofd = std::ofstream(dir / (assist_file_name + ".lua"));
-        ofd << _ctx->generate_assist();
+        auto assist_dir = dir / "assist";
+        auto ofd        = std::ofstream(assist_dir / (assist_file_name + ".lua"));
+        if (!ofd.is_open() && !fs::is_directory(assist_dir)) {
+            try {
+                fs::create_directory(assist_dir);
+            }
+            catch (const std::exception& e) {
+                LOG_ERR("Cannot create directory {}: {}", assist_dir, e.what());
+            }
+            ofd = std::ofstream(assist_dir / (assist_file_name + ".lua"));
+        }
+
+        if (ofd.is_open())
+            ofd << _ctx->generate_assist();
+        else
+            LOG_ERR("Cannot generate lua assist file: {}", assist_dir / (assist_file_name + ".lua"));
     }
     catch (const std::exception& e) {
         LOG_ERR("lua load failed: {}", e.what());
@@ -165,24 +180,6 @@ public:
 private:
     std::optional<lua_func_t> function;
 };
-
-template <typename F, typename... ArgsT>
-auto luactx_mgr::try_call_function(std::string name, ArgsT&&... args) -> decltype(_opt_return<F>()()) {
-    try {
-        if constexpr (!std::is_same_v<typename luacpp::details::lua_function_traits<std::add_pointer_t<F>>::return_t, void>)
-            return _ctx->extract<F>(luacpp::lua_name{std::move(name)})(std::forward<ArgsT>(args)...);
-         _ctx->extract<F>(luacpp::lua_name{std::move(name)})(std::forward<ArgsT>(args)...);
-         return true;
-    }
-    catch (std::exception&) {
-        return {};
-    }
-}
-
-template <typename F, typename... ArgsT>
-auto luactx_mgr::call_function(std::string name, ArgsT&&... args) -> typename _opt_return<F>::return_t {
-    return _ctx->extract<F>(luacpp::lua_name{std::move(name)})(std::forward<ArgsT>(args)...);
-}
 
 template <typename F>
 lua_caller<F> luactx_mgr::get_caller(std::string name, std::chrono::microseconds retry_timeout, bool suppress_error) {

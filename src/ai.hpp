@@ -267,9 +267,16 @@ public:
             mtx.unlock();
         }
 
-        luactx_mgr& lua;
+        luactx_mgr* operator->() {
+            return &lua;
+        }
+
+        const luactx_mgr* operator->() const {
+            return &lua;
+        }
 
     private:
+        luactx_mgr& lua;
         std::mutex& mtx;
     };
 
@@ -552,16 +559,11 @@ public:
     ai_operator_lua(const player_name_t& player_name, std::string operator_name):
         ai_operator_base(player_name), _operator_name(std::move(operator_name)) {
 
-        auto lua = ai_mgr().luactx();
+        auto lua       = ai_mgr().luactx();
+        auto init_func = lua->get_caller_type_erased<init_func_t>("AI." + _operator_name + ".init");
+        _update_func   = lua->get_caller_type_erased<update_func_t>("AI." + _operator_name + ".update", 2s);
 
-        try {
-            lua.lua.call_function<init_func_t>("AI." + _operator_name + ".init", this);
-        }
-        catch (const std::exception& e) {
-            LOG_WARN("AI.{}.init() is missing or its execution failed: {}", _operator_name, e.what());
-        }
-
-        _update_func = lua.lua.get_caller_type_erased<update_func_t>("AI." + _operator_name + ".update", 2s);
+        init_func(this);
     }
 
     std::string difficulty() const final {
