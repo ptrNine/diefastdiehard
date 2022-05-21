@@ -1,6 +1,29 @@
 local ai = {}
 
-local log = require("mod/log").log
+local log_mod = require("mod/log")
+local log = log_mod.log
+local log_infoupd = log_mod.log_infoupd
+local log_info = log_mod.log_info
+
+ai.action = {
+    move_left = 0,
+    move_right = 1,
+    stop = 2,
+    shot = 3,
+    relax = 4,
+    jump = 5,
+    jump_down = 6,
+    enable_long_shot = 7,
+    disable_long_shot = 8,
+    COUNT = 9
+}
+
+ai.movement = {
+    off = 0,
+    left = 1,
+    right = 2,
+    COUNT = 3
+}
 
 ---@param lhs vec2f
 ---@param rhs vec2f
@@ -15,6 +38,116 @@ local function sign(n)
    return n < 0
 end
 
+---@param plr ai_player_t
+---@param platform ai_platform_t
+---@return vec2f
+local function distance_to_platform(plr, platform)
+    if plr.pos.x > platform.pos2.x then
+        return platform.pos2 - plr.pos;
+    elseif plr.pos.x + plr.size.x < platform.pos1.x then
+        return platform.pos1 - vec2f.new(plr.pos.x + plr.size.x, plr.pos.y);
+    else
+        return vec2f.new(0, platform.pos1.y - plr.pos.y);
+    end
+end
+
+---@param op ai_operator_t
+---@param plr ai_player_t
+---@param plr_data table<string, any>
+---@return boolean
+function ai.jump(op, plr, plr_data)
+    if plr.available_jumps > 0 and plr.vel.y > -50 and plr_data.jump_timer:elapsed() > 0.05 then
+        log_info("jump %s", plr.available_jumps)
+        plr_data.jump_timer:restart()
+        op:produce_action(ai.action.jump)
+        return true
+    end
+    return false
+end
+
+---@param op ai_operator_t
+---@param plr ai_player_t
+---@param plr_data table<string, any>
+---@return boolean
+function ai.move_left(op, plr, plr_data)
+    if plr_data.movement ~= ai.movement.left then
+        log_info("move left")
+        plr_data.movement = ai.movement.left
+        op:produce_action(ai.action.move_left)
+        return true
+    end
+    return false
+end
+
+---@param op ai_operator_t
+---@param plr ai_player_t
+---@param plr_data table<string, any>
+---@return boolean
+function ai.move_right(op, plr, plr_data)
+    if plr_data.movement ~= ai.movement.right then
+        log_info("move right")
+        plr_data.movement = ai.movement.right
+        op:produce_action(ai.action.move_right)
+        return true
+    end
+    return false
+end
+
+---@param op ai_operator_t
+---@param plr ai_player_t
+---@param plr_data table<string, any>
+---@return boolean
+function ai.stop(op, plr, plr_data)
+    if plr_data.movement ~= ai.movement.off then
+        log_info("stop")
+        plr_data.movement = ai.movement.off
+        op:produce_action(ai.action.stop)
+        return true
+    end
+    return false
+end
+
+---@param plr ai_player_t
+---@param world ai_data_t
+---@param displacement vec2f?
+---@return ai_platform_t? @standing on
+---@return ai_platform_t? @falling on
+---@return ai_platform_t? @nearest
+function ai.find_active_platforms(plr, world, displacement)
+    if not displacement then
+        displacement = vec2f.new()
+    end
+
+    local standing_on = nil ---@type ai_platform_t
+    local falling_on  = nil ---@type ai_platform_t
+    local nearest     = nil ---@type ai_platform_t
+    local mindist     = math.huge
+
+    local plr_pos  = plr.pos + displacement
+    local plr_sz_x = plr.size.x
+
+    for _, plat in ipairs(world.platforms) do
+        if plr_pos.x + plr_sz_x > plat.pos1.x and plr_pos.x < plat.pos2.x then
+            if math.abs(plr_pos.y - plat.pos1.y) < 0.002 then
+                standing_on = plat
+                falling_on  = plat
+                nearest     = plat
+                break
+            elseif plat.pos1.y > plr_pos.y and
+                   (not falling_on or falling_on.pos1.y - plr_pos.y > plat.pos1.y - plr_pos.y) then
+                falling_on = plat
+            end
+        end
+
+        local dist_to_plat = distance_to_platform(plr, plat):magnitude()
+        if dist_to_plat < mindist then
+            nearest = plat
+            mindist = dist_to_plat
+        end
+    end
+
+    return standing_on, falling_on, nearest
+end
 
 ---@param start_pos vec2f
 ---@param next_pos vec2f
@@ -112,23 +245,33 @@ end
 
 ---@param plr ai_player_t
 ---@param world ai_data_t
+---@param start_x number
+---@param end_x number
 ---@return boolean
-function ai.is_flying_to_death(plr, world)
-    local lvl_sz = world.level.level_size
-    local center = lvl_sz.x * 0.5
+function ai.is_flying_outside(plr, world, start_x, end_x)
+    local center = (end_x - start_x) * 0.5
     local t = math.abs(plr.vel.x) / plr.x_accel
-    local pos = center
+    local pos
 
-    if plr.pos.x < center then
-        pos = plr.pos.x + plr.vel.x * t + plr.x_accel * t * t * 0.5
+    if plr.pos.x + plr.size.x * 0.5 < center then
+        pos = plr.pos.x + plr.size.x + plr.vel.x * t + plr.x_accel * t * t * 0.5
     else
         pos = plr.pos.x + plr.vel.x * t + -plr.x_accel * t * t * 0.5
     end
 
-    local res = pos < 0 or pos > lvl_sz.x
-    log("infoupd", "death: %s", res)
+    local res = pos < start_x or pos > end_x
+    --log("infoupd", "death: %s", res)
 
     return res
+end
+
+---@param plr ai_player_t
+---@param world ai_data_t
+---@return boolean
+function ai.is_flying_to_death(plr, world)
+    local lvl_x1 = world.level.platforms_bound_start_x
+    local lvl_x2 = world.level.platforms_bound_end_x
+    return ai.is_flying_outside(plr, world, lvl_x1, lvl_x2)
 end
 
 ---@param plr ai_player_t

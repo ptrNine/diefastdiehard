@@ -1,18 +1,7 @@
-local log = require("mod/log").log
+local log_mod = require("mod/log")
+local log = log_mod.log
+local log_info = log_mod.log_info
 local ai  = require("mod/ai")
-
-local ai_action = {
-    move_left = 0,
-    move_right = 1,
-    stop = 2,
-    shot = 3,
-    relax = 4,
-    jump = 5,
-    jump_down = 6,
-    enable_long_shot = 7,
-    disable_long_shot = 8,
-    COUNT = 9
-}
 
 local ai_mode = {
     target_search = 0,
@@ -20,19 +9,14 @@ local ai_mode = {
     COUNT = 2
 }
 
-local ai_movement = {
-    off = 0,
-    left = 1,
-    right = 2,
-    COUNT = 3
-}
-
 local insane_ai = {}
 local players_data = {}
 
 insane_ai.init = function(ai_operator)
     players_data[ai_operator.player_name] = {
-        movement = ai_movement.off
+        movement   = ai.movement.off,
+        ai_mode    = ai_mode.target_search,
+        jump_timer = timer.new(),
     }
 end
 
@@ -59,7 +43,7 @@ local insane_shooter_player_size_coef = 1.0
 local function insane_shooter(op, plr, world, plr_data)
     local target, change_dir, long_shot_setting, too_close =
         ai.find_victim(plr, world, insane_shooter_player_size_coef,
-            plr_data.movement == ai_movement.off)
+            plr_data.ai_mode ~= ai_mode.saving_life)
 
     local switch_target_required = false
     -- Switch target if it required
@@ -74,25 +58,25 @@ local function insane_shooter(op, plr, world, plr_data)
     -- Enable/disable long shot mode if it required
     if long_shot_setting ~= nil then
         if long_shot_setting then
-            op:produce_action(ai_action.enable_long_shot)
+            op:produce_action(ai.action.enable_long_shot)
         else
-            op:produce_action(ai_action.disable_long_shot)
+            op:produce_action(ai.action.disable_long_shot)
         end
     end
 
     -- Change direction if it required
     if change_dir then
         if change_dir < 0 then
-            op:produce_action(ai_action.move_left)
+            op:produce_action(ai.action.move_left)
         else
-            op:produce_action(ai_action.move_right)
+            op:produce_action(ai.action.move_right)
         end
-        op:produce_action(ai_action.stop)
+        op:produce_action(ai.action.stop)
     end
 
     if switch_target_required then
         if plr_data.target_name then
-            op:produce_action(ai_action.shot)
+            op:produce_action(ai.action.shot)
         else
             -- Schedule relax
             plr_data.relax_timer = timer.new()
@@ -103,7 +87,7 @@ local function insane_shooter(op, plr, world, plr_data)
     if plr_data.relax_timer and
        plr_data.relax_timer:elapsed() >= insane_shooter_relax_timeout * (plr.gun_fire_rate / 1000) then
         plr_data.relax_timer = nil
-        op:produce_action(ai_action.relax)
+        op:produce_action(ai.action.relax)
     end
 
     return target, too_close
@@ -114,11 +98,48 @@ end
 ---@param world ai_data_t
 ---@param plr_data table<string, any>
 local function insane_survival(op, plr, world, plr_data)
-    local all_is_ok = true
+    local plr_pos = plr.pos
+    --local plr_sz = plr.size
+    local plr_center = plr.pos.x + plr.size.x * 0.5
 
+    local _, falling_on, nearest = ai.find_active_platforms(plr, world)
+    if falling_on then
+        local vel_x = plr.vel.x
+        local plat_center = (falling_on.pos1.x + falling_on.pos2.x) * 0.5
 
+        if ai.is_flying_to_death(plr, world) then
+            if plr.vel.x > plr.max_vel_x * 0.2 then
+                ai.move_left(op, plr, plr_data)
+            elseif plr.vel.x < -plr.max_vel_x * 0.2 then
+                ai.move_right(op, plr, plr_data)
+            end
+            ai.jump(op, plr, plr_data)
+        end
 
-    return all_is_ok
+        if vel_x > plr.max_vel_x * 1.1 and plr_center > plat_center then
+            plr_data.ai_mode = ai_mode.saving_life
+            ai.move_left(op, plr, plr_data)
+        elseif vel_x < -plr.max_vel_x * 1.1 and plr_center < plat_center then
+            plr_data.ai_mode = ai_mode.saving_life
+            ai.move_right(op, plr, plr_data)
+        elseif math.abs(vel_x) < plr.max_vel_x * 0.25 or
+               (vel_x > 0 and plr_data.movement == ai.movement.right) or
+               (vel_x < 0 and plr_data.movement == ai.movement.left) then
+            plr_data.ai_mode = ai_mode.target_search
+            ai.stop(op, plr, plr_data)
+        end
+    else
+        plr_data.ai_mode = ai_mode.saving_life
+
+        if plr_pos.y > nearest.pos1.y then
+            ai.jump(op, plr, plr_data)
+        end
+        if plr_pos.x > nearest.pos2.x then
+            ai.move_left(op, plr, plr_data)
+        else
+            ai.move_right(op, plr, plr_data)
+        end
+    end
 end
 
 ---@param op ai_operator_t
