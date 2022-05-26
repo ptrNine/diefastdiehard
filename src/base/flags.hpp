@@ -5,6 +5,9 @@
 
 #include "types.hpp"
 #include "vec_math.hpp"
+#include "macro_argname.hpp"
+//#include "serialization.hpp"
+
 
 /**
  * Flag type implementation
@@ -42,14 +45,27 @@ class flag_tmpl {
     static_assert(std::is_integral_v<Type> && std::is_unsigned_v<Type>,
                   "Flag type must be unsigned int!");
 public:
-    template <Type flag>
+    using value_type = Type;
+
+    /*
+    void serialize(vector<byte>& out) const {
+        dfdh::serialize(_data, out);
+    }
+
+    void deserialize(span<const byte>& in) {
+        dfdh::deserialize(_data, in);
+    }
+    */
+
+    template <Type flag, auto check_value>
     struct _define_helper {
+        static_assert((Type(1) << flag) == static_cast<Type>(check_value));
         static_assert(flag < sizeof(Type) * 8, "Can't define that bit!"); // NOLINT
         inline static constexpr Type def = Type(1) << flag;
     };
 
-    template <Type flag>
-    inline static constexpr Type def = _define_helper<flag>::def;
+    template <Type flag, auto check_value = (Type(1) << flag)>
+    inline static constexpr Type def = _define_helper<flag, check_value>::def;
 
     flag_tmpl() = default;
     flag_tmpl(Type flags): _data(flags) {}
@@ -72,9 +88,9 @@ using flag32_t = flag_tmpl<uint32_t>;
 using flag64_t = flag_tmpl<uint64_t>;
 using flag_t   = flag_tmpl<unsigned int>;
 
-inline std::pair<std::string_view, dfdh::u32> flag_definition_to_name_bitnum(std::string_view flag_def) {
+inline std::pair<std::string_view, u32> flag_definition_to_name_bitnum(std::string_view flag_def) {
     std::string_view name;
-    dfdh::u32 num = 65; // NOLINT
+    u32 num = 65; // NOLINT
 
     auto name_end = flag_def.find(' ');
     if (name_end != std::string_view::npos)
@@ -100,7 +116,7 @@ inline std::pair<std::string_view, dfdh::u32> flag_definition_to_name_bitnum(std
 
     std::string_view def = flag_def.substr(def_start);
     if (!def.empty() && std::isdigit(def.front())) {
-        dfdh::u64 bit = 3;
+        u64 bit = 3;
         try {
             bit = def.starts_with("0x") ? std::stoull(std::string(def.substr(2)), nullptr, 16) // NOLINT
                                         : std::stoull(std::string(def));
@@ -121,7 +137,10 @@ inline std::pair<std::string_view, dfdh::u32> flag_definition_to_name_bitnum(std
         if (start != std::string_view::npos) {
             start += sizeof("::def<") - 1;
             auto end = def.find('>', start);
-            if (end != std::string_view::npos) {
+            if (end == std::string_view::npos)
+                end = def.size();
+
+            if (end != start) {
                 auto strnum = def.substr(start, end - start);
                 try {
                     auto bitnum = std::stoull(std::string(strnum));
@@ -135,35 +154,39 @@ inline std::pair<std::string_view, dfdh::u32> flag_definition_to_name_bitnum(std
 }
 } // namespace core
 
-#define DEF_FLAG_TYPE(NAME, TYPE, ...) /*NOLINT*/                                                  \
-    struct NAME : TYPE {                                                                           \
-        using t____ = TYPE;                                                                        \
-        using t____::t____;                                                                        \
-        NAME(): t____() {}                                                                         \
-        enum EnumFlag : t____::value_type { __VA_ARGS__ };                                         \
-        static constexpr std::array _introspect = {PE_ARGNAMES(__VA_ARGS__)};             \
-        struct _introspect_details { \
-            static constexpr size_t bitsize = 8; \
-            _introspect_details() { \
-                for (auto& def_str : _introspect) { \
-                    auto name_bitnum = dfdh::flag_definition_to_name_bitnum(def_str); \
-                    if (name_bitnum.second < sizeof(t____::value_type) * bitsize) \
-                        _numbit_to_name.at(name_bitnum.second) = name_bitnum.first; \
-                } \
-            } \
-            std::array<std::string_view, sizeof(t____::value_type) * bitsize> _numbit_to_name; \
-            static _introspect_details& instance() { static _introspect_details i; return i; } \
-        }; \
-        std::vector<std::string_view> enabled_info() const { \
-            dfdh::u32 bitnum = 0; \
-            t____::value_type mask = 1; \
-            std::vector<std::string_view> result; \
-            while (mask) { \
-                if (this->data() & mask) \
-                    result.push_back(_introspect_details::instance()._numbit_to_name.at(bitnum)); \
-                ++bitnum;\
-                mask = mask << 1; \
-            } \
-            return result; \
-        } \
+#define DEF_FLAG_TYPE(NAME, TYPE, ...) /*NOLINT*/                                                                      \
+    struct NAME : TYPE {                                                                                               \
+        using t____ = TYPE;                                                                                            \
+        using t____::t____;                                                                                            \
+        NAME(): t____() {}                                                                                             \
+        enum EnumFlag : t____::value_type { __VA_ARGS__ };                                                             \
+        static constexpr std::array _introspect = {PE_ARGNAMES(__VA_ARGS__)};                                          \
+        struct _introspect_details {                                                                                   \
+            static constexpr size_t bitsize = 8;                                                                       \
+            _introspect_details() {                                                                                    \
+                for (auto& def_str : _introspect) {                                                                    \
+                    auto name_bitnum = dfdh::flag_definition_to_name_bitnum(def_str);                                  \
+                    if (name_bitnum.second < sizeof(t____::value_type) * bitsize)                                      \
+                        _numbit_to_name.at(name_bitnum.second) = name_bitnum.first;                                    \
+                }                                                                                                      \
+            }                                                                                                          \
+            std::array<std::string_view, sizeof(t____::value_type) * bitsize> _numbit_to_name;                         \
+                                                                                                                       \
+            static _introspect_details& instance() {                                                                   \
+                static _introspect_details i;                                                                          \
+                return i;                                                                                              \
+            }                                                                                                          \
+        };                                                                                                             \
+        std::vector<std::string_view> enabled_info() const {                                                           \
+            dfdh::u32                     bitnum = 0;                                                                  \
+            t____::value_type             mask   = 1;                                                                  \
+            std::vector<std::string_view> result;                                                                      \
+            while (mask) {                                                                                             \
+                if (this->data() & mask)                                                                               \
+                    result.push_back(_introspect_details::instance()._numbit_to_name.at(bitnum));                      \
+                ++bitnum;                                                                                              \
+                mask = mask << 1;                                                                                      \
+            }                                                                                                          \
+            return result;                                                                                             \
+        }                                                                                                              \
     }
