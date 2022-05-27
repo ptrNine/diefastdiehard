@@ -150,13 +150,14 @@ public:
         auto lines_count         = log_buf->size();
         bool space_enable        = (lines_count + 2) < labels_in_region;
 
-
+        /*
         ui().layout_row_dynamic(100, 1);
         if (ui().group_begin("test", NK_WINDOW_BORDER)) {
             ui().text_colored("oneline", 7, NK_TEXT_LEFT, {255, 255, 255});
             ui().text_colored("secondline", 7, NK_TEXT_LEFT, {255, 255, 255});
             ui().group_end();
         }
+        */
 
         float y_acc = 0.f;
         if (space_enable) {
