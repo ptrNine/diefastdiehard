@@ -38,23 +38,23 @@ public:
         if (player_name.empty()) {
             for (auto& [name, p] : players) {
                 p->set_from_config();
-                LOG_INFO("reload player config {}", name);
+                glog().info("reload player config {}", name);
             }
         } else {
             auto found = players.find(player_name);
             if (found == players.end()) {
-                LOG_ERR("can't reload player conf: player {} not found", player_name);
+                glog().error("can't reload player conf: player {} not found", player_name);
                 return;
             }
 
             found->second->set_from_config();
-            LOG_INFO("reload player config {}", player_name);
+            glog().info("reload player config {}", player_name);
         }
     }
 
     player* player_create(const player_name_t& player_name) {
         if (players.contains(player_name)) {
-            LOG_ERR("player {} already exists", player_name);
+            glog().error("player {} already exists", player_name);
             return nullptr;
         }
 
@@ -66,12 +66,12 @@ public:
     bool controller_delete(u32 controller_id) {
         auto found_controller = controllers.find(controller_id);
         if (found_controller == controllers.end()) {
-            LOG_ERR("player controller{} was not found", controller_id);
+            glog().error("player controller{} was not found", controller_id);
             return false;
         }
 
         controllers.erase(found_controller);
-        LOG_INFO("player controller{} deleted", controller_id);
+        glog().info("player controller{} deleted", controller_id);
 
         return true;
     }
@@ -83,14 +83,14 @@ public:
                 .first->second;
         auto found_player = players.find(player_name);
         if (found_player == players.end()) {
-            LOG_ERR("failed to bind player controller{}: player {} not found",
+            glog().error("failed to bind player controller{}: player {} not found",
                     controller_id,
                     player_name);
             return false;
         }
 
         controller->player_name = player_name;
-        LOG_INFO("player controller{} was bind to player {}", controller_id, player_name);
+        glog().info("player controller{} was bind to player {}", controller_id, player_name);
 
         return true;
     }
@@ -102,7 +102,7 @@ public:
         for (auto& [id, controller] : controllers) {
             auto found_player = players.find(controller->player_name);
             if (found_player == players.end()) {
-                LOG_WARN("controller{} maps to non-existent player and will be deleted", id);
+                glog().warn("controller{} maps to non-existent player and will be deleted", id);
                 to_delete.push_back(id);
             }
             else {
@@ -116,22 +116,22 @@ public:
 
     void level_cache_clear() {
         levels.clear();
-        LOG_INFO("level cache was cleared");
+        glog().info("level cache was cleared");
     }
 
     bool level_current(const std::string& level_name = {}) {
         if (level_name.empty()) {
             if (!cur_level) {
-                LOG_INFO("current level already reseted");
+                glog().info("current level already reseted");
             } else {
                 cur_level.reset();
-                LOG_INFO("current level has been reseted");
+                glog().info("current level has been reseted");
             }
             return true;
         }
 
         if (cur_level && cur_level->section_name() == level_name) {
-            LOG_INFO("level {} already in use", level_name);
+            glog().info("level {} already in use", level_name);
             return true;
         }
 
@@ -141,7 +141,7 @@ public:
             cur_level->setup_to(sim);
             sig_level_changed.emit_deferred(level_name);
 
-            LOG_INFO("level {} was loaded", level_name);
+            glog().info("level {} was loaded", level_name);
             return true;
         }
         else if (!level_cache(level_name))
@@ -151,7 +151,7 @@ public:
         cur_level->setup_to(sim);
         sig_level_changed.emit_deferred(level_name);
 
-        LOG_INFO("level {} was loaded", level_name);
+        glog().info("level {} was loaded", level_name);
         return true;
     }
 
@@ -159,22 +159,22 @@ public:
         try {
             auto [_, was_insert] = levels.emplace(level_name, level::create(level_name));
             if (was_insert)
-                LOG_INFO("level {} was cached", level_name);
+                glog().info("level {} was cached", level_name);
             else
-                LOG_INFO("level {} already cached");
+                glog().info("level {} already cached");
             return true;
         }
         catch (const std::exception& e) {
-            LOG_ERR("level cache {} failed: {}", level_name, e.what());
+            glog().error("level cache {} failed: {}", level_name, e.what());
             return false;
         }
     }
 
     void game_run(bool value = true) {
         if (on_game)
-            LOG_INFO(value ? "game already running" : "game stopped");
+            glog().info(value ? "game already running" : "game stopped");
         else
-            LOG_INFO(value ? "game running" : "game already stopped");
+            glog().info(value ? "game running" : "game already stopped");
         on_game = value;
     }
 
@@ -189,7 +189,7 @@ public:
 
     void player_spawn(player* player = nullptr) {
         if (!cur_level) {
-            LOG_WARN("Can't spawn players: level was not loaded");
+            glog().warn("Can't spawn players: level was not loaded");
             return;
         }
 
@@ -205,12 +205,12 @@ public:
 
     bool ai_bind(const player_name_t& player_name) {
         if (ai_operators.contains(player_name)) {
-            LOG_WARN("player {} is already ai controled", player_name);
+            glog().warn("player {} is already ai controled", player_name);
             return false;
         }
 
         if (!players.contains(player_name)) {
-            LOG_ERR("player {} not found", player_name);
+            glog().error("player {} not found", player_name);
             return false;
         }
 
@@ -264,7 +264,7 @@ public:
             }
         }
         catch (const cfg_exception& e) {
-            LOG_ERR("reload section [{}] failed: {}", section_name, e.what());
+            glog().error("reload section [{}] failed: {}", section_name, e.what());
         }
     }
 
@@ -363,7 +363,7 @@ public:
 
             if (ai_profiler_enabled)
                 ai_mgr().profiler_print([](auto& prof) {
-                    LOG(prof.short_print_format() ? "ai worker: {}" : "ai_worker: min|max|avg: {}", prof);
+                    glog().detail(prof.short_print_format() ? "ai worker: {}" : "ai_worker: min|max|avg: {}", prof);
                 });
         }
         else {

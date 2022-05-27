@@ -34,7 +34,7 @@ public:
                 if (path == "dummy.wav")
                     throw std::runtime_error("Sound "s +
                                              (std::filesystem::current_path() / "dummy.wav does not exists").string());
-                LOG_ERR("Cannot load sound file: {}", path);
+                glog().error("Cannot load sound file: {}", path);
                 samples.erase(sample_pos);
                 sounds.erase(sound_pos);
                 return get("dummy.wav", id);

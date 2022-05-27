@@ -51,7 +51,7 @@ void luactx_mgr::load() {
                 fs::create_directory(assist_dir);
             }
             catch (const std::exception& e) {
-                LOG_ERR("Cannot create directory {}: {}", assist_dir, e.what());
+                glog().error("Cannot create directory {}: {}", assist_dir, e.what());
             }
             ofd = std::ofstream(assist_dir / (assist_file_name + ".lua"));
         }
@@ -59,17 +59,17 @@ void luactx_mgr::load() {
         if (ofd.is_open())
             ofd << _ctx->generate_assist();
         else
-            LOG_ERR("Cannot generate lua assist file: {}", assist_dir / (assist_file_name + ".lua"));
+            glog().error("Cannot generate lua assist file: {}", assist_dir / (assist_file_name + ".lua"));
     }
     catch (const std::exception& e) {
-        LOG_ERR("lua load failed: {}", e.what());
+        glog().error("lua load failed: {}", e.what());
         loaded = false;
     }
 }
 
 luactx_mgr::luactx_mgr(std::string instance_name, bool deferred_load):
     _ctx(std::make_unique<luacpp::luactx>(true)), _instance_name(std::move(instance_name)) {
-    //LOG_INFO("Init lua instance \"{}\"", _instance_name);
+    //glog().info("Init lua instance \"{}\"", _instance_name);
 
     auto package_path = fs::current_path() / "data/scripts/?.lua";
     _ctx->enable_implicit_assist(false);
@@ -92,7 +92,7 @@ void luactx_mgr::execute_line(const std::string& line) {
         _ctx->load_and_call(luacpp::lua_code{line});
     }
     catch (const std::exception& e) {
-        LOG_ERR("lua error: {}", e.what());
+        glog().error("lua error: {}", e.what());
     }
 }
 
@@ -139,7 +139,7 @@ public:
             }
             catch (const std::exception& e) {
                 if (!suppress_error)
-                    LOG_ERR("lua extract failed: {}", e.what());
+                    glog().error("lua extract failed: {}", e.what());
 
                 function.reset();
                 last_fail_tp = std::chrono::steady_clock::now();
@@ -160,7 +160,7 @@ private:
         }
         catch (const std::exception& e) {
             if (!suppress_error)
-                LOG_ERR("lua call failed: {}", e.what());
+                glog().error("lua call failed: {}", e.what());
 
             function.reset();
             last_fail_tp = std::chrono::steady_clock::now();

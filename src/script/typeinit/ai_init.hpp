@@ -131,7 +131,7 @@ inline void lua_ai_init(luacpp::luactx& ctx) {
 
     ctx.provide_member<ai_operator_base*>(LUA_TNAME("produce_action"), [](ai_operator_base_p& o, int action) {
         if (action < 0 || action >= int(ai_action::COUNT)) {
-            LOG_ERR("lua ai operator: invalid action with index {}", action);
+            glog().error("lua ai operator: invalid action with index {}", action);
             return;
         }
         o->produce_action(ai_action(action));

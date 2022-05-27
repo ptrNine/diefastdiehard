@@ -112,7 +112,7 @@ public:
 
             if (profiler_print) {
                 loop_prof.try_print(
-                    [](auto& prof) { LOG(prof.short_print_format() ? "{}" : "min|max|avg: {}", prof); });
+                    [](auto& prof) { glog().detail(prof.short_print_format() ? "{}" : "min|max|avg: {}", prof); });
             }
         }
 

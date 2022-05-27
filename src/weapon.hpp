@@ -653,7 +653,7 @@ public:
 
             auto found_anim = _wpn->_animations.find(_current_anim->_name);
             if (found_anim == _wpn->_animations.end()) {
-                LOG_ERR("Animation '{}' not found in weapon [{}]", _current_anim->_name, _wpn->_section);
+                glog().error("Animation '{}' not found in weapon [{}]", _current_anim->_name, _wpn->_section);
                 _ammo_elapsed = _wpn->_mag_size;
                 if (_current_anim->_name == "shell")
                     _current_anim = anim_spec_t{"load_end"};

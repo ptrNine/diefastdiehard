@@ -13,12 +13,13 @@ public:
     static constexpr size_t COMMAND_LEN = 512;
 
     devconsole(ui_ctx& ui): basic_view(ui, "devconsole") {
-        log_buf = log_fixed_buffer::create(200);
-        log().add_output_stream("devconsole", log_buf);
+        auto ring = log_acceptor_ring_buffer::create(200);
+        log_ring  = ring.get();
+        glog().add_stream("devconsole", std::move(ring));
     }
 
     ~devconsole() override {
-        log().remove_output_stream("devconsole");
+        glog().remove_stream("devconsole");
     }
 
     devconsole(const devconsole&) = delete;
@@ -79,6 +80,7 @@ public:
     }
 
     void update() final {
+#if 0
         static constexpr auto push_line = [](ui_ctx& ui, auto&& line, bool show_time, bool show_level) {
             if (ui.widget_position().y < 0.f) {
                 ui.spacing(1);
@@ -147,7 +149,7 @@ public:
 
         auto content_region_size = ui().window_get_content_region_size();
         auto labels_in_region    = u32(content_region_size.y / (_row_height + lpush));
-        auto lines_count         = log_buf->size();
+        auto lines_count         = log_ring->size();
         bool space_enable        = (lines_count + 2) < labels_in_region;
 
         /*
@@ -164,7 +166,7 @@ public:
             ui().layout_space_begin(NK_STATIC, 0, int(labels_in_region - 1));
             y_acc = content_region_size.y - float(lines_count + 2) * (_row_height + lpush);
 
-            for (auto& line : log_buf->get_log_locked(labels_in_region)) {
+            for (auto& line : log_ring->read_lock(labels_in_region)) {
                 ui().layout_space_push(nk_rect(0, y_acc, content_region_size.x, (_row_height + lpush)));
                 y_acc += _row_height + lpush;
                 push_line(ui(), line, _show_time, _show_level);
@@ -183,11 +185,11 @@ public:
             if (skipped_lines)
                 ui().spacing(int(skipped_lines));
 
-            auto log_size = log_buf->size();
+            auto log_size = log_ring->size();
 
             if (log_size > skipped_lines) {
                 size_t printed_lines = 0;
-                for (auto& line : log_buf->get_log_locked(log_size - skipped_lines)) {
+                for (auto& line : log_ring->read_lock(log_size - skipped_lines)) {
                     if (ui().widget_position().y > wnd_bottom_pos) {
                         auto lines_remain = (log_size - skipped_lines) - printed_lines;
                         ui().spacing(int(lines_remain));
@@ -308,6 +310,7 @@ public:
         _lines_count_last = u32(lines_count);
 
         ui().window_get_scroll(&_x_scroll, &_y_scroll);
+#endif
     }
 
     void history_up() {
@@ -377,21 +380,21 @@ public:
     }
 
     void clear() {
-        LOG("~~CLEAR~~");
-        log_buf->clear();
+        glog().detail("~~CLEAR~~");
+        log_ring->clear();
     }
 
     [[nodiscard]]
     size_t ring_size() const {
-        return log_buf->max_size();
+        return log_ring->max_size();
     }
 
     void ring_size(size_t value) {
-        return log_buf->resize_buf(value);
+        log_ring->max_size(value);
     }
 
 private:
-    std::shared_ptr<log_fixed_buffer> log_buf;
+    log_acceptor_ring_buffer*         log_ring;
     ring_buffer<std::string>          _history{HISTORY_LEN};
     size_t                            _history_pos = HISTORY_LEN;
 

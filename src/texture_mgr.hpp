@@ -22,7 +22,7 @@ public:
         auto [pos, was_insert] = _textures.emplace(p, sf::Texture());
         if (was_insert) {
             if (!pos->second.loadFromFile(p)) {
-                LOG_ERR("Cannot load texture {}", p);
+                glog().error("Cannot load texture {}", p);
                 _textures.erase(pos);
                 return _textures.emplace("!!/dummy/!!", sf::Texture()).first->second;
             }

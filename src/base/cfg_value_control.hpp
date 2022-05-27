@@ -53,7 +53,7 @@ public:
         try {
             auto value_opt = cfg::mutable_global().get_section(section).try_get<std::string>(key);
             if (!value_opt) {
-                LOG_WARN("cfg_value_control: key {} was not found in section [{}]", key, section);
+                glog().warn("cfg_value_control: key {} was not found in section [{}]", key, section);
                 return;
             }
 
@@ -62,7 +62,7 @@ public:
 
             for (auto str_value_view : value_opt->value() / split(' ', '\t')) {
                 if (value_idx > 2){
-                    LOG_WARN("cfg_value_control: only 3 values supported");
+                    glog().warn("cfg_value_control: only 3 values supported");
                     return;
                 }
                 auto str_value = std::string(str_value_view.begin(), str_value_view.end());
@@ -71,7 +71,7 @@ public:
                     num = ston<float>(str_value);
                 }
                 catch (...) {
-                    LOG_WARN("cfg_value_control: key {} in section [{}] stores not a number value",
+                    glog().warn("cfg_value_control: key {} in section [{}] stores not a number value",
                             key, section);
                     return;
                 }
@@ -92,12 +92,12 @@ public:
 
                 value_opt->set(new_value);
                 cfg::mutable_global().commit();
-                LOG_INFO_UPDATE("cfg_value_control: updated [{}]:{} = {}", section, key, new_value);
+                glog().info_update(__COUNTER__, "cfg_value_control: updated [{}]:{} = {}", section, key, new_value);
                 updated = true;
             }
         }
         catch (...) {
-            LOG_WARN("cfg_value_control: section [{}] was not found", section);
+            glog().warn("cfg_value_control: section [{}] was not found", section);
         }
     }
 

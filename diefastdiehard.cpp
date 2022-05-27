@@ -23,21 +23,21 @@ public:
         if (opt)
             devcons().show_time(opt.test());
         else
-            LOG_INFO("log time: {}", cmd_opt<bool>(devcons().is_show_time()));
+            glog().info("log time: {}", cmd_opt<bool>(devcons().is_show_time()));
     }
 
     void cmd_log_level(cmd_opt<bool> opt) {
         if (opt)
             devcons().show_level(opt.test());
         else
-            LOG_INFO("log time: {}", cmd_opt<bool>(devcons().is_show_level()));
+            glog().info("log time: {}", cmd_opt<bool>(devcons().is_show_level()));
     }
 
     void cmd_log_ring(cmd_opt<size_t> size) {
         if (size)
             devcons().ring_size(*size);
         else
-            LOG_INFO("log ring: {}", devcons().ring_size());
+            glog().info("log ring: {}", devcons().ring_size());
     }
 
     void cmd_log(const std::string& cmd) {
@@ -48,7 +48,7 @@ public:
             gc.cmd_help("log");
         }
         else {
-            LOG_ERR("log: unknown subcommand '{}'", cmd);
+            glog().error("log: unknown subcommand '{}'", cmd);
         }
     }
 

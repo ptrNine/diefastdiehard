@@ -25,7 +25,7 @@ public:
 
         if (debug)
             if (rc == send_rc::ok)
-                LOG_INFO("Easysocket send: {}", action);
+                glog().info("Easysocket send: {}", action);
 
         if (action.transcontrol && rc == send_rc::ok) {
             ts.on_initial_send(
@@ -87,7 +87,7 @@ public:
 
         auto spec = res.data.cast_to<net_spec>();
         if (debug)
-            LOG_INFO("Easysocket receive: {}", spec);
+            glog().info("Easysocket receive: {}", spec);
 
         if (spec.transcontrol) {
             switch (spec.action) {
@@ -117,7 +117,7 @@ public:
         if (res.rc == receive_rc::ok) {
             if (debug) {
                 net_action_dispatch(res.address, res.data, [&](const address_t& address, const auto& act) {
-                    LOG_INFO("Easysocket receive: {}", act);
+                    glog().info("Easysocket receive: {}", act);
                     if constexpr (std::is_invocable_v<F, address_t, decltype(act)>)
                         func(address, act);
                     else if constexpr (std::is_invocable_v<F, decltype(act)>)

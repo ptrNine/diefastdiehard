@@ -422,11 +422,20 @@ public:
     outfd_base_t(const char* filename, file_permissions create_permissions):
         fd(Impl::impl_open(filename, fd_flag::write_only | fd_flag::create | fd_flag::trunc, create_permissions)) {}
 
-    outfd_base_t(const char*       filename,
+    outfd_base_t(const char*      filename,
                  fd_combined_flag flags              = fd_flag::write_only | fd_flag::create | fd_flag::trunc,
-                 file_permissions  create_permissions = file_permissions::user_rw | file_permissions::group_read |
+                 file_permissions create_permissions = file_permissions::user_rw | file_permissions::group_read |
                                                        file_permissions::other_read):
         fd(Impl::impl_open(filename, flags, create_permissions)) {}
+
+    outfd_base_t(const std::string& filename, file_permissions create_permissions):
+        outfd_base_t(filename.data(), create_permissions) {}
+
+    outfd_base_t(const std::string& filename,
+                 fd_combined_flag   flags              = fd_flag::write_only | fd_flag::create | fd_flag::trunc,
+                 file_permissions   create_permissions = file_permissions::user_rw | file_permissions::group_read |
+                                                       file_permissions::other_read):
+        outfd_base_t(filename.data(), flags, create_permissions) {}
 
     outfd_base_t(const outfd_base_t&) = delete;
     outfd_base_t& operator=(const outfd_base_t&) = delete;
@@ -663,6 +672,9 @@ public:
 
     infd_base_t(const char* filename, fd_combined_flag flags = fd_flag::read_only):
         fd(Impl::impl_open(filename, flags, file_permissions{})) {}
+
+    infd_base_t(const std::string& filename, fd_combined_flag flags = fd_flag::read_only):
+        infd_base_t(filename.data(), flags) {}
 
     infd_base_t(infd_base_t&&) noexcept = default;
     infd_base_t& operator=(infd_base_t&&) noexcept = default;

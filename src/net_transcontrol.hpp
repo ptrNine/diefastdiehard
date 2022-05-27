@@ -71,7 +71,7 @@ public:
             params.send_tp = now;
             --params.retries_left;
 
-            LOG_INFO("packet resend to {}:{} id: {} hash: {}",
+            glog().info("packet resend to {}:{} id: {} hash: {}",
                      info.ip.to_string(),
                      info.port,
                      info.id,
@@ -86,7 +86,7 @@ public:
         auto found = active_connections.find(
             transcontrol_packet_info{from.ip, from.port, ok.target_id, ok.target_hash});
         if (found == active_connections.end()) {
-            LOG_WARN("packet dropped: unexpected transcontrol_ok packet from {}:{} with id={} hash={}",
+            glog().warn("packet dropped: unexpected transcontrol_ok packet from {}:{} with id={} hash={}",
                      from.ip.to_string(),
                      from.port,
                      ok.target_id,
@@ -104,7 +104,7 @@ public:
         auto found = active_connections.find(
             transcontrol_packet_info{from.ip, from.port, corrupt.target_id, corrupt.target_hash});
         if (found == active_connections.end()) {
-            LOG_WARN("packet dropped: unexpected transcontrol_corrupted packet");
+            glog().warn("packet dropped: unexpected transcontrol_corrupted packet");
             return;
         }
 
@@ -143,7 +143,7 @@ public:
         send_func(from.ip, from.port, act);
 
         if (!insert_ok) {
-            LOG_WARN("packet dropped: already received");
+            glog().warn("packet dropped: already received");
             i->second = std::chrono::steady_clock::now();
             return true;
         }

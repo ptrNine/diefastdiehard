@@ -10,21 +10,21 @@ inline void lua_log_init(luacpp::luactx& ctx) {
     ctx.provide(LUA_TNAME("log_impl"), [](const std::string& level, const std::string& str) {
         if (level.starts_with("warn")) {
             if (level.find("upd") != std::string::npos)
-                LOG_WARN_UPDATE("{}", str);
+                glog().warn_update(__COUNTER__, "{}", str);
             else
-                LOG_WARN("{}", str);
+                glog().warn("{}", str);
         }
         else if (level.starts_with("err")) {
             if (level.find("upd") != std::string::npos)
-                LOG_ERR_UPDATE("{}", str);
+                glog().error_update(__COUNTER__, "{}", str);
             else
-                LOG_ERR("{}", str);
+                glog().error("{}", str);
         }
         else {
             if (level.find("upd") != std::string::npos)
-                LOG_INFO_UPDATE("{}", str);
+                glog().info_update(__COUNTER__, "{}", str);
             else
-                LOG_INFO("{}", str);
+                glog().info("{}", str);
         }
     });
 }

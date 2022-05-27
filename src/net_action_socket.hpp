@@ -57,7 +57,7 @@ public:
                 auto hash = fnv1a64(result.data.data() + sizeof(net_spec), result.data.size() - sizeof(net_spec));
                 auto spec = result.data.cast_to<net_spec>();
                 if (spec.hash != hash) {
-                    LOG_WARN("packet dropped: invalid hash (target: {} actual: {})", spec.hash, hash);
+                    glog().warn("packet dropped: invalid hash (target: {} actual: {})", spec.hash, hash);
                     result.rc = receive_rc::invalid_hash;
                 }
             }

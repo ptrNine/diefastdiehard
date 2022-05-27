@@ -66,7 +66,7 @@ int main() {
             "    auto found = map.find(str);\n"
             "    if (found != map.end())\n"
             "        return found->second;\n"
-            "    LOG_ERR(\"invalid sfml event type: {}\", str);\n"
+            "    glog().error(\"invalid sfml event type: {}\", str);\n"
             "    return sf::Event::EventType(0);\n"
             "}\n"
             "} // namespace dfdh\n";

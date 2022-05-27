@@ -607,15 +607,13 @@ inline void cfg_file_node::commit(bool force) {
     if (!commit_required && !force)
         return;
 
-    auto ofs = std::ofstream(path, std::ios::binary | std::ios::out);
-
-    if (!ofs.is_open())
-        throw cfg_file_commit_error(path, "Can't open file for writing");
+    auto ofs = outfd<char>(path);
+    //throw cfg_file_commit_error(path, "Can't open file for writing");
 
     for (auto i = start; i && i->file->inner.contains(this); i = i->next.get()) {
         if (i->file != this)
             continue;
-        ofs.write(i->tk.value.data(), std::streamsize(i->tk.value.size()));
+        ofs.write(i->tk.value.data(), i->tk.value.size());
     }
 
     commit_required = false;
@@ -651,7 +649,7 @@ template <typename T, size_t I = 0>
 void cfg_tuple_cast(auto b, auto e, T& res) {
     using std::get;
     if (b == e) {
-        LOG_WARN(
+        glog().warn(
             "Config cast error: {} arguments required ({} provided)", std::tuple_size_v<T>, I);
         return;
     }
@@ -660,7 +658,7 @@ void cfg_tuple_cast(auto b, auto e, T& res) {
     auto next = std::next(b);
     if constexpr (I + 1 == std::tuple_size_v<T>) {
         if (next != e)
-            LOG_WARN("Config cast error: arguments out of space");
+            glog().warn("Config cast error: arguments out of space");
         return;
     }
     else {
@@ -678,7 +676,7 @@ std::decay_t<U> cfg_cast(const std::string& str) {
         else if (str == "false" || str == "off")
             return false;
 
-        LOG_WARN("Config cast error: {} not a bool", str);
+        glog().warn("Config cast error: {} not a bool", str);
         return false;
     }
     else if constexpr (Number<T>) {
@@ -687,7 +685,7 @@ std::decay_t<U> cfg_cast(const std::string& str) {
             res = ston<T>(str);
         }
         catch (const std::exception& e) {
-            LOG_WARN("Config cast error: {} not a number", str);
+            glog().warn("Config cast error: {} not a number", str);
         }
         return res;
     }
@@ -1197,7 +1195,7 @@ public:
 
     void insert_breakline() {
         if (cfg_settings().insert != cfg_settings_insert::after_last_key)
-            LOG_WARN(DFDH_SOURCELINE"cfg_section: inserting breakline does not affect following key inserts, "
+            glog().warn(DFDH_SOURCELINE"cfg_section: inserting breakline does not affect following key inserts, "
                      "because insert mode is not cfg_settings_insert::after_last_key");
 
         auto last = find_last_insert_pos();
@@ -1291,9 +1289,9 @@ private:
     std::pair<cfg_node*, cfg_node*> try_insert(std::string key) {
         size_t found_eq = cfg_section_key_check(key);
         if (found_eq != std::string::npos) {
-            LOG_WARN("cfg_section: attempt to setup key with '=' sign: '{}'", key);
+            glog().warn("cfg_section: attempt to setup key with '=' sign: '{}'", key);
             key = key.substr(0, found_eq);
-            LOG_WARN("cfg_section:                                       ^-this key will be truncated: '{}'", key);
+            glog().warn("cfg_section:                                       ^-this key will be truncated: '{}'", key);
             auto found_pair = values.find(key);
             if (found_pair != values.end())
                 return {found_pair->first.key, found_pair->second};
@@ -1595,8 +1593,9 @@ public:
 
     cfg(const fs::path& entry_config_path, cfg_mode mode = cfg_mode::none, bool ireadonly = false):
         readonly(ireadonly) {
-        if (cfg_mode_int(mode & cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path)) [[maybe_unused]]
-            auto of = std::ofstream(entry_config_path);
+        if (cfg_mode_int(mode & cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path)) {
+            [[maybe_unused]] auto of = outfd<char>(entry_config_path);
+        }
 
         commit_at_destroy = cfg_mode_int(mode & cfg_mode::commit_at_destroy);
 
@@ -2211,7 +2210,7 @@ public:
     }
 
     void worker() {
-        LOG_INFO("config watcher start");
+        glog().info("config watcher start");
 
         mrunning = true;
 
@@ -2222,7 +2221,7 @@ public:
         while (mrunning) {
             /* XXX: do not use timeout */
             if (poll(&pevt, 1, 300) < 0) {
-                LOG_ERR("poll failed");
+                glog().error("poll failed");
                 break;
             }
 
@@ -2251,7 +2250,7 @@ public:
             }
         }
 
-        LOG_INFO("config watcher stop");
+        glog().info("config watcher stop");
     }
 
     void update([[maybe_unused]] int wd, const std::string& file, const std::set<std::string>& sections) {
@@ -2269,7 +2268,7 @@ public:
                 to_remove.push_back(section_name);
             }
             catch (const std::exception& e) {
-                LOG_ERR("Update section [{}] failed: {}", section_name);
+                glog().error("Update section [{}] failed: {}", section_name);
             }
         }
 
@@ -2281,11 +2280,11 @@ public:
             auto& sects = found_sects->second;
             sects.erase(section_name);
 
-            LOG_INFO("section [{}] has been removed from watch list", section_name);
+            glog().info("section [{}] has been removed from watch list", section_name);
 
             if (sects.empty()) {
                 watched_sections.erase(found_sects);
-                LOG_INFO("file {} has been removed from watch list", file);
+                glog().info("file {} has been removed from watch list", file);
 
                 auto dir_path = fs::path(file).parent_path().string();
                 auto found    = watched_sections.lower_bound(dir_path);
@@ -2295,7 +2294,7 @@ public:
                     auto wd       = found_wd->second;
                     dir_path_to_wd.erase(found_wd);
                     wd_to_dir_path.erase(wd);
-                    LOG_INFO("directory {} has been removed from watch list", dir_path);
+                    glog().info("directory {} has been removed from watch list", dir_path);
                 }
             }
         }

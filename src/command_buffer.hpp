@@ -141,7 +141,7 @@ public:
                                   std::decay_t<typename func_traits<std::decay_t<F>>::template arg_type<I>>>::value)
                     func(std::forward<Ts>(args)..., {});
                 else
-                    LOG_ERR("command '{}' accepts {} arguments (called with {} arguments)",
+                    glog().error("command '{}' accepts {} arguments (called with {} arguments)",
                             command_name,
                             func_traits<std::decay_t<F>>::arity,
                             I);
@@ -152,7 +152,7 @@ public:
         }
         else {
             if constexpr (I == func_traits<std::decay_t<F>>::arity) {
-                LOG_ERR("command '{}' accepts {} arguments (called with {} arguments)",
+                glog().error("command '{}' accepts {} arguments (called with {} arguments)",
                         command_name,
                         func_traits<std::decay_t<F>>::arity,
                         I + 1);
@@ -167,7 +167,7 @@ public:
                         command_dispatch<F, I + 1>(
                             command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., false);
                     else
-                        LOG_ERR("{}: argument[{}] must be a boolean true/false (on/off)", command_name, I);
+                        glog().error("{}: argument[{}] must be a boolean true/false (on/off)", command_name, I);
                     return;
                 }
                 if constexpr (Number<inner_type<arg_type>> && !std::is_same_v<inner_type<arg_type>, bool>) {
@@ -176,7 +176,7 @@ public:
                         v = ston<inner_type<arg_type>>(str);
                     }
                     catch (const std::exception& e) {
-                        LOG_ERR("{}: argument[{}] must be a number", command_name, I);
+                        glog().error("{}: argument[{}] must be a number", command_name, I);
                         return;
                     }
                     command_dispatch<F, I + 1>(
@@ -188,7 +188,7 @@ public:
                         command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., str);
                     return;
                 }
-                LOG_ERR("{}: function argument[{}] has unknown type", command_name, I);
+                glog().error("{}: function argument[{}] has unknown type", command_name, I);
             }
         }
     }
@@ -225,12 +225,12 @@ public:
             node = pos->second.get();
         }
         if (!insert) {
-            LOG_ERR("command '{}' already registered", command);
+            glog().error("command '{}' already registered", command);
             return;
         }
 
         if (node == cmd_tree.get()) {
-            LOG_WARN("attempt to register empty command");
+            glog().warn("attempt to register empty command");
             return;
         }
 
@@ -265,12 +265,12 @@ public:
             node = pos->second.get();
         }
         if (!insert) {
-            LOG_ERR("command '{}' already registered", command);
+            glog().error("command '{}' already registered", command);
             return;
         }
 
         if (node == cmd_tree.get()) {
-            LOG_WARN("attempt to register empty command");
+            glog().warn("attempt to register empty command");
             return;
         }
 
@@ -334,7 +334,7 @@ private:
         else if (node.handler) {
             node.handler(begin, end);
         } else {
-            LOG_ERR("unknown command {}", cmd_path);
+            glog().error("unknown command {}", cmd_path);
         }
 
     }

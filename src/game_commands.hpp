@@ -112,7 +112,7 @@ public:
         }
 
         if (!help.empty())
-            LOG("{}", help);
+            glog().detail("{}", help);
     }
 
     void cmd_player_delete(const std::string& player_name) {
@@ -121,21 +121,21 @@ public:
             auto found_ai = gs.ai_operators.find(player_name);
             if (found_ai != gs.ai_operators.end()) {
                 gs.ai_operators.erase(found_ai);
-                LOG_INFO("ai operator {} deleted", player_name);
+                glog().info("ai operator {} deleted", player_name);
             }
 
             gs.players.erase(found);
-            LOG_INFO("player {} deleted", player_name);
+            glog().info("player {} deleted", player_name);
         }
         else {
-            LOG_ERR("player {} not found", player_name);
+            glog().error("player {} not found", player_name);
         }
     }
 
     void cmd_player_wpn(const std::string& player_name, const std::optional<std::string>& wpn_section) {
         auto found = gs.players.find(player_name);
         if (found == gs.players.end()) {
-            LOG_ERR("player {} not found", player_name);
+            glog().error("player {} not found", player_name);
             return;
         }
 
@@ -144,10 +144,10 @@ public:
             if (weapon_mgr().is_exists(*wpn_section))
                 player.setup_pistol(*wpn_section);
             else
-                LOG_ERR("weapon {} not found", *wpn_section);
+                glog().error("weapon {} not found", *wpn_section);
         }
         else {
-            LOG_INFO("player wpn {}: {}", player_name, player.pistol_section());
+            glog().info("player wpn {}: {}", player_name, player.pistol_section());
         }
     }
 
@@ -162,7 +162,7 @@ public:
         else if (cmd.starts_with("controller")) {
             auto strnum = cmd.substr("controller"sv.size());
             if (strnum.empty()) {
-                LOG_ERR("player controller: missing controller number");
+                glog().error("player controller: missing controller number");
                 return;
             }
 
@@ -170,12 +170,12 @@ public:
             try {
                 controller_id = ston<u32>(strnum);
             } catch (...) {
-                LOG_ERR("player controller: invalid controller number");
+                glog().error("player controller: invalid controller number");
                 return;
             }
 
             if (!value) {
-                LOG_ERR("player {}: missing action or player name", cmd);
+                glog().error("player {}: missing action or player name", cmd);
                 return;
             }
 
@@ -188,7 +188,7 @@ public:
         }
         else if (cmd == "create") {
             if (!value) {
-                LOG_ERR("player create: missing player name argument");
+                glog().error("player create: missing player name argument");
                 return;
             }
 
@@ -205,7 +205,7 @@ public:
                         group = ston<int>(group_str);
                     }
                     catch (...) {
-                        LOG_WARN("player create: invalid group number in params");
+                        glog().warn("player create: invalid group number in params");
                     }
                 }
                 else {
@@ -213,7 +213,7 @@ public:
                 }
             }
             if (name.empty()) {
-                LOG_ERR("player create: missing name in params");
+                glog().error("player create: missing name in params");
                 return;
             }
 
@@ -222,7 +222,7 @@ public:
         }
         else if (cmd == "conf") {
             if (!value) {
-                LOG_ERR("player conf: missing player name argument");
+                glog().error("player conf: missing player name argument");
                 return;
             }
 
@@ -233,7 +233,7 @@ public:
             cmd_help("player");
         }
         else {
-            LOG_ERR("player: unknown subcommand '{}'", cmd);
+            glog().error("player: unknown subcommand '{}'", cmd);
         }
     }
 
@@ -247,7 +247,7 @@ public:
         else {
             for (auto& [sect, _] : cfg::global().get_sections()) sects += "\n" + sect;
         }
-        LOG("Sections:{}", sects);
+        glog().detail("Sections:{}", sects);
         return;
     }
 
@@ -258,7 +258,7 @@ public:
         if (!type || *type == TYPE) {                                                              \
             __VA_ARGS__                                                                            \
             if (type) {                                                                            \
-                LOG_INFO(TYPE " configs reloaded!");                                               \
+                glog().info(TYPE " configs reloaded!");                                               \
                 return;                                                                            \
             }                                                                                      \
         }                                                                                          \
@@ -273,7 +273,7 @@ public:
             }
         );
 
-        LOG_INFO("configs reloaded!");
+        glog().info("configs reloaded!");
         return;
 #undef reload_type
     }
@@ -286,21 +286,21 @@ public:
 
         auto optsect = cfg::global().try_get_section(sect);
         if (!optsect) {
-            LOG_ERR("cfg: section [{}] not found", sect);
+            glog().error("cfg: section [{}] not found", sect);
             return;
         }
 
         if (value) {
             auto optkey = optsect->try_get<std::string>(*value);
             if (!optkey) {
-                LOG_ERR("cfg {}: key '{}' not found", sect, *value);
+                glog().error("cfg {}: key '{}' not found", sect, *value);
                 return;
             }
 
-            LOG("{} = {}", *value, optkey->value());
+            glog().detail("{} = {}", *value, optkey->value());
         }
         else {
-            LOG("{}", *optsect);
+            glog().detail("{}", *optsect);
             /*
             size_t spaces = 0;
             std::string to_print;
@@ -314,7 +314,7 @@ public:
                 to_print += " = "sv;
                 to_print += v;
             }
-            LOG("{}", to_print);
+            glog().detail("{}", to_print);
             */
         }
     }
@@ -322,19 +322,19 @@ public:
     void cmd_cfg_set(const std::string& sect, const std::string& key, const std::optional<std::string>& value) {
         auto optsect = cfg::mutable_global().try_get_section(sect);
         if (!optsect) {
-            LOG_ERR("cfgset: section [{}] not found", sect);
+            glog().error("cfgset: section [{}] not found", sect);
             return;
         }
 
         auto optkey = optsect->try_get<std::string>(key);
         if (!optkey) {
-            LOG_ERR("cfgset {}: key '{}' not found", sect, key);
+            glog().error("cfgset {}: key '{}' not found", sect, key);
             return;
         }
 
         optkey->set(value ? *value : "");
         cfg::mutable_global().commit();
-        LOG_INFO("[{}] {} = {}", sect, key, value ? *value : "");
+        glog().info("[{}] {} = {}", sect, key, value ? *value : "");
     }
 
     void cmd_cfg_mode(const std::optional<std::string>& value) {
@@ -343,40 +343,40 @@ public:
             if (*value == "readonly" || *value == "r")
                 readonly = true;
             else if (*value != "readwrite" && *value != "rw")
-                LOG_ERR("cfg mode: invalid argument {} (must be readonly/r or readwrite/rw", *value);
+                glog().error("cfg mode: invalid argument {} (must be readonly/r or readwrite/rw", *value);
             if (cfg::mutable_global().is_readonly() != readonly) {
                 cfg::mutable_global().set_readonly(readonly);
-                LOG_INFO("Config has been mounted in {} mode", readonly ? "readonly" : "readwrite");
+                glog().info("Config has been mounted in {} mode", readonly ? "readonly" : "readwrite");
             }
         }
         else
-            LOG_INFO("config mode: {}", cfg::mutable_global().is_readonly() ? "readonly" : "readwrite");
+            glog().info("config mode: {}", cfg::mutable_global().is_readonly() ? "readonly" : "readwrite");
     }
 
     void cmd_cfg_watch(const std::string& value) {
         try {
             gs.conf_watcher.watch_section(cfg::mutable_global().get_section(value));
-            LOG_INFO("watch changes in section [{}]...", value);
+            glog().info("watch changes in section [{}]...", value);
         } catch (const std::exception& e) {
-            LOG_ERR("cfg watch: {}", e.what());
+            glog().error("cfg watch: {}", e.what());
         }
     }
 
     void cmd_cfg_watch_list() {
-        LOG_INFO("watched sections:");
+        glog().info("watched sections:");
         for (auto& sect_name : gs.conf_watcher.watched_section_names())
-            LOG_INFO("    {}", sect_name);
+            glog().info("    {}", sect_name);
     }
 
     void cmd_cfg_watch_remove(const std::string& value) {
         try {
             auto ok = gs.conf_watcher.remove_section(cfg::mutable_global().get_section(value));
             if (ok)
-                LOG_INFO("remove section [{}] from watch list", value);
+                glog().info("remove section [{}] from watch list", value);
             else
-                LOG_ERR("cfg watch remove: section [{}] does not exists", value);
+                glog().error("cfg watch remove: section [{}] does not exists", value);
         } catch (const std::exception& e) {
-            LOG_ERR("cfg watch remove: {}", e.what());
+            glog().error("cfg watch remove: {}", e.what());
         }
     }
 
@@ -386,9 +386,9 @@ public:
                 std::vector<std::string> res;
                 for (auto& [l, _] : gs.levels)
                     res.push_back(l);
-                LOG("Cached levels: {}", res);
+                glog().detail("Cached levels: {}", res);
             } else {
-                LOG("Available levels: {}", level::list_available_levels());
+                glog().detail("Available levels: {}", level::list_available_levels());
             }
         }
         else if (cmd == "cache") {
@@ -398,27 +398,27 @@ public:
                 else
                     gs.level_cache(*value);
             } else {
-                LOG_ERR("log cache: missing level section argument");
+                glog().error("log cache: missing level section argument");
             }
         }
         else if (cmd == "current") {
             if (value)
                 gs.level_current(*value != "none" ? *value : std::string{});
             else {
-                LOG_INFO("level current: {}", gs.cur_level ? gs.cur_level->section_name() : "none");
+                glog().info("level current: {}", gs.cur_level ? gs.cur_level->section_name() : "none");
             }
         }
         else if (cmd == "help") {
             cmd_help("level");
         }
         else {
-            LOG_ERR("level: unknown subcommand '{}'", cmd);
+            glog().error("level: unknown subcommand '{}'", cmd);
         }
     }
 
     void cmd_game_speed(const std::optional<std::string>& value) {
         if (!value) {
-            LOG_INFO("game speed: {}", gs.game_speed);
+            glog().info("game speed: {}", gs.game_speed);
         }
         else {
             float v;
@@ -426,7 +426,7 @@ public:
                 v = ston<float>(*value);
             }
             catch (...) {
-                LOG_ERR("game speed: argument must be a number");
+                glog().error("game speed: argument must be a number");
                 return;
             }
             gs.game_speed = v;
@@ -440,16 +440,16 @@ public:
             else if (*value == "off")
                 gs.game_stop();
             else
-                LOG_ERR("game: invalid argument {}", *value);
+                glog().error("game: invalid argument {}", *value);
         } else {
-            LOG_INFO("game: {}", gs.on_game ? "on" : "off");
+            glog().info("game: {}", gs.on_game ? "on" : "off");
         }
     }
 
     void cmd_ai_difficulty(const std::string& player_name, const std::optional<std::string>& difficulty) {
         auto found = gs.ai_operators.find(player_name);
         if (found == gs.ai_operators.end()) {
-            LOG_ERR("ai difficulty: ai operator for player {} was not found", player_name);
+            glog().error("ai difficulty: ai operator for player {} was not found", player_name);
             return;
         }
 
@@ -458,11 +458,11 @@ public:
                 found->second->set_difficulty(*difficulty);
             }
             catch (const std::exception& e) {
-                LOG_ERR("ai difficulty: cannot set difficulty {}: {}", *difficulty, e.what());
+                glog().error("ai difficulty: cannot set difficulty {}: {}", *difficulty, e.what());
             }
         }
         else {
-            LOG_INFO("ai difficulty {}: {}", player_name, found->second->difficulty());
+            glog().info("ai difficulty {}: {}", player_name, found->second->difficulty());
         }
     }
 
@@ -474,21 +474,21 @@ public:
         if (cmd == "list") {
             std::string msg = "active AI operators:\n";
             for (auto& [name, _] : gs.ai_operators) msg += "  " + std::string(name);
-            LOG("{}", msg);
+            glog().detail("{}", msg);
         }
         else if (cmd == "bind") {
             if (value) {
                 if (gs.ai_bind(*value))
-                    LOG_INFO("player {} now ai-operated", *value);
+                    glog().info("player {} now ai-operated", *value);
             }
             else
-                LOG_ERR("ai bind: missing player name");
+                glog().error("ai bind: missing player name");
         }
         else if (cmd == "help") {
             cmd_help("ai");
         }
         else {
-            LOG_ERR("ai: unknown subcommand {}", cmd);
+            glog().error("ai: unknown subcommand {}", cmd);
         }
     }
 
@@ -497,12 +497,12 @@ public:
                          const std::string&                str_steps) {
         auto sect = cfg::global().try_get_section(section);
         if (!sect) {
-            LOG_ERR("cfg control: section [{}] was not found", section);
+            glog().error("cfg control: section [{}] was not found", section);
             return;
         }
 
         if (!sect->has_key(key)) {
-            LOG_ERR("cfg control {}: key {} was not found", section, key);
+            glog().error("cfg control {}: key {} was not found", section, key);
             return;
         }
 
@@ -515,7 +515,7 @@ public:
             }
         }
         catch (...) {
-            LOG_ERR("cfg control {} {} {}: steps argument must contain numbers only",
+            glog().error("cfg control {} {} {}: steps argument must contain numbers only",
                     section,
                     key,
                     str_steps);
@@ -523,13 +523,13 @@ public:
         }
 
         gs.cfgval_ctrl = cfg_value_control(section, key, steps);
-        LOG_INFO("controlling [{}]:{} with steps {}", section, key, str_steps);
+        glog().info("controlling [{}]:{} with steps {}", section, key, str_steps);
     }
 
     void cmd_list() {
         std::string commands;
         for (auto& [cmd, _] : command_buffer().get_command_tree()->subcmds) commands += "\n" + cmd;
-        LOG("available commands: {}", commands);
+        glog().detail("available commands: {}", commands);
     }
 
     void cmd_sound_volume(const std::optional<std::string>& volume) {
@@ -537,11 +537,11 @@ public:
             try {
                 sound_mgr().volume(ston<float>(*volume));
             } catch (...) {
-                LOG_ERR("sound volume: value must be a number [0 - 100]");
+                glog().error("sound volume: value must be a number [0 - 100]");
             }
         }
         else {
-            LOG_INFO("sound volume: {}", sound_mgr().volume());
+            glog().info("sound volume: {}", sound_mgr().volume());
         }
     }
 

@@ -464,7 +464,7 @@ public:
         auto next_pos = pos + _collision_box->get_velocity() * timestep;
 
         pos = lerp(pos, next_pos, interpolation_factor);
-        //LOG_INFO("now: {} new: {} intr: {}", _collision_box->get_position(), next_pos, pos);
+        //glog().info("now: {} new: {} intr: {}", _collision_box->get_position(), next_pos, pos);
 
         auto adj = sprite_size_adjust_factors();
         auto dif = vec2f((_size.x * adj.x - _size.x) * 0.5f, _size.y * adj.y);
