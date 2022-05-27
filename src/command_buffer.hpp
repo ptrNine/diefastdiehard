@@ -12,6 +12,52 @@
 
 namespace dfdh {
 
+template <typename T>
+class cmd_opt : public std::optional<T> {
+public:
+    using std::optional<T>::optional;
+
+    friend std::ostream& operator<<(std::ostream& os, cmd_opt o) {
+        if (o)
+            return os << *o;
+        return os << "none";
+    }
+};
+
+template <>
+class cmd_opt<bool> : public std::optional<bool> {
+public:
+    enum cmd_opt_e { none = 0, off = 1, on = 2 };
+
+    cmd_opt() = default;
+    cmd_opt(cmd_opt_e opt_e) {
+        if (opt_e == on)
+            this->emplace(true);
+        else if (opt_e == off)
+            this->emplace(false);
+    }
+    cmd_opt(bool value): std::optional<bool>(value) {}
+
+    operator cmd_opt_e() const {
+        if (*this)
+            return **this ? on : off;
+        return none;
+    }
+
+    [[nodiscard]]
+    bool test() const {
+        if (*this)
+            return **this;
+        throw std::runtime_error("cmd_opt is not set");
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, cmd_opt o) {
+        if (o)
+            return os << (*o ? "on" : "off");
+        return os << "none";
+    }
+};
+
 class command_buffer_singleton {
 public:
     static command_buffer_singleton& instance() {
@@ -56,8 +102,31 @@ public:
 
     template <typename T>
     struct optional_t: std::false_type {};
+
     template <typename T>
     struct optional_t<std::optional<T>>: std::true_type {};
+
+    template <typename T>
+    struct optional_t<cmd_opt<T>>: std::true_type {};
+
+    template <typename T>
+    struct number_t
+        : std::integral_constant<bool,
+                                 (std::is_floating_point_v<T> || std::is_integral_v<T>) && !std::is_same_v<T, bool>> {};
+
+    template <typename T>
+    struct inner_type_s {
+        using type = T;
+    };
+
+    template <typename T>
+    struct inner_type_s<std::optional<T>> : inner_type_s<T> {};
+
+    template <typename T>
+    struct inner_type_s<cmd_opt<T>> : inner_type_s<T> {};
+
+    template <typename T>
+    using inner_type = typename inner_type_s<std::remove_const_t<std::remove_reference_t<T>>>::type;
 
     template <typename F, size_t I = 0, typename... Ts>
     static void command_dispatch(const std::string& command_name,
@@ -68,8 +137,8 @@ public:
         if (arg_begin == arg_end) {
             if constexpr (I < func_traits<std::decay_t<F>>::arity) {
                 if constexpr (func_traits<std::decay_t<F>>::arity - I == 1 &&
-                              optional_t<std::decay_t<typename func_traits<
-                                  std::decay_t<F>>::template arg_type<I>>>::value)
+                              optional_t<
+                                  std::decay_t<typename func_traits<std::decay_t<F>>::template arg_type<I>>>::value)
                     func(std::forward<Ts>(args)..., {});
                 else
                     LOG_ERR("command '{}' accepts {} arguments (called with {} arguments)",
@@ -90,7 +159,7 @@ public:
             } else {
                 auto str = std::string((*arg_begin).begin(), (*arg_begin).end());
                 using arg_type = typename func_traits<std::decay_t<F>>::template arg_type<I>;
-                if constexpr (std::is_same_v<std::decay_t<arg_type>, bool>) {
+                if constexpr (std::is_same_v<inner_type<arg_type>, bool>) {
                     if (str == "true" || str == "on")
                         command_dispatch<F, I + 1>(
                             command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., true);
@@ -101,10 +170,10 @@ public:
                         LOG_ERR("{}: argument[{}] must be a boolean true/false (on/off)", command_name, I);
                     return;
                 }
-                if constexpr (Number<std::decay_t<arg_type>>) {
+                if constexpr (Number<inner_type<arg_type>> && !std::is_same_v<inner_type<arg_type>, bool>) {
                     std::decay_t<arg_type> v;
                     try {
-                        v = ston<arg_type>(str);
+                        v = ston<inner_type<arg_type>>(str);
                     }
                     catch (const std::exception& e) {
                         LOG_ERR("{}: argument[{}] must be a number", command_name, I);
@@ -114,12 +183,7 @@ public:
                         command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., v);
                     return;
                 }
-                if constexpr (std::is_same_v<std::decay_t<arg_type>, std::string>) {
-                    command_dispatch<F, I + 1>(
-                        command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., str);
-                    return;
-                }
-                if constexpr (std::is_same_v<std::decay_t<arg_type>, std::optional<std::string>>) {
+                if constexpr (std::is_same_v<inner_type<arg_type>, std::string>) {
                     command_dispatch<F, I + 1>(
                         command_name, std::forward<F>(func), ++arg_begin, arg_end, std::forward<Ts>(args)..., str);
                     return;
