@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <optional>
 
-#include "base/io_tools.hpp"
+#include "base/io.hpp"
 #include "base/split_view.hpp"
 #include "base/md5.hpp"
 #include "base/print.hpp"
@@ -44,7 +44,7 @@ bool depinfo(const fs::path& file_path, bool is_system_include = false);
 
 void parse_depinfo(const fs::path& file_path) {
     bool on_multiline_comment = false;
-    auto fv                   = mmap_file_view(file_path.string().data());
+    auto fv                   = mmap_file_range<char>(file_path.string().data());
 
     for (auto line : fv / split('\n', '\r')) {
         auto        p       = line.begin();
@@ -168,7 +168,7 @@ int main(int, char** argv) {
     int rc = 0;
     if (check_path) {
         try {
-            auto fv = mmap_file_view(check_path->data());
+            auto fv = mmap_file_range<char>(check_path->data());
             if (std::string_view(fv.begin(), fv.end()) != output)
                 rc = 1;
         }

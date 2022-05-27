@@ -12,7 +12,7 @@
 #include <netdb.h>
 
 #include "base/log.hpp"
-#include "base/scope_guard.hpp"
+#include "base/finalizers.hpp"
 #include "base/serialization.hpp"
 
 namespace dfdh {
@@ -408,7 +408,7 @@ public:
     udp_socket(const ip_address& ip, port_t port, bool blocking = true) {
         if (fd == -1)
             throw socket_error("Can't create socket");
-        auto scope_exit = scope_guard([this]{ ::close(fd); });
+        auto guard = exception_guard([this]{ ::close(fd); });
 
         set_blocking(blocking);
 
@@ -422,8 +422,6 @@ public:
 
         if (::bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) // NOLINT
             throw_socket_bind_exception(ip, port, errno);
-
-        scope_exit.dismiss();
     }
 
     udp_socket(const address_t& address, bool blocking = true): udp_socket(address.ip, address.port, blocking) {}
