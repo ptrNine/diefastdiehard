@@ -24,6 +24,11 @@ public:
         return {x, y};
     }
 
+    template <typename U>
+    explicit operator vec2<U>() const {
+        return {static_cast<U>(x), static_cast<U>(y)};
+    }
+
     constexpr vec2 xy() const {
         return *this;
     }
