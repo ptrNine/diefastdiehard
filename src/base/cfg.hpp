@@ -13,7 +13,7 @@
 
 #include "split_view.hpp"
 #include "log.hpp"
-#include "io_tools.hpp"
+#include "io.hpp"
 #include "ston.hpp"
 
 namespace dtls
@@ -1995,7 +1995,7 @@ private:
             throw cfg_already_parsed(str_path);
         auto& file_node = pos->second;
 
-        auto mfv       = mmap_file_view(str_path.data());
+        auto mfv       = file_view<char>(str_path.data());
         auto mfv_begin = mfv.begin();
         auto mfv_end   = mfv.end();
 
