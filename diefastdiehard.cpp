@@ -1,7 +1,5 @@
 #include "src/stdafx.hpp"
 
-#include <iostream>
-
 #include "base/serialization.hpp"
 #include "ui/player_configurator_ui.hpp"
 
@@ -18,48 +16,32 @@ inline constexpr bool MP_MOVE_ADJUSTMENT = true;
 
 namespace dfdh {
 
-class diefastdiehard : public dfdh::engine {
+class diefastdiehard : public dfdh::engine, public slot_holder {
 public:
-    //diefastdiehard() {}
-    void cmd_log(const std::string& cmd, const std::optional<std::string>& value) {
-        if (cmd == "time") {
-            if (value) {
-                if (*value == "on")
-                    devcons().show_time();
-                else if (*value == "off")
-                    devcons().show_time(false);
-                else
-                    LOG_ERR("log time: unknown action '{}' (must be 'on' or 'off')", *value);
-            } else {
-                LOG_INFO("log time: {}", devcons().is_show_time() ? "on"sv : "off"sv);
-            }
-        }
-        else if (cmd == "level") {
-            if (value) {
-                if (*value == "on")
-                    devcons().show_level();
-                else if (*value == "off")
-                    devcons().show_level(false);
-                else
-                    LOG_ERR("log level: unknown action '{}' (must be 'on' or 'off')", *value);
-            } else {
-                LOG_INFO("log level: {}", devcons().is_show_level() ? "on"sv : "off"sv);
-            }
-        }
-        else if (cmd == "ring") {
-            if (value) {
-                try {
-                    auto sz = ston<size_t>(*value);
-                    devcons().ring_size(sz);
-                } catch (...) {
-                    LOG_ERR("log ring: '{}' not an unsigned int", *value);
-                }
-            }
-            else {
-                LOG_INFO("log ring: {}", devcons().ring_size());
-            }
-        }
-        else if (cmd == "clear") {
+    /* Commands */
+    void cmd_log_time(cmd_opt<bool> opt) {
+        if (opt)
+            devcons().show_time(opt.test());
+        else
+            LOG_INFO("log time: {}", cmd_opt<bool>(devcons().is_show_time()));
+    }
+
+    void cmd_log_level(cmd_opt<bool> opt) {
+        if (opt)
+            devcons().show_level(opt.test());
+        else
+            LOG_INFO("log time: {}", cmd_opt<bool>(devcons().is_show_level()));
+    }
+
+    void cmd_log_ring(cmd_opt<size_t> size) {
+        if (size)
+            devcons().ring_size(*size);
+        else
+            LOG_INFO("log ring: {}", devcons().ring_size());
+    }
+
+    void cmd_log(const std::string& cmd) {
+        if (cmd == "clear") {
             devcons().clear();
         }
         else if (cmd == "help") {
@@ -72,10 +54,24 @@ public:
 
     void init_commands() {
         command_buffer().add_handler("log", &diefastdiehard::cmd_log, this);
+        command_buffer().add_handler("log time", &diefastdiehard::cmd_log_time, this);
+        command_buffer().add_handler("log level", &diefastdiehard::cmd_log_level, this);
+        command_buffer().add_handler("log ring", &diefastdiehard::cmd_log_ring, this);
         command_buffer().add_handler("profiler", &diefastdiehard::enable_profiler_print, static_cast<engine*>(this));
     }
 
+public:
+    void init_signals() {
+        gs.sig_level_changed.attach_function("level_changed", [this](const std::string&) {
+            apply_window_size(window().getSize().x, window().getSize().y);
+        });
+        gs.sig_shutdown.attach_function("shutdown", [this] { window().close(); });
+        gs.sig_execute_lua.attach_function("execute_lua", [this](const std::string& code) { lua->execute_line(code); });
+    }
+
+public:
     void on_init(args_view args) final {
+        init_signals();
         init_commands();
 
         if (args.get("--physic-debug"))
@@ -84,6 +80,42 @@ public:
         init_lua();
     }
 
+    void on_destroy() final {
+        if (!gs.ai_operators.empty())
+            ai_mgr().worker_stop();
+    }
+
+    void game_update() final {
+        gs.game_update();
+        lua_game_update(&gs);
+    }
+
+    void handle_event(const sf::Event& evt) final {
+        gs.handle_event(evt);
+        lua_handle_event(evt);
+    }
+
+    void on_window_resize(u32 width, u32 height) override {
+        engine::on_window_resize(width, height);
+        apply_window_size(width, height);
+    }
+
+    void ui_update() final {
+        engine::ui_update();
+        gs.ui_update(ui);
+        //mainmenu().update(ui);
+    }
+
+    void render_update(sf::RenderWindow& wnd) final {
+        update_cam();
+        gs.render_update(wnd);
+    }
+
+    void post_update() final {
+        signal_slot_event_updater::instance().operate_tasks();
+    }
+
+private:
     void init_lua() {
         lua.emplace(luactx_mgr::global(true));
 
@@ -99,93 +131,6 @@ public:
         lua->load();
     }
 
-    void on_destroy() final {
-        if (!gs.ai_operators.empty())
-            ai_mgr().worker_stop();
-    }
-
-    void handle_event(const sf::Event& evt) final {
-        gs.handle_event(evt);
-        lua_handle_event(evt);
-    }
-
-    void ui_update() final {
-        engine::ui_update();
-        gs.ui_update(ui);
-        //mainmenu().update(ui);
-    }
-
-    void render_update(sf::RenderWindow& wnd) final {
-        update_cam();
-        gs.render_update(wnd);
-    }
-
-    struct bullet_spawn_callback {
-        void operator()(const vec2f& position, const vec2f& velocity, float imass) {
-            *mass = imass;
-            bullets->push_back(bullet_data_t{position, velocity});
-        }
-
-        constexpr operator bool() const {
-            return true;
-        }
-
-        std::vector<bullet_data_t>* bullets;
-        float* mass;
-    };
-
-    void game_update() final {
-        gs.game_update();
-        lua_game_update(&gs);
-    }
-
-    void post_command_update() override {
-        while (!gs.events.empty()) {
-            switch (gs.events.front()) {
-            case game_state_event::level_changed:
-                apply_window_size(window().getSize().x, window().getSize().y);
-                break;
-            case game_state_event::shutdown:
-                window().close();
-                break;
-            }
-            gs.events.pop();
-        }
-
-        if (gs.lua_cmd_enabled) {
-            for (auto& cmd : gs.lua_cmd_queue)
-                lua->execute_line(cmd);
-            gs.lua_cmd_queue.clear();
-        }
-    }
-
-    void on_window_resize(u32 width, u32 height) override {
-        engine::on_window_resize(width, height);
-        apply_window_size(width, height);
-    }
-
-    void on_dead(player* player) {
-        player->increase_deaths();
-        spawn(player);
-    }
-
-    void spawn(player* player = nullptr) {
-        if (!gs.cur_level) {
-            LOG_WARN("Can't spawn players: level was not loaded");
-            return;
-        }
-
-        if (player) {
-            player->position({gs.cur_level->level_size().x / 2.f, 0.f});
-            player->velocity({0.f, 0.f});
-            player->enable_double_jump();
-        } else {
-            for (auto& [_, p] : gs.players)
-                spawn(p.get());
-        }
-    }
-
-private:
     void apply_window_size(u32 width, u32 height) {
         if (!gs.cur_level)
             return;

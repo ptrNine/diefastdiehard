@@ -15,58 +15,44 @@
 
 namespace dfdh {
 
-class global_ctx {
-public:
-    static global_ctx& instance() {
-        static global_ctx inst;
-        return inst;
-    }
-
-    global_ctx() {
-        auto sect = conf.get_or_create("window"_sect);
-        wnd_size  = sect.value_or_default_and_set("size", vec2f(800.f, 600.f));
-        conf.commit();
-    }
-
-    [[nodiscard]]
-    u32 wnd_w() const {
-        return u32(wnd_size.x);
-    }
-
-    [[nodiscard]]
-    u32 wnd_h() const {
-        return u32(wnd_size.y);
-    }
-
-    void on_resize(u32 w, u32 h) {
-        wnd_size = vec2f{float(w), float(h)};
-        auto sect = conf.get_or_create("window"_sect);
-        sect.set("size", wnd_size);
-    }
-
-private:
-    sf::ContextSettings settings{24, 8, 4, 3, 3};
-    vec2f wnd_size;
-    cfg conf{"data/settings/window.cfg", cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy};
-};
+namespace defaults {
+    static constexpr auto window_size = vec2u{800, 600};
+}
 
 class engine {
 public:
-    engine(): _wnd(sf::VideoMode(_ctx_init__.wnd_w(), _ctx_init__.wnd_h()), "diefastdiehard") {
+    static constexpr auto config_path = "data/settings/engine.cfg";
+
+    static sf::VideoMode video_mode(vec2u wnd_size) {
+        return {wnd_size.x, wnd_size.y};
+    }
+
+    engine():
+        _conf(config_path, cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy),
+        _engine_conf(_conf.get_or_create("engine"_sect)),
+        _wnd(video_mode(_engine_conf.value_or_default_and_set("window_size", defaults::window_size)), "diefastdiehard"),
+        _devcons(ui) {
+
         _wnd.setActive(true);
         ui = ui_ctx(_wnd);
     }
 
-    virtual ~engine() = default;
+    virtual ~engine() {
+        _conf.commit();
+    }
 
     int run(args_view args) {
+        init_window();
         on_init(std::move(args));
-        auto wnd_size = _wnd.getSize();
-        _devcons.set_size(ui, {float(wnd_size.x), float(wnd_size.y)});
-        _main_menu.set_size({float(wnd_size.x), float(wnd_size.y)});
 
-        _wnd.setVerticalSyncEnabled(true);
-        _wnd.setFramerateLimit(60);
+        auto wnd_size = window_size_float();
+        _devcons.place_into_window(wnd_size);
+        _main_menu.set_size(wnd_size);
+
+        _wnd.setVerticalSyncEnabled(_engine_conf.value_or_default_and_set("vsync", true));
+        _wnd.setFramerateLimit(_engine_conf.value_or_default_and_set("framerate_limit", 60U));
+
+        profiler_print = _engine_conf.value_or_default_and_set("profiler", false);
 
         while (_wnd.isOpen()) {
             {
@@ -80,7 +66,7 @@ public:
                 sf::Event evt;
                 while (_wnd.pollEvent(evt)) {
                     ui.handle_event(evt);
-                    _devcons.handle_event(ui, evt);
+                    _devcons.handle_event(evt);
 
                     if (evt.type == sf::Event::Closed) {
                         _wnd.close();
@@ -122,7 +108,6 @@ public:
             {
                 auto prof = loop_prof.scope("commands");
                 command_buffer().run_handlers();
-                post_command_update();
             }
 
             if (profiler_print) {
@@ -149,7 +134,7 @@ end:
     }
 
     virtual void ui_update() {
-        devcons().update(ui);
+        devcons().update_internal();
     }
 
     virtual void on_init(args_view args) = 0;
@@ -157,28 +142,67 @@ end:
     virtual void handle_event(const sf::Event& event) = 0;
     virtual void render_update(sf::RenderWindow& wnd) = 0;
     virtual void game_update() = 0;
-    virtual void post_command_update() = 0;
+    virtual void post_update() = 0;
 
     virtual void on_window_resize(u32 width, u32 height) {
-        _ctx_init__.on_resize(width, height);
+        _engine_conf.set("window_size", vec2u{width, height});
+        _engine_conf.set("window_pos", window_position());
     }
 
     void enable_profiler_print(bool value) {
         profiler_print = value;
     }
 
+    vec2u window_size() const {
+        return _wnd.getSize();
+    }
+
+    vec2i window_position() const {
+        return _wnd.getPosition();
+    }
+
+    vec2f window_size_float() const {
+        auto sz = window_size();
+        return {float(sz.x), float(sz.y)};
+    }
+
+    vec2u screen_size() const {
+        auto desktop_mode = sf::VideoMode::getDesktopMode();
+        return {desktop_mode.width, desktop_mode.height};
+    }
+
+    void resize_window(vec2u size) {
+        _wnd.setSize(size);
+    }
+
 private:
-    global_ctx& _ctx_init__ = global_ctx::instance();
+    void init_window() {
+        auto wnd_size  = window_size();
+        auto screen_sz = screen_size();
+
+        if (screen_sz.x < wnd_size.x)
+            wnd_size.x = screen_sz.x;
+        if (screen_sz.y < wnd_size.y)
+            wnd_size.y = screen_sz.y;
+        if (sf::Vector2u(wnd_size) != _wnd.getSize())
+            resize_window(wnd_size);
+
+        auto wnd_pos =
+            _engine_conf.value_or_default_and_set("window_pos", static_cast<vec2i>((screen_sz / 2) - (wnd_size / 2)));
+        _wnd.setPosition(wnd_pos);
+    }
 
 protected:
     ui_ctx ui;
 
 private:
-    sf::RenderWindow _wnd;
-    devconsole       _devcons;
-    main_menu        _main_menu;
-    profiler         loop_prof;
-    bool             profiler_print = false;
+    cfg                 _conf;
+    cfg_section<false>  _engine_conf;
+    sf::ContextSettings _settings{24, 8, 4, 3, 3};
+    sf::RenderWindow    _wnd;
+    devconsole          _devcons;
+    main_menu           _main_menu;
+    profiler            loop_prof;
+    bool                profiler_print = false;
 };
-
 }
