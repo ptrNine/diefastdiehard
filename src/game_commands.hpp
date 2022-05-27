@@ -152,7 +152,7 @@ public:
     }
 
     void cmd_lua(const std::string& cmd) {
-        gs.lua_schedule_execution(cmd);
+        gs.sig_execute_lua.emit_immediate(cmd);
     }
 
     void cmd_player(const std::string& cmd, const std::optional<std::string>& value) {
@@ -266,10 +266,10 @@ public:
 
         reload_type("weapons", weapon_mgr().reload(););
         reload_type("levels",
-            for (auto& [_, lvl] : gs.levels) lvl->cfg_reload();
+            for (auto& [lvl_name, lvl] : gs.levels) lvl->cfg_reload();
             if (gs.cur_level) {
                 gs.cur_level->setup_to(gs.sim);
-                gs.events.push(game_state_event::level_changed);
+                gs.sig_level_changed.emit_deferred(gs.cur_level->section_name());
             }
         );
 
@@ -546,7 +546,7 @@ public:
     }
 
     void cmd_shutdown() {
-        gs.shutdown();
+        gs.sig_shutdown.emit_deferred();
     }
 
 private:

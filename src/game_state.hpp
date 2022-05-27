@@ -16,11 +16,6 @@
 
 namespace dfdh {
 
-enum class game_state_event {
-    level_changed = 0,
-    shutdown
-};
-
 class game_state {
 public:
     game_state():
@@ -144,7 +139,8 @@ public:
         if (found_lvl != levels.end()) {
             cur_level = found_lvl->second;
             cur_level->setup_to(sim);
-            events.push(game_state_event::level_changed);
+            sig_level_changed.emit_deferred(level_name);
+
             LOG_INFO("level {} was loaded", level_name);
             return true;
         }
@@ -153,7 +149,8 @@ public:
 
         cur_level = levels.at(level_name);
         cur_level->setup_to(sim);
-        events.push(game_state_event::level_changed);
+        sig_level_changed.emit_deferred(level_name);
+
         LOG_INFO("level {} was loaded", level_name);
         return true;
     }
@@ -183,10 +180,6 @@ public:
 
     void game_stop() {
         game_run(false);
-    }
-
-    void shutdown() {
-        events.push(game_state_event::shutdown);
     }
 
     void player_on_dead(player* player) {
@@ -265,7 +258,7 @@ public:
                     found_lvl->second->cfg_reload();
                     if (cur_level == found_lvl->second) {
                         cur_level->setup_to(sim);
-                        events.push(game_state_event::level_changed);
+                        sig_level_changed.emit_deferred(section_name);
                     }
                 }
             }
@@ -460,10 +453,6 @@ public:
         });
     }
 
-    void lua_schedule_execution(const std::string& code) {
-        lua_cmd_queue.push_back(code);
-    }
-
     physic_simulation  sim;
     bullet_mgr         blt_mgr;
     instant_kick_mgr   kick_mgr;
@@ -483,11 +472,9 @@ public:
     std::map<u32, std::shared_ptr<player_controller>>     controllers;
     std::map<player_name_t, std::shared_ptr<ai_operator>> ai_operators;
     std::shared_ptr<level>                                cur_level;
-    std::queue<game_state_event>                          events;
     std::unique_ptr<player_configurator_ui>               pconf_ui;
     std::optional<cfg_value_control>                      cfgval_ctrl;
     cfg_watcher                                           conf_watcher;
-    std::vector<std::string>                              lua_cmd_queue;
 
     vec2f cam_pos = {0.f, 0.f};
 
@@ -496,6 +483,11 @@ public:
     bool gravity_for_bullets = true;
     bool lua_cmd_enabled     = true;
     bool ai_profiler_enabled = false;
+
+    /* Signals */
+    signal<void(std::string)> sig_level_changed;
+    signal<void()>            sig_shutdown;
+    signal<void(std::string)> sig_execute_lua;
 };
 
 } // namespace dfdh
