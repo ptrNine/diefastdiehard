@@ -13,4 +13,13 @@ inline uint64_t fnv1a64(const void* ptr, size_t size) {
 
     return hash;
 }
+
+inline uint64_t fnv1a64_nullterm(const void* ptr) {
+    auto     p    = static_cast<const u8*>(ptr);
+    uint64_t hash = 0xcbf29ce484222325;
+
+    while (*p) hash = (hash ^ *p++) * 0x100000001b3;
+
+    return hash;
+}
 } // namespace dfdh
