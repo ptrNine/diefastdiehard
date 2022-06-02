@@ -65,7 +65,6 @@ public:
         auto style = &ui().nk_ctx()->style;
         nk_style_push_color(ui().nk_ctx(), &style->window.background, nk_rgba(20, 20, 20, 210));
         ui().style_push_style_item(&style->window.fixed_background, nk_style_item_color(nk_rgba(20, 20, 20, 210)));
-
         ui().style_push_style_item(&style->edit.normal, nk_style_item_color(nk_rgba(0, 0, 0, 0)));
         ui().style_push_style_item(&style->edit.active, nk_style_item_color(nk_rgba(0, 0, 0, 0)));
         ui().style_push_style_item(&style->edit.hover, nk_style_item_color(nk_rgba(0, 0, 0, 0)));
@@ -79,130 +78,107 @@ public:
         ui().style_pop_style_item();
     }
 
-    void update() final {
-#if 0
-        static constexpr auto push_line = [](ui_ctx& ui, auto&& line, bool show_time, bool show_level) {
-            if (ui.widget_position().y < 0.f) {
-                ui.spacing(1);
-                return;
-            }
+    void print_output(float content_h) {
+        /* Return if space is not enough */
+        content_h -= 9.f;
+        if (content_h < 0.f)
+            return;
 
-            constexpr auto info_pref = "[info]"sv;
-            constexpr auto warn_pref = "[warn]"sv;
-            constexpr auto err_pref  = "[error]"sv;
-            auto           color     = sf::Color(220, 220, 220);
-
-            std::string_view log_line = line;
-
-            if (line.size() > LOG_TIME_FMT.size() + 1 + err_pref.size() && line[3] == ':' && line[6] == ':' &&
-                line[9] == '.') {
-                auto start_msg = line.data() + LOG_TIME_FMT.size() + 1;
-                auto end       = line.data() + line.size();
-
-                if (!show_time)
-                    log_line = std::string_view(*start_msg == ' ' ? start_msg + 1 : start_msg, end);
-
-                bool times = false;
-                switch (*start_msg) {
-                case '(':
-                    times = true;
-                    ++start_msg;
-                    while (isdigit(*start_msg)) ++start_msg;
-                    if (*start_msg == ' ')
-                        ++start_msg;
-                    if (std::string_view(start_msg, end).starts_with("times):"sv))
-                        start_msg += "times):"sv.size();
-                    if (size_t(end - start_msg) < err_pref.size())
-                        break;
-                    [[fallthrough]];
-
-                case ' ':
-                    ++start_msg;
-
-                    size_t sz = 0;
-                    if (std::string_view(start_msg, warn_pref.size()) == warn_pref) {
-                        color = sf::Color(225, 195, 52);
-                        sz    = warn_pref.size();
-                    }
-                    else if (std::string_view(start_msg, err_pref.size()) == err_pref) {
-                        color = sf::Color(255, 56, 56);
-                        sz    = err_pref.size();
-                    }
-                    else if (std::string_view(start_msg, info_pref.size()) == info_pref) {
-                        color = sf::Color(69, 217, 20);
-                        sz    = info_pref.size();
-                    }
-                    if (!show_level && !times && sz)
-                        log_line = std::string_view(start_msg + sz + 1, end);
-                }
-            }
-
-            ui.text_colored(log_line.data(), int(log_line.size()), NK_TEXT_LEFT, color);
+        static sf::Color level_colors[] = {
+            sf::Color(0x67, 0x9d, 0xc0),
+            sf::Color(220, 220, 220),
+            sf::Color(69, 217, 20),
+            sf::Color(225, 195, 52),
+            sf::Color(255, 56, 56)
         };
 
-        static constexpr float lpush = 4.f;
+        static constexpr std::string_view level_str[] = {
+            ": [debug] "sv,
+            ": "sv,
+            ": [info] "sv,
+            ": [warn] "sv,
+            ": [error] "sv
+        };
 
-        if (_first_run)
-            ui().window_set_scroll(_x_scroll, _y_scroll);
+        auto scroll_rows      = scroll.y / uint(_row_height + 4.f);
+        auto max_content_rows = uint(content_h / (_row_height + 4.f));
+        auto row_padding      = content_h - (float(max_content_rows) * (_row_height + 4.f));
+        row_padding           = std::clamp(row_padding, 1.f, 100.f);
 
-        _first_run = false;
+        auto records = log_ring->get_records(scroll_rows, max_content_rows + 1);
 
-        auto content_region_size = ui().window_get_content_region_size();
-        auto labels_in_region    = u32(content_region_size.y / (_row_height + lpush));
-        auto lines_count         = log_ring->size();
-        bool space_enable        = (lines_count + 2) < labels_in_region;
+        auto front_space_rows = records.start_pos() == 0 && records.end_pos() < max_content_rows
+                                    ? max_content_rows - records.end_pos()
+                                    : records.start_pos();
+        auto records_rows     = records.end_pos() - records.start_pos();
+        auto back_space_rows  = records.max_pos() - records.end_pos();
 
-        /*
-        ui().layout_row_dynamic(100, 1);
-        if (ui().group_begin("test", NK_WINDOW_BORDER)) {
-            ui().text_colored("oneline", 7, NK_TEXT_LEFT, {255, 255, 255});
-            ui().text_colored("secondline", 7, NK_TEXT_LEFT, {255, 255, 255});
-            ui().group_end();
-        }
-        */
+        size_t total_rows   = front_space_rows + records_rows + back_space_rows;
+        float  total_height = row_padding + float(total_rows) * (_row_height + 4.f);
 
-        float y_acc = 0.f;
-        if (space_enable) {
-            ui().layout_space_begin(NK_STATIC, 0, int(labels_in_region - 1));
-            y_acc = content_region_size.y - float(lines_count + 2) * (_row_height + lpush);
+        auto max_scroll = total_height > content_h ? uint(total_height - content_h - 1) : 0;
+        if (max_scroll_reached && (total_rows > prev_total_rows || max_scroll > prev_max_scroll))
+            scroll.y = max_scroll;
 
-            for (auto& line : log_ring->read_lock(labels_in_region)) {
-                ui().layout_space_push(nk_rect(0, y_acc, content_region_size.x, (_row_height + lpush)));
-                y_acc += _row_height + lpush;
-                push_line(ui(), line, _show_time, _show_level);
-            }
-            ui().layout_space_push(nk_rect(0, y_acc, content_region_size.x, _row_height * 2.f));
-        }
-        else {
+        prev_max_scroll    = max_scroll;
+        prev_total_rows    = total_rows;
+        max_scroll_reached = max_scroll == scroll.y;
+
+        /* Make ui */
+        if (ui().group_scrolled_begin(&scroll, "devconsole_output", NK_WINDOW_BORDER)) {
+            ui().layout_row_dynamic(row_padding, 1);
             ui().layout_row_dynamic(_row_height, 1);
-            auto pos            = ui().widget_position();
-            auto wnd_bottom_pos = ui().window_get_position().y + ui().window_get_height();
 
-            size_t skipped_lines = 0;
-            if (pos.y < 0.f)
-                skipped_lines = size_t(-pos.y) / (size_t(_row_height) + 14);
-
-            if (skipped_lines)
-                ui().spacing(int(skipped_lines));
-
-            auto log_size = log_ring->size();
-
-            if (log_size > skipped_lines) {
-                size_t printed_lines = 0;
-                for (auto& line : log_ring->read_lock(log_size - skipped_lines)) {
-                    if (ui().widget_position().y > wnd_bottom_pos) {
-                        auto lines_remain = (log_size - skipped_lines) - printed_lines;
-                        ui().spacing(int(lines_remain));
-                        break;
+            for (size_t i = 0; i < front_space_rows; ++i) ui().spacing(1);
+            for (auto& record : records) {
+                std::string msg;
+                if (_show_time)
+                    msg += record.time;
+                if (record.wt == log_acceptor_base::write_type::write_same && record.times > 1) {
+                    if (_show_level || _show_time)
+                        msg += ' ';
+                    if (record.times != std::numeric_limits<uint16_t>::max()) {
+                        msg += '(';
+                        msg += std::to_string(record.times);
+                        msg += " times)";
+                    }
+                    else {
+                        msg += "(repeats infinitely)";
                     }
 
-                    push_line(ui(), line, _show_time, _show_level);
-                    ++printed_lines;
+                    if (!_show_level)
+                        msg += ' ';
                 }
+                if (_show_level)
+                    msg += level_str[size_t(record.lvl)];
+                msg += record.msg;
+
+                ui().text_colored(msg.data(), int(msg.size()), NK_TEXT_LEFT, level_colors[size_t(record.lvl)]);
             }
-            ui().layout_row_dynamic(_row_height * 2.f, 1);
+            for (size_t i = records.end_pos(); i < records.max_pos(); ++i) ui().spacing(1);
+
+            ui().group_scrolled_end();
+        }
+        /*
+        printfln("scroll: {} max scroll: {} reached: {} th: {} h: {}",
+                 scroll.y,
+                 max_scroll,
+                 max_scroll_reached,
+                 total_height,
+                 content_h);
+        */
+    }
+
+    void update() final {
+        auto wnd_content_h = ui().window_get_content_region_size().y;
+        auto edit_height = _row_height * 2.f;
+        if (wnd_content_h > edit_height + 12.f) {
+            float group_height = wnd_content_h - edit_height - 12.f;
+            ui().layout_row_dynamic(group_height, 1);
+            print_output(wnd_content_h - _row_height * 2.f - 24.f);
         }
 
+        ui().layout_row_dynamic(_row_height * 2.f, 1);
         auto edit_state = ui().edit_string(NK_EDIT_FIELD | nk_edit_types(NK_EDIT_SIG_ENTER),
                                            _command_edit.data(),
                                            &_command_len,
@@ -299,18 +275,6 @@ public:
             _history_pos = HISTORY_LEN;
             _last_help.reset();
         }
-
-        if (space_enable)
-            ui().layout_space_end();
-
-        if (lines_count > _lines_count_last) {
-            auto& scroll = ui().nk_ctx()->current->scrollbar;
-            scroll.y += 100000;
-        }
-        _lines_count_last = u32(lines_count);
-
-        ui().window_get_scroll(&_x_scroll, &_y_scroll);
-#endif
     }
 
     void history_up() {
@@ -394,17 +358,19 @@ public:
     }
 
 private:
-    log_acceptor_ring_buffer*         log_ring;
-    ring_buffer<std::string>          _history{HISTORY_LEN};
-    size_t                            _history_pos = HISTORY_LEN;
+    log_acceptor_ring_buffer* log_ring;
+    ring_buffer<std::string>  _history{HISTORY_LEN};
+    size_t                    _history_pos = HISTORY_LEN;
 
-    float _row_height       = 15;
-    u32   _lines_count_last = 0;
-    u32   _x_scroll         = 0;
-    u32   _y_scroll         = 0;
-    bool  _first_run        = true;
-    bool  _show_time        = false;
-    bool  _show_level       = false;
+    float     _row_height        = 15;
+    nk_scroll scroll             = {0, 0};
+    bool      max_scroll_reached = true;
+    uint      prev_max_scroll    = 0;
+    size_t    prev_total_rows   = 0;
+
+    bool      _first_run        = true;
+    bool      _show_time        = false;
+    bool      _show_level       = false;
 
     std::string                       _current_command;
     std::array<char, COMMAND_LEN>     _command_edit;
@@ -413,4 +379,4 @@ private:
     std::optional<std::string>        _last_help;
 };
 
-}
+} // namespace dfdh
