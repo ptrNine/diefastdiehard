@@ -44,22 +44,11 @@ void luactx_mgr::load() {
         _ctx->load_and_call(fullpath.data());
         loaded = true;
 
-        auto assist_dir = dir / "assist";
-        auto ofd        = std::ofstream(assist_dir / (assist_file_name + ".lua"));
-        if (!ofd.is_open() && !fs::is_directory(assist_dir)) {
-            try {
-                fs::create_directory(assist_dir);
-            }
-            catch (const std::exception& e) {
-                glog().error("Cannot create directory {}: {}", assist_dir, e.what());
-            }
-            ofd = std::ofstream(assist_dir / (assist_file_name + ".lua"));
-        }
-
+        auto ofd = std::ofstream(dir / (assist_file_name + ".lua"));
         if (ofd.is_open())
             ofd << _ctx->generate_assist();
         else
-            glog().error("Cannot generate lua assist file: {}", assist_dir / (assist_file_name + ".lua"));
+            glog().error("Cannot generate lua assist file: {}", dir / (assist_file_name + ".lua"));
     }
     catch (const std::exception& e) {
         glog().error("lua load failed: {}", e.what());
