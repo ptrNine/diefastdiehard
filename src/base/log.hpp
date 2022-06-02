@@ -11,6 +11,7 @@
 #include "ring_buffer.hpp"
 #include "print.hpp"
 #include "hash_functions.hpp"
+#include "split_view.hpp"
 
 namespace dfdh
 {
@@ -42,24 +43,26 @@ public:
             same_times = 0;
         else
             wt = write_type::write_same;
-        ++same_times;
+        if (same_times != std::numeric_limits<uint16_t>::max())
+            ++same_times;
 
         data.store(pack_data(comphash, same_times, 0), std::memory_order_release);
         write_handler(level, wt, time, msg, same_times);
     }
 
-    void write_update(uint8_t update_id, log_level level, std::string_view time, std::string_view msg) {
+    void write_update(uint16_t update_id, log_level level, std::string_view time, std::string_view msg) {
         uint64_t d              = data.load(std::memory_order_acquire);
         auto     hash           = unpack_hash(d);
         auto     same_times     = unpack_times(d);
         auto     prev_update_id = unpack_update_id(d);
 
-        auto wt = write_type::new_record;
+        auto wt = write_type::update;
         if (update_id != prev_update_id) {
             same_times = 0;
-            wt = write_type::update;
+            wt = write_type::new_record;
         }
-        ++same_times;
+        if (same_times != std::numeric_limits<uint16_t>::max())
+            ++same_times;
 
         data.store(pack_data(hash, same_times, update_id), std::memory_order_release);
         write_handler(level, wt, time, msg, same_times);
@@ -70,18 +73,16 @@ private:
         return uint32_t(v >> 32);
     }
 
-    static uint32_t unpack_times(uint64_t v) {
-        auto v2 = uint32_t(v & 0x00000000ffffffff);
-        v2 >>= 8;
-        return v2;
+    static uint16_t unpack_times(uint64_t v) {
+        return uint16_t((v & 0x00000000ffff0000) >> 16);
     }
 
-    static uint8_t unpack_update_id(uint64_t v) {
-        return uint8_t(v & 0x00000000000000ff);
+    static uint16_t unpack_update_id(uint64_t v) {
+        return uint16_t(v & 0x000000000000ffff);
     }
 
-    static uint64_t pack_data(uint32_t comphash, uint32_t times, uint8_t update_id) {
-        return (uint64_t(comphash) << 32) | uint64_t(times << 8) | uint64_t(update_id);
+    static uint64_t pack_data(uint32_t comphash, uint16_t times, uint16_t update_id) {
+        return (uint64_t(comphash) << 32) | (uint64_t(times) << 16) | uint64_t(update_id);
     }
 
 private:
@@ -131,9 +132,14 @@ public:
             record += "\033[1m";
 
         if (times > 1 && wt == write_type::write_same) {
-            record += " (";
-            record += std::to_string(times);
-            record += " times)";
+            if (times != std::numeric_limits<uint16_t>::max()) {
+                record += " (";
+                record += std::to_string(times);
+                record += " times)";
+            }
+            else {
+                record += " (repeats infinitely)";
+            }
         }
         record += level_str[size_t(level)];
 
@@ -161,10 +167,57 @@ private:
     std::atomic<size_t> prev_record_len = 0;
 };
 
+template <typename T>
+class log_records {
+public:
+    template <typename I>
+    log_records(I ibegin, I iend, size_t start_pos, size_t end_pos, size_t max_pos):
+        mstart_pos(start_pos), mend_pos(end_pos), mmax_pos(max_pos) {
+        records.resize(end_pos - start_pos);
+        size_t i = 0;
+        for (auto iter = ibegin; iter != iend; ++iter) records[i++] = *iter;
+    }
+
+    [[nodiscard]]
+    auto begin() const {
+        return records.begin();
+    }
+
+    [[nodiscard]]
+    auto end() const {
+        return records.end();
+    }
+
+    [[nodiscard]]
+    size_t start_pos() const {
+        return mstart_pos;
+    }
+
+    [[nodiscard]]
+    size_t end_pos() const {
+        return mend_pos;
+    }
+
+    [[nodiscard]]
+    size_t max_pos() const {
+        return mmax_pos;
+    }
+
+private:
+    std::vector<T> records;
+    size_t mstart_pos;
+    size_t mend_pos;
+    size_t mmax_pos;
+};
+
+template <typename I>
+log_records(I i, I, size_t, size_t, size_t) -> log_records<std::decay_t<decltype(*i)>>;
+
 template <typename I>
 class locked_log_range {
 public:
-    locked_log_range(I ibegin, I iend, std::shared_mutex& imtx): b(ibegin), e(iend), mtx(imtx) {}
+    locked_log_range(I ibegin, I iend, size_t start_pos, size_t end_pos, size_t max_pos, std::shared_mutex& imtx):
+        b(ibegin), e(iend), mstart_pos(start_pos), mend_pos(end_pos), mmax_pos(max_pos), mtx(imtx) {}
 
     ~locked_log_range() {
         mtx.unlock_shared();
@@ -180,8 +233,31 @@ public:
         return e;
     }
 
+    [[nodiscard]]
+    size_t start_pos() const {
+        return mstart_pos;
+    }
+
+    [[nodiscard]]
+    size_t end_pos() const {
+        return mend_pos;
+    }
+
+    [[nodiscard]]
+    size_t max_pos() const {
+        return mmax_pos;
+    }
+
+    [[nodiscard]]
+    auto copy_records() const {
+        return log_records(b, e, mstart_pos, mend_pos, mmax_pos);
+    }
+
 private:
     I                  b, e;
+    size_t             mstart_pos;
+    size_t             mend_pos;
+    size_t             mmax_pos;
     std::shared_mutex& mtx;
 };
 
@@ -205,21 +281,70 @@ public:
         std::unique_lock lock{mtx};
 
         if (wt == write_type::new_record || records.empty()) {
-            records.push({std::string{time}, std::string{msg}, times, level, wt});
+            std::string tm{time};
+            last_lines_count = 0;
+            for (auto line : msg / split('\n', '\r')) {
+                /* Specify time in first line only */
+                records.push({std::move(tm), {line.begin(), line.end()}, times, level, wt});
+                ++last_lines_count;
+            }
         }
-        else {
-            auto& b = records.back();
-            b.lvl   = level;
-            b.time  = time;
-            b.wt    = wt;
-            b.times = times;
+        else if (last_lines_count <= records.size()) {
+            auto offset = records.size() - last_lines_count;
+            auto b      = records.begin() + ssize_t(offset);
+
+            b->lvl   = level;
+            b->time  = time;
+            b->wt    = wt;
+            b->times = times;
+
+            if (wt == write_type::update) {
+                size_t lines_count = 0;
+                for (auto line : msg / split('\n', '\r')) {
+                    if (b != records.end())
+                        b->msg = std::string(line.begin(), line.end());
+                    else
+                        records.push({{}, {line.begin(), line.end()}, times, level, wt});
+                    ++lines_count;
+                    ++b;
+                }
+
+                while (lines_count < last_lines_count) {
+                    records.pop();
+                    --lines_count;
+                }
+
+                last_lines_count = lines_count;
+            }
         }
     }
 
-    auto read_lock(size_t max_lines) const {
+    auto read_lock(size_t preferred_start, size_t max_records) const {
         mtx.lock_shared();
-        size_t start = max_lines < records.size() ? records.size() - max_lines : 0;
-        return locked_log_range(records.begin() + ssize_t(start), records.end(), mtx);
+        if (records.size() < max_records) {
+            return locked_log_range(records.begin(), records.end(), 0, records.size(), records.size(), mtx);
+        }
+        else if (preferred_start + max_records > records.size()) {
+            preferred_start = records.size() - max_records;
+            return locked_log_range(records.begin() + ssize_t(preferred_start),
+                                    records.end(),
+                                    preferred_start,
+                                    records.size(),
+                                    records.size(),
+                                    mtx);
+        }
+        else {
+            return locked_log_range(records.begin() + ssize_t(preferred_start),
+                                    records.begin() + ssize_t(preferred_start + max_records),
+                                    preferred_start,
+                                    preferred_start + max_records,
+                                    records.size(),
+                                    mtx);
+        }
+    }
+
+    auto get_records(size_t preferred_start, size_t max_records) const {
+        return read_lock(preferred_start, max_records).copy_records();
     }
 
     [[nodiscard]]
@@ -246,13 +371,18 @@ public:
 
 private:
     ring_buffer<record>       records;
+    size_t                    last_lines_count = 0;
     mutable std::shared_mutex mtx;
 };
 
-class logger2 {
+class logger {
 public:
-    logger2() {
+    logger() {
         add_stream("stdout", log_acceptor_fd::create(outfd<char>::stdout()));
+    }
+
+    ~logger() {
+        info("******* log close *******\n");
     }
 
     void add_stream(const std::string& name, std::unique_ptr<log_acceptor_base> log_acceptor) {
@@ -292,7 +422,7 @@ public:
     }
 
     template <typename... Ts>
-    void log_update(log_level level, uint8_t update_id, std::string_view format_str, Ts&&... args) {
+    void log_update(log_level level, uint16_t update_id, std::string_view format_str, Ts&&... args) {
         auto msg  = format(format_str, std::forward<Ts>(args)...);
         auto time = current_datetime(log_time_format);
 
@@ -306,7 +436,7 @@ public:
         log(log_level::level, format_str, std::forward<Ts>(args)...);                                                  \
     }                                                                                                                  \
     template <typename... Ts>                                                                                          \
-    void level##_update(uint8_t update_id, std::string_view format_str, Ts&&... args) {                                \
+    void level##_update(uint16_t update_id, std::string_view format_str, Ts&&... args) {                               \
         log_update(log_level::level, update_id, format_str, std::forward<Ts>(args)...);                                \
     }
 
@@ -322,9 +452,9 @@ private:
     mutable std::shared_mutex                                 mtx;
 };
 
-/* Global logger2 */
-static logger2& glog() {
-    static logger2 logr;
+/* Global logger */
+static logger& glog() {
+    static logger logr;
     return logr;
 }
 
