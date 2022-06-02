@@ -1,7 +1,6 @@
 local log = {}
 
----comment
----@alias level_t '"info"'|'"warn"'|'"err"'|'"upd"'|'"infoupd"'|'"warnupd"'|'"errupd"'
+---@alias level_t '"debug"'|'"detail"'|'"info"'|'"warn"'|'"err"'
 ---@param level level_t
 ---@param format string
 ---@vararg any
@@ -9,46 +8,77 @@ function log.log(level, format, ...)
     log_impl(level, string.format(format, ...))
 end
 
----comment
+---@param update_id integer
+---@param level level_t
 ---@param format string
 ---@vararg any
-function log.log_info(format, ...)
+function log.log_update(update_id, level, format, ...)
+    log_update_impl(level, string.format(format, ...))
+end
+
+---@param format string
+---@vararg any
+function log.debug(format, ...)
+    log_impl("debug", string.format(format, ...))
+end
+
+---@param update_id integer
+---@param format string
+---@vararg any
+function log.debugupd(update_id, format, ...)
+    log_update_impl(update_id, "debug", string.format(format, ...))
+end
+
+---@param format string
+---@vararg any
+function log.detail(format, ...)
+    log_impl("detail", string.format(format, ...))
+end
+
+---@param update_id integer
+---@param format string
+---@vararg any
+function log.detailupd(update_id, format, ...)
+    log_update_impl(update_id, "detail", string.format(format, ...))
+end
+
+---@param format string
+---@vararg any
+function log.info(format, ...)
     log_impl("info", string.format(format, ...))
 end
 
----comment
+---@param update_id integer
 ---@param format string
 ---@vararg any
-function log.log_infoupd(format, ...)
-    log_impl("infoupd", string.format(format, ...))
+function log.infoupd(update_id, format, ...)
+    log_update_impl(update_id, "info", string.format(format, ...))
 end
 
----comment
 ---@param format string
 ---@vararg any
-function log.log_warn(format, ...)
+function log.warn(format, ...)
     log_impl("warn", string.format(format, ...))
 end
 
----comment
+---@param update_id integer
 ---@param format string
 ---@vararg any
-function log.log_warnupd(format, ...)
-    log_impl("warnupd", string.format(format, ...))
+function log.warnupd(update_id, format, ...)
+    log_update_impl(update_id, "warn", string.format(format, ...))
 end
 
----comment
 ---@param format string
 ---@vararg any
-function log.log_err(format, ...)
+function log.err(format, ...)
     log_impl("err", string.format(format, ...))
 end
 
----comment
+---@param update_id integer
 ---@param format string
 ---@vararg any
-function log.log_errupd(format, ...)
-    log_impl("errupd", string.format(format, ...))
+function log.errupd(update_id, format, ...)
+    log_update_impl(update_id, "err", string.format(format, ...))
 end
 
 return log
