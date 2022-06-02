@@ -2,12 +2,17 @@
 
 #include <map>
 #include <chrono>
+#include <x86intrin.h>
 
 #include "types.hpp"
 #include "print.hpp"
 
 namespace dfdh {
 using namespace std::chrono_literals;
+
+inline uint64_t rdtsc() {
+    return __rdtsc();
+}
 
 class profiler {
 public:
