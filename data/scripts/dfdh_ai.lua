@@ -1,6 +1,4 @@
-local log_mod = require("mod/log")
-local log = log_mod.log
-local log_info = log_mod.log_info
+local log = require("mod/log")
 local ai  = require("mod/ai")
 
 local ai_mode = {

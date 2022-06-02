@@ -1,9 +1,5 @@
 local ai = {}
-
-local log_mod = require("mod/log")
-local log = log_mod.log
-local log_infoupd = log_mod.log_infoupd
-local log_info = log_mod.log_info
+local log = require("mod/log")
 
 ai.action = {
     move_left = 0,
@@ -57,7 +53,7 @@ end
 ---@return boolean
 function ai.jump(op, plr, plr_data)
     if plr.available_jumps > 0 and plr.vel.y > -50 and plr_data.jump_timer:elapsed() > 0.05 then
-        log_info("jump %s", plr.available_jumps)
+        log.info("jump %s", plr.available_jumps)
         plr_data.jump_timer:restart()
         op:produce_action(ai.action.jump)
         return true
@@ -71,7 +67,7 @@ end
 ---@return boolean
 function ai.move_left(op, plr, plr_data)
     if plr_data.movement ~= ai.movement.left then
-        log_info("move left")
+        log.info("move left")
         plr_data.movement = ai.movement.left
         op:produce_action(ai.action.move_left)
         return true
@@ -85,7 +81,7 @@ end
 ---@return boolean
 function ai.move_right(op, plr, plr_data)
     if plr_data.movement ~= ai.movement.right then
-        log_info("move right")
+        log.info("move right")
         plr_data.movement = ai.movement.right
         op:produce_action(ai.action.move_right)
         return true
@@ -99,7 +95,7 @@ end
 ---@return boolean
 function ai.stop(op, plr, plr_data)
     if plr_data.movement ~= ai.movement.off then
-        log_info("stop")
+        log.info("stop")
         plr_data.movement = ai.movement.off
         op:produce_action(ai.action.stop)
         return true
@@ -239,7 +235,7 @@ local function get_actual_damage(plr, target, world, player_size_coef)
         end
     end
 
-    --log("infoupd", "dmg: %s", dmg)
+    --log.info("infoupd", "dmg: %s", dmg)
     return dmg
 end
 
@@ -260,7 +256,7 @@ function ai.is_flying_outside(plr, world, start_x, end_x)
     end
 
     local res = pos < start_x or pos > end_x
-    --log("infoupd", "death: %s", res)
+    --log.info("infoupd", "death: %s", res)
 
     return res
 end
@@ -283,7 +279,7 @@ end
 ---@return boolean?
 ---@return boolean?
 function ai.find_victim(plr, world, player_size_coef, change_dir_allowed)
-    --log("infoupd", "accel: %s vel: %s", plr.acceleration, plr.vel)
+    --log.info("infoupd", "accel: %s vel: %s", plr.acceleration, plr.vel)
     if change_dir_allowed == nil then
         change_dir_allowed = true
     end
@@ -508,9 +504,9 @@ function ai.find_victim(plr, world, player_size_coef, change_dir_allowed)
                                 t = nil
                             end
                             --if closest_dist < hit_dist_x then
-                                --log("info", "HIT! time: %s tpos: %s bpos: %s meet: %s", t + t_on_max_accel, tpos.x, bpos.x, tpos_acc)
+                                --log.info("info", "HIT! time: %s tpos: %s bpos: %s meet: %s", t + t_on_max_accel, tpos.x, bpos.x, tpos_acc)
                             --else
-                                --log("info", "TRY: delta: %s closest: %s", delta_v, closest_dist)
+                                --log.info("info", "TRY: delta: %s closest: %s", delta_v, closest_dist)
                             --end
                         end
                     else

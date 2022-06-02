@@ -1,8 +1,8 @@
-local log = require("mod/log").log
+local log = require("mod/log")
 
 cmd [[
     level current lvl_aes
-    sound volume 7
+    sound volume 10
 
     player create 'name=lol group=1'
     player controller0 lol
@@ -41,6 +41,7 @@ cmd [[
 GS.pause = false
 
 --[[
+
 G = {}
 
 G.game_update = function()
