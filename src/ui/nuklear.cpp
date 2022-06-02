@@ -125,3 +125,106 @@ NK_API nk_bool nk_selectable_image(struct nk_context* ctx,
                                  &style->selectable,
                                  in);
 }
+
+NK_LIB int nk_text_trimline(const char* text, int text_len) {
+    if (text[text_len - 2] == '\r' && text[text_len - 1] == '\n')
+        return text_len - 2; /* trailing \r\n */
+    else if (text[text_len - 1] == '\r' || text[text_len - 1] == '\n')
+        return text_len - 1; /* trailing \r or \n */
+    return text_len;
+}
+
+NK_LIB int nk_text_linelen(const char* text, int text_len, int* glyphs) {
+    int     glyph_len = 0;
+    nk_rune unicode   = 0;
+    nk_rune lastuni   = 0;
+    int     len       = 0;
+    int     g         = 0;
+
+    glyph_len = nk_utf_decode(text, &unicode, text_len);
+    while (glyph_len && (len < text_len)) {
+        len += glyph_len;
+        /* \r doesn't count as newline by itself, since it might be part of \r\n. */
+        int newline = unicode == '\n';
+
+        lastuni   = unicode;
+        glyph_len = nk_utf_decode(&text[len], &unicode, text_len - len);
+        /* If we had an \r, but the upcoming character wasn't an \n,
+         * then the \r actually was a newline. End before consuming next glyph. */
+        if (lastuni == '\r' && unicode != '\n')
+            break;
+        g++;
+        if (newline)
+            break;
+    }
+    *glyphs = g;
+    return len;
+}
+
+NK_LIB void nk_widget_text_multiline(struct nk_command_buffer*  o,
+                                     struct nk_rect             b,
+                                     const char*                string,
+                                     int                        len,
+                                     const struct nk_text*      t,
+                                     const struct nk_user_font* f) {
+    int            glyphs  = 0;
+    int            fitting = 0;
+    int            done    = 0;
+    struct nk_rect line;
+    struct nk_text text;
+
+    NK_ASSERT(o);
+    NK_ASSERT(t);
+    if (!o || !t)
+        return;
+
+    text.padding    = nk_vec2(0, 0);
+    text.background = t->background;
+    text.text       = t->text;
+
+    b.w = NK_MAX(b.w, 2 * t->padding.x);
+    b.h = NK_MAX(b.h, 2 * t->padding.y);
+    b.h = b.h - 2 * t->padding.y;
+
+    line.x = b.x + t->padding.x;
+    line.y = b.y + t->padding.y;
+    line.w = b.w - 2 * t->padding.x;
+    line.h = 2 * t->padding.y + f->height;
+
+    fitting = nk_text_linelen(string, len, &glyphs);
+    while (done < len) {
+        if (!fitting || line.y + line.h >= (b.y + b.h))
+            break;
+        nk_widget_text(o, line, &string[done], nk_text_trimline(&string[done], fitting), &text, NK_TEXT_LEFT, f);
+        done += fitting;
+        line.y += f->height + 2 * t->padding.y;
+        fitting = nk_text_linelen(&string[done], len - done, &glyphs);
+    }
+}
+
+/* https://github.com/Immediate-Mode-UI/Nuklear/pull/153 */
+NK_API void nk_text_multiline_colored(struct nk_context* ctx, const char* str, int len, struct nk_color color) {
+    struct nk_window*      win;
+    const struct nk_style* style;
+
+    struct nk_vec2 item_padding;
+    struct nk_rect bounds;
+    struct nk_text text;
+
+    NK_ASSERT(ctx);
+    NK_ASSERT(ctx->current);
+    NK_ASSERT(ctx->current->layout);
+    if (!ctx || !ctx->current || !ctx->current->layout)
+        return;
+
+    win   = ctx->current;
+    style = &ctx->style;
+    nk_panel_alloc_space(&bounds, ctx);
+    item_padding = style->text.padding;
+
+    text.padding.x  = item_padding.x;
+    text.padding.y  = item_padding.y;
+    text.background = style->window.background;
+    text.text       = color;
+    nk_widget_text_multiline(&win->buffer, bounds, str, len, &text, style->font);
+}
