@@ -8,6 +8,7 @@
 #include <SFML/Graphics/Color.hpp>
 
 NK_API nk_bool nk_selectable_image(struct nk_context* ctx, struct nk_image img, nk_bool* value);
+NK_API void nk_text_multiline_colored(struct nk_context* ctx, const char* str, int len, struct nk_color color);
 
 namespace dfdh {
 template <typename F>
@@ -415,20 +416,24 @@ public:
         return nk_spacing(_ctx, cols);
     }
 
-    void text(const char* str, int CHANGE_THIS_NAME, nk_flags flags) {
-        return nk_text(_ctx, str, CHANGE_THIS_NAME, flags);
+    void text(const char* str, int len, nk_flags flags) {
+        return nk_text(_ctx, str, len, flags);
     }
 
-    void text_colored(const char* str, int CHANGE_THIS_NAME, nk_flags flags, sf::Color color) {
-        return nk_text_colored(_ctx, str, CHANGE_THIS_NAME, flags, nk_color{color.r, color.g, color.b, color.a});
+    void text_colored(const char* str, int len, nk_flags flags, sf::Color color) {
+        return nk_text_colored(_ctx, str, len, flags, nk_color{color.r, color.g, color.b, color.a});
     }
 
-    void text_wrap(const char* str, int CHANGE_THIS_NAME) {
-        return nk_text_wrap(_ctx, str, CHANGE_THIS_NAME);
+    void text_multiline_colored(const char* str, int len, sf::Color color) {
+        return nk_text_multiline_colored(_ctx, str, len, nk_color{color.r, color.g, color.b, color.a});
     }
 
-    void text_wrap_colored(const char* str, int CHANGE_THIS_NAME, sf::Color color) {
-        return nk_text_wrap_colored(_ctx, str, CHANGE_THIS_NAME, nk_color{color.r, color.g, color.b, color.a});
+    void text_wrap(const char* str, int len) {
+        return nk_text_wrap(_ctx, str, len);
+    }
+
+    void text_wrap_colored(const char* str, int len, sf::Color color) {
+        return nk_text_wrap_colored(_ctx, str, len, nk_color{color.r, color.g, color.b, color.a});
     }
 
     void label(const char* str, nk_flags align) {
@@ -479,16 +484,16 @@ public:
         return nk_button_symbol_label(_ctx, symbol_type, str, text_alignment) == nk_true;
     }
 
-    bool button_symbol_text(enum nk_symbol_type symbol_type, const char* str, int CHANGE_THIS_NAME, nk_flags alignment) {
-        return nk_button_symbol_text(_ctx, symbol_type, str, CHANGE_THIS_NAME, alignment) == nk_true;
+    bool button_symbol_text(enum nk_symbol_type symbol_type, const char* str, int len, nk_flags alignment) {
+        return nk_button_symbol_text(_ctx, symbol_type, str, len, alignment) == nk_true;
     }
 
     bool button_image_label(struct nk_image img, const char* str, nk_flags text_alignment) {
         return nk_button_image_label(_ctx, img, str, text_alignment) == nk_true;
     }
 
-    bool button_image_text(struct nk_image img, const char* str, int CHANGE_THIS_NAME, nk_flags alignment) {
-        return nk_button_image_text(_ctx, img, str, CHANGE_THIS_NAME, alignment) == nk_true;
+    bool button_image_text(struct nk_image img, const char* str, int len, nk_flags alignment) {
+        return nk_button_image_text(_ctx, img, str, len, alignment) == nk_true;
     }
 
     bool button_text_styled(const struct nk_style_button* style_button, const char* title, int len) {
@@ -507,8 +512,8 @@ public:
         return nk_button_image_styled(_ctx, style_button, img) == nk_true;
     }
 
-    bool button_symbol_text_styled(const struct nk_style_button* style_button, enum nk_symbol_type symbol_type, const char* str, int CHANGE_THIS_NAME, nk_flags alignment) {
-        return nk_button_symbol_text_styled(_ctx, style_button, symbol_type, str, CHANGE_THIS_NAME, alignment) == nk_true;
+    bool button_symbol_text_styled(const struct nk_style_button* style_button, enum nk_symbol_type symbol_type, const char* str, int len, nk_flags alignment) {
+        return nk_button_symbol_text_styled(_ctx, style_button, symbol_type, str, len, alignment) == nk_true;
     }
 
     bool button_symbol_label_styled(const struct nk_style_button* style, enum nk_symbol_type symbol, const char* title, nk_flags align) {
@@ -519,8 +524,8 @@ public:
         return nk_button_image_label_styled(_ctx, style_button, img, str, text_alignment) == nk_true;
     }
 
-    bool button_image_text_styled(const struct nk_style_button* style_button, struct nk_image img, const char* str, int CHANGE_THIS_NAME, nk_flags alignment) {
-        return nk_button_image_text_styled(_ctx, style_button, img, str, CHANGE_THIS_NAME, alignment) == nk_true;
+    bool button_image_text_styled(const struct nk_style_button* style_button, struct nk_image img, const char* str, int len, nk_flags alignment) {
+        return nk_button_image_text_styled(_ctx, style_button, img, str, len, alignment) == nk_true;
     }
 
     void button_set_behavior(enum nk_button_behavior button_behavior) {
@@ -539,56 +544,56 @@ public:
         return nk_check_label(_ctx, str, (active ? nk_true : nk_false)) == nk_true;
     }
 
-    bool check_text(const char* str, int CHANGE_THIS_NAME, bool active) {
-        return nk_check_text(_ctx, str, CHANGE_THIS_NAME, (active ? nk_true : nk_false)) == nk_true;
+    bool check_text(const char* str, int len, bool active) {
+        return nk_check_text(_ctx, str, len, (active ? nk_true : nk_false)) == nk_true;
     }
 
     unsigned check_flags_label(const char* str, unsigned int flags, unsigned int value) {
         return nk_check_flags_label(_ctx, str, flags, value);
     }
 
-    unsigned check_flags_text(const char* str, int CHANGE_THIS_NAME, unsigned int flags, unsigned int value) {
-        return nk_check_flags_text(_ctx, str, CHANGE_THIS_NAME, flags, value);
+    unsigned check_flags_text(const char* str, int len, unsigned int flags, unsigned int value) {
+        return nk_check_flags_text(_ctx, str, len, flags, value);
     }
 
     bool checkbox_label(const char* str, nk_bool* active) {
         return nk_checkbox_label(_ctx, str, active) == nk_true;
     }
 
-    bool checkbox_text(const char* str, int CHANGE_THIS_NAME, nk_bool* active) {
-        return nk_checkbox_text(_ctx, str, CHANGE_THIS_NAME, active) == nk_true;
+    bool checkbox_text(const char* str, int len, nk_bool* active) {
+        return nk_checkbox_text(_ctx, str, len, active) == nk_true;
     }
 
     bool checkbox_flags_label(const char* str, unsigned int* flags, unsigned int value) {
         return nk_checkbox_flags_label(_ctx, str, flags, value) == nk_true;
     }
 
-    bool checkbox_flags_text(const char* str, int CHANGE_THIS_NAME, unsigned int* flags, unsigned int value) {
-        return nk_checkbox_flags_text(_ctx, str, CHANGE_THIS_NAME, flags, value) == nk_true;
+    bool checkbox_flags_text(const char* str, int len, unsigned int* flags, unsigned int value) {
+        return nk_checkbox_flags_text(_ctx, str, len, flags, value) == nk_true;
     }
 
     bool radio_label(const char* str, nk_bool* active) {
         return nk_radio_label(_ctx, str, active) == nk_true;
     }
 
-    bool radio_text(const char* str, int CHANGE_THIS_NAME, nk_bool* active) {
-        return nk_radio_text(_ctx, str, CHANGE_THIS_NAME, active) == nk_true;
+    bool radio_text(const char* str, int len, nk_bool* active) {
+        return nk_radio_text(_ctx, str, len, active) == nk_true;
     }
 
     bool option_label(const char* str, bool active) {
         return nk_option_label(_ctx, str, (active ? nk_true : nk_false)) == nk_true;
     }
 
-    bool option_text(const char* str, int CHANGE_THIS_NAME, bool active) {
-        return nk_option_text(_ctx, str, CHANGE_THIS_NAME, (active ? nk_true : nk_false)) == nk_true;
+    bool option_text(const char* str, int len, bool active) {
+        return nk_option_text(_ctx, str, len, (active ? nk_true : nk_false)) == nk_true;
     }
 
     bool selectable_label(const char* str, nk_flags align, nk_bool* value) {
         return nk_selectable_label(_ctx, str, align, value) == nk_true;
     }
 
-    bool selectable_text(const char* str, int CHANGE_THIS_NAME, nk_flags align, nk_bool* value) {
-        return nk_selectable_text(_ctx, str, CHANGE_THIS_NAME, align, value) == nk_true;
+    bool selectable_text(const char* str, int len, nk_flags align, nk_bool* value) {
+        return nk_selectable_text(_ctx, str, len, align, value) == nk_true;
     }
 
     bool selectable_image(struct nk_image image, nk_bool* value) {
@@ -599,40 +604,40 @@ public:
         return nk_selectable_image_label(_ctx, image, str, align, value) == nk_true;
     }
 
-    bool selectable_image_text(struct nk_image image, const char* str, int CHANGE_THIS_NAME, nk_flags align, nk_bool* value) {
-        return nk_selectable_image_text(_ctx, image, str, CHANGE_THIS_NAME, align, value) == nk_true;
+    bool selectable_image_text(struct nk_image image, const char* str, int len, nk_flags align, nk_bool* value) {
+        return nk_selectable_image_text(_ctx, image, str, len, align, value) == nk_true;
     }
 
     bool selectable_symbol_label(enum nk_symbol_type symbol_type, const char* str, nk_flags align, nk_bool* value) {
         return nk_selectable_symbol_label(_ctx, symbol_type, str, align, value) == nk_true;
     }
 
-    bool selectable_symbol_text(enum nk_symbol_type symbol_type, const char* str, int CHANGE_THIS_NAME, nk_flags align, nk_bool* value) {
-        return nk_selectable_symbol_text(_ctx, symbol_type, str, CHANGE_THIS_NAME, align, value) == nk_true;
+    bool selectable_symbol_text(enum nk_symbol_type symbol_type, const char* str, int len, nk_flags align, nk_bool* value) {
+        return nk_selectable_symbol_text(_ctx, symbol_type, str, len, align, value) == nk_true;
     }
 
     bool select_label(const char* str, nk_flags align, bool value) {
         return nk_select_label(_ctx, str, align, (value ? nk_true : nk_false)) == nk_true;
     }
 
-    bool select_text(const char* str, int CHANGE_THIS_NAME, nk_flags align, bool value) {
-        return nk_select_text(_ctx, str, CHANGE_THIS_NAME, align, (value ? nk_true : nk_false)) == nk_true;
+    bool select_text(const char* str, int len, nk_flags align, bool value) {
+        return nk_select_text(_ctx, str, len, align, (value ? nk_true : nk_false)) == nk_true;
     }
 
     bool select_image_label(struct nk_image image, const char* str, nk_flags align, bool value) {
         return nk_select_image_label(_ctx, image, str, align, (value ? nk_true : nk_false)) == nk_true;
     }
 
-    bool select_image_text(struct nk_image image, const char* str, int CHANGE_THIS_NAME, nk_flags align, bool value) {
-        return nk_select_image_text(_ctx, image, str, CHANGE_THIS_NAME, align, (value ? nk_true : nk_false)) == nk_true;
+    bool select_image_text(struct nk_image image, const char* str, int len, nk_flags align, bool value) {
+        return nk_select_image_text(_ctx, image, str, len, align, (value ? nk_true : nk_false)) == nk_true;
     }
 
     bool select_symbol_label(enum nk_symbol_type symbol_type, const char* str, nk_flags align, bool value) {
         return nk_select_symbol_label(_ctx, symbol_type, str, align, (value ? nk_true : nk_false)) == nk_true;
     }
 
-    bool select_symbol_text(enum nk_symbol_type symbol_type, const char* str, int CHANGE_THIS_NAME, nk_flags align, bool value) {
-        return nk_select_symbol_text(_ctx, symbol_type, str, CHANGE_THIS_NAME, align, (value ? nk_true : nk_false)) == nk_true;
+    bool select_symbol_text(enum nk_symbol_type symbol_type, const char* str, int len, nk_flags align, bool value) {
+        return nk_select_symbol_text(_ctx, symbol_type, str, len, align, (value ? nk_true : nk_false)) == nk_true;
     }
 
     float slide_float(float min, float val, float max, float step) {
