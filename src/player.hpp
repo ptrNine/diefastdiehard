@@ -14,7 +14,7 @@
 #include "base/cfg.hpp"
 #include "base/avg_counter.hpp"
 #include "bullet.hpp"
-#include "physic_simulation.hpp"
+#include "physic/physic_simulation.hpp"
 #include "weapon.hpp"
 #include "player_configurator.hpp"
 #include "player_controller.hpp"

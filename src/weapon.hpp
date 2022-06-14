@@ -8,7 +8,7 @@
 #include "base/log.hpp"
 #include "bullet.hpp"
 #include "texture_mgr.hpp"
-#include "instant_kick.hpp"
+#include "physic/instant_kick.hpp"
 #include "sound_mgr.hpp"
 
 namespace dfdh

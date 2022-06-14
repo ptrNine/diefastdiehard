@@ -7,7 +7,7 @@
 #include <SFML/Graphics/Texture.hpp>
 
 #include "base/types.hpp"
-#include "physic_simulation.hpp"
+#include "physic/physic_simulation.hpp"
 
 namespace dfdh {
 
