@@ -1515,7 +1515,7 @@ cfg_file_path operator "" _file(const char* str, size_t size) {
 }
 
 using cfg_mode_int = unsigned int;
-enum class cfg_mode : cfg_mode_int { none = 0, create_if_not_exists = 1 << 0, commit_at_destroy = 1 << 1 };
+enum class cfg_mode : cfg_mode_int { none = 0, create_if_not_exists = 1 << 0, commit_at_destroy = 1 << 1, autocreate_dir = 1 << 2 };
 
 cfg_mode operator|(cfg_mode lhs, cfg_mode rhs) {
     return cfg_mode(cfg_mode_int(lhs) | cfg_mode_int(rhs));
@@ -1594,7 +1594,20 @@ public:
     cfg(const fs::path& entry_config_path, cfg_mode mode = cfg_mode::none, bool ireadonly = false):
         readonly(ireadonly) {
         if (cfg_mode_int(mode & cfg_mode::create_if_not_exists) && !fs::exists(entry_config_path)) {
-            [[maybe_unused]] auto of = outfd<char>(entry_config_path);
+            bool create_dir_tried = false;
+            retry:
+            try {
+                [[maybe_unused]] auto of = outfd<char>(entry_config_path);
+            } catch (const cannot_open_file& e) {
+                if (e.error == ENOENT) {
+                    if ((mode & cfg_mode::autocreate_dir) && !create_dir_tried) {
+                        fs::create_directories(entry_config_path.parent_path());
+                        create_dir_tried = true;
+                        goto retry;
+                    }
+                }
+                throw;
+            }
         }
 
         commit_at_destroy = cfg_mode_int(mode & cfg_mode::commit_at_destroy);

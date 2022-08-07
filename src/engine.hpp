@@ -28,7 +28,7 @@ public:
     }
 
     engine():
-        _conf(config_path, cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy),
+        _conf(config_path, cfg_mode::create_if_not_exists | cfg_mode::commit_at_destroy | cfg_mode::autocreate_dir),
         _engine_conf(_conf.get_or_create("engine"_sect)),
         _wnd(video_mode(_engine_conf.value_or_default_and_set("window_size", defaults::window_size)), "diefastdiehard"),
         _devcons(ui) {
