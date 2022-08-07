@@ -804,15 +804,17 @@ public:
             throw stat_fd_failed(filename, errc::from_errno(), autoclose_fd_on_fail ? -1 : fd);
 
         auto size = static_cast<size_t>(st.st_size) / sizeof(T);
-        if ((start = static_cast<T*>(mmap(nullptr,
-                                          size_t(st.st_size),
-                                          PROT_READ | (Mutable ? PROT_WRITE : 0),
-                                          Mutable ? MAP_SHARED : MAP_PRIVATE,
-                                          fd,
-                                          0))) == MAP_FAILED) // NOLINT
-            throw mmap_fd_failed(filename, errc::from_errno(), autoclose_fd_on_fail ? -1 : fd);
+        if (size != 0) {
+            if ((start = static_cast<T*>(mmap(nullptr,
+                                              size_t(st.st_size),
+                                              PROT_READ | (Mutable ? PROT_WRITE : 0),
+                                              Mutable ? MAP_SHARED : MAP_PRIVATE,
+                                              fd,
+                                              0))) == MAP_FAILED) // NOLINT
+                throw mmap_fd_failed(filename, errc::from_errno(), autoclose_fd_on_fail ? -1 : fd);
 
-        pend = start + size;
+            pend = start + size;
+        }
 
         /* Explicitly close on successfull exit */
         ::close(fd);
