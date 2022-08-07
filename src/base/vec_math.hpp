@@ -61,42 +61,6 @@ inline std::ostream& operator<<(std::ostream& o, const sf::FloatRect& r) {
     return o;
 }
 
-inline std::ostream& operator<<(std::ostream& o, const sf::Color& c) {
-    static constexpr auto hexmap = "0123456789abcdef";
-    std::array<uint8_t, 4> color{c.r, c.g, c.b, c.a};
-
-    o << '#';
-    for (auto v : color)
-        o << hexmap[v >> 4] << hexmap[v & 0x0f];
-
-    return o;
-}
-
-inline std::istream& operator>>(std::istream& i, sf::Color& c) {
-    std::string str;
-    i >> str;
-
-    static constexpr int hexmap[] = {0, 1, 2, 3, 4, 5,  6,  7,  8,  9,  0, 0,
-                                     0, 0, 0, 0, 0, 10, 11, 12, 13, 14, 15};
-
-    auto p = str.data();
-    std::array<uint8_t, 4> color{255, 255, 255, 255};
-
-    if (*p == '#') {
-        ++p;
-
-        for (int i = 0, v = toupper(*p); v && i < 8 && ((v >= '0' && v <= '9') || (v >= 'A' && v <= 'F')); ++i) {
-            auto digit = uint8_t(hexmap[v - '0']);
-            color[size_t(i) / 2] &= uint8_t(i % 2 ? (0xf0 | digit) : (0x0f | (digit << 4)));
-            ++p;
-            v = toupper(*p);
-        }
-    }
-
-    c = sf::Color(color[0], color[1], color[2], color[3]);
-    return i;
-}
-
 inline bool approx_equal(float a, float b, float epsilon) {
     return fabsf(a - b) <= ((fabsf(a) < fabsf(b) ? fabsf(b) : fabsf(a)) * epsilon);
 }

@@ -3,6 +3,7 @@
 #include <memory>
 #include <cmath>
 #include <any>
+#include <functional>
 
 #include <SFML/Graphics/Rect.hpp>
 
