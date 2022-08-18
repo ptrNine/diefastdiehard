@@ -17,35 +17,60 @@
 
 namespace dfdh {
 
-class invalid_ip_address : public std::invalid_argument {
+class network_error : public std::runtime_error {
 public:
-    invalid_ip_address(const std::string& s): std::invalid_argument("Ip address " + s + " is invalid") {}
+    using std::runtime_error::runtime_error;
 };
 
-class invalid_address : public std::invalid_argument {
+class invalid_ip_address : public network_error {
 public:
-    invalid_address(const std::string& s): std::invalid_argument(s) {}
+    invalid_ip_address(const std::string& s): network_error("Ip address " + s + " is invalid") {}
 };
 
-class invalid_port : public std::invalid_argument {
+class invalid_address : public network_error {
 public:
-    invalid_port(const std::string& s): std::invalid_argument("Port " + s + " is invalid") {}
+    invalid_address(const std::string& s): network_error(s) {}
 };
 
-class socket_error : public std::invalid_argument {
+class invalid_port : public network_error {
 public:
-    using std::invalid_argument::invalid_argument;
+    invalid_port(const std::string& s): network_error("Port " + s + " is invalid") {}
 };
 
-class socket_already_in_use : public socket_error {
+class address_already_in_use : public network_error {
 public:
-    socket_already_in_use(const std::string& address): socket_error("Socket " + address + " already in use") {}
+    address_already_in_use(const std::string& address): network_error("Socket " + address + " already in use") {}
+};
+
+class socket_error : public network_error {
+public:
+    using network_error::network_error;
+};
+
+class socket_set_blocking_error : public network_error {
+public:
+    socket_set_blocking_error(): network_error("Cannot setup blocking for socket") {}
+};
+
+class socket_create_error : public network_error {
+public:
+    socket_create_error() : network_error("Cannot create socket") {}
+};
+
+class socket_set_option_error : public network_error {
+public:
+    socket_set_option_error(const std::string& option): network_error("Error while setting option " + option) {}
+};
+
+class socket_bind_error : public network_error {
+public:
+    socket_bind_error(): network_error("Cannot bind socket") {}
 };
 
 static inline constexpr size_t MAX_PACKET_SIZE = 1472;
 
 enum class send_rc { ok = 0, not_ready, too_big_msg, system };
-enum class receive_rc { ok = 0, empty, not_connected, system, invalid_hash, already_received };
+enum class receive_rc { ok = 0, empty, not_connected, system, invalid_hash, already_received, unknown_action };
 
 inline send_rc send_error_cast(int sys_error) {
     if (sys_error == EWOULDBLOCK)
@@ -151,9 +176,9 @@ inline std::string throw_socket_bind_exception(const ip_address& ip, port_t port
 
     switch (sys_error) {
         case EADDRINUSE:
-            throw socket_already_in_use(addr);
+            throw address_already_in_use(addr);
         default:
-            throw socket_error("Cannot bind socket " + addr);
+            throw socket_bind_error();
     }
 }
 
@@ -238,41 +263,35 @@ public:
     };
 
     block_pool() {
-        storage.reset(new node_t[C]); // NOLINT
-        auto count = C;
-        head = &storage[--count]; // NOLINT
-
-        while (count--) {
-            auto node = &storage[count];
-            node->next = head;
-            head = node;
-        }
+        for (size_t i = 0; i < S; ++i)
+            free_indices[i] = i;
     }
 
     void* alloc() {
-        if (!head)
+        if (top_pos == 0)
             return ::malloc(block_size()); // NOLINT
 
-        auto result = head;
-        head = head->next;
-
-        return result;
+        auto idx = free_indices[--top_pos];
+        return storage[idx].data();
     }
 
     void free(void* ptr) {
-        if (ptr < storage.get() || ptr >= storage.get() + C) {
+        if (ptr < storage[0].data() || ptr > storage[S - 1].data() + C) {
             ::free(ptr); // NOLINT
             return;
         }
 
-        auto node = reinterpret_cast<node_t*>(ptr); // NOLINT
-        node->next = head;
-        head = node;
+        if (top_pos >= S)
+            return;
+
+        free_indices[top_pos++] = size_t(static_cast<char*>(ptr) - storage[0].data()) / dist;
     }
 
 private:
-    std::unique_ptr<node_t[]> storage;
-    node_t*                   head;
+    std::array<std::array<char, C>, S> storage;
+    std::array<size_t, S>              free_indices;
+    size_t                             top_pos = S;
+    size_t                             dist = size_t(std::get<1>(storage).data() - std::get<0>(storage).data());
 };
 
 namespace details {
@@ -405,16 +424,17 @@ public:
 
 class udp_socket {
 public:
-    udp_socket(const ip_address& ip, port_t port, bool blocking = true) {
+    udp_socket(const ip_address& ip, port_t port, bool blocking = true):
+        fd(::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) {
         if (fd == -1)
-            throw socket_error("Can't create socket");
+            throw socket_create_error();
         auto guard = exception_guard([this]{ ::close(fd); });
 
         set_blocking(blocking);
 
         int broadcast = 1;
         if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(int)) == -1)
-            throw socket_error("Can't setup broadcast for UDP socket");
+            throw socket_set_option_error("SO_BROADCAST");
 
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
@@ -427,13 +447,16 @@ public:
     udp_socket(const address_t& address, bool blocking = true): udp_socket(address.ip, address.port, blocking) {}
 
     udp_socket(const udp_socket&)             = delete;
-    udp_socket& operator==(const udp_socket&) = delete;
+    udp_socket& operator=(const udp_socket&) = delete;
 
     udp_socket(udp_socket&& socket) noexcept: addr(socket.addr), fd(socket.fd) {
         socket.fd = -1;
     }
 
-    udp_socket& operator==(udp_socket&& socket) noexcept {
+    udp_socket& operator=(udp_socket&& socket) noexcept {
+        if (this == &socket)
+            return *this;
+
         addr      = socket.addr;
         fd        = socket.fd;
         socket.fd = -1;
@@ -452,14 +475,9 @@ public:
 
     void set_blocking(bool block) {
         auto flags = fcntl(fd, F_GETFL);
-        if (block) {
-            if (fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == -1)
-                throw socket_error("Can't setup blocking status for socket");
-        }
-        else {
-            if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
-                throw socket_error("Can't setup non-blocking status for socket");
-        }
+        flags = block ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
+        if (fcntl(fd, F_SETFL, flags) == -1)
+            throw socket_set_blocking_error();
     }
 
     [[nodiscard]]
@@ -475,7 +493,6 @@ public:
             .sin_addr   = {ip.as_system_type()},
             .sin_zero   = {0}
         };
-
         if (::sendto(fd, data, size, 0, reinterpret_cast<struct sockaddr*>(&other), sizeof(struct sockaddr)) < 0) // NOLINT
             return send_error_cast(errno);
         return send_rc::ok;
@@ -534,9 +551,14 @@ public:
                 .address = {ip_address(addr.sin_addr.s_addr), ntohs(addr.sin_port)}};
     }
 
+    [[nodiscard]]
+    int native_handle() const {
+        return fd;
+    }
+
 private:
     struct sockaddr_in addr = {};
-    int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    int                fd;
 };
 }
 
