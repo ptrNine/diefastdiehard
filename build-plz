@@ -52,7 +52,7 @@ make_includes() {
     for include in ${1//;/$'\n'}; do
         local arg="-I"
         [ "${include%:*}" = "system" ] && arg="-isystem"
-        printf '%s ' "$arg \"${include##*:}\""
+        printf '%s ' "$arg '${include##*:}'"
     done
 }
 
@@ -207,8 +207,8 @@ codegen_step() {
 
     local cmd="$CXX_COMPILER -E -fdiagnostics-color=always \
         $(make_includes "$includes") \
-        \"$input_header\" 2>\"$(pwd)/$builddir/.ezbld/_temp_stderr\" | \"$builddir/$generator_name\" \
-        > \"$output_header\""
+        '$input_header' 2> '$(pwd)/$builddir/.ezbld/_temp_stderr' | '$builddir/$generator_name' \
+        > '$output_header'"
     cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
     local cmd_path="$builddir/.ezbld/codegen-$generator_name-command"
@@ -326,6 +326,25 @@ install_headers() {
     cp "$@" "$builddir/3rd/"
 }
 
+take_greater_gcc_version() {
+    for i in $(find "$1" -path "*/$2"); do
+        printf '%s' "$i "
+        echo "$i" | tr -dc '0-9'
+        echo ""
+    done | sort -k2 -n -r | head -n1 | cut -d " " -f1
+}
+
+altlinux_fix_compodb() {
+    local curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+    local include_name
+    for include_name in 'iostream' 'bits/c++config.h'; do
+        local ipath="$(take_greater_gcc_version '/usr/include' "$include_name")"
+        ipath="${ipath%/$include_name}"
+        echo "APPEND PATH: $ipath"
+        sed -i "s|\"command\":[ \t]\+\"[a-zA-Z0-9+-/]\+|& -isystem $ipath|g" "$curdir/compile_commands.json"
+    done
+}
+
 gen_compodb() {
     local builddir="$1"
     local specific_file="$2"
@@ -359,6 +378,9 @@ $end_seq
 EOF
     done
     echo "]" >> ./compile_commands.json
+
+    eval $(. /etc/os-release; echo local os_name="$NAME";)
+    [ "$os_name" = 'ALT' ] && altlinux_fix_compodb
 }
 
 asan_flags() {
@@ -368,9 +390,41 @@ asan_flags() {
 EOF
 }
 
+_print_help() {
+    cat << EOF
+build-plz - bash mess to build this game
+
+Generic options:
+    --builddir=DIR        - specify build dir ('easybuild' by default)
+    --compodb             - generate compile_commands.json for all targets/cpp_files
+             =FILE.cpp    - generate compile_commands.json for specific target/cpp_file
+    --rebuild-subs        - trigger submodules rebuild
+    --debug               - enable debug build
+    --asab                - enable ASAN build
+    --run NAME            - run specific executable after build
+    --gdbrun NAME         - run specific executable under gdb after build
+    --help                - prints this help message
+
+Environment variables:
+    C_COMPILER      - overrides C compiler
+    CXX_COMPILER    - overrides C++ compiler
+
+Other options:
+    --gcc-versions      - print available GCC (g++) versions on this machine
+    --used-compilers    - print used compilers
+EOF
+}
+
+take_greater_version() {
+    for path in $(ls "$1"*); do
+        local postfix="${path#$1}"
+        [[ "$postfix" =~ ^[0-9.]+$ ]] && echo "$path"
+    done | sort -k2 -n -r | head -n1
+}
+
 _build() {
-    local CXX_COMPILER="${CXX_COMPILER:=/usr/bin/g++-11}"
-    local C_COMPILER="${C_COMPILER:=/usr/bin/gcc-11}"
+    local CXX_COMPILER="${CXX_COMPILER:=$(take_greater_version '/usr/bin/g++-')}"
+    local C_COMPILER="${C_COMPILER:=$(take_greater_version '/usr/bin/gcc-')}"
     local builddir='./easybuild'
     local rebuild_submodules=false
     local compodb=false
@@ -434,6 +488,26 @@ _build() {
         --android-ndk=*)
             android_ndk="${1#*=}"
             [[ ! $builddir =~ *-android ]] && builddir="$builddir-android"
+            ;;
+        --gcc-versions)
+            for p in $(ls /usr/bin/g++-*); do
+                local name=$(basename "$p")
+                local ver="${name##*-}"
+                echo "${ver%%.*}"
+            done
+            exit 0
+            ;;
+        --used-compilers)
+            echo "C_COMPILER='$C_COMPILER'"
+            echo "CXX_COMPILER='$CXX_COMPILER'"
+            exit 0
+            ;;
+        --help)
+            _print_help
+            exit 0
+            ;;
+        --*)
+            fail "Invalid option: $1"
             ;;
         *)
             TARGET+="$1"
