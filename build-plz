@@ -139,7 +139,7 @@ build_executable() {
     local includes="$8"
 
     if [ ! -z "$TARGET" ] && [ "$TARGET" != "$name" ]; then
-        return
+        return 1
     fi
 
     local already_built=false
@@ -170,7 +170,7 @@ build_executable() {
 
     if [ $already_built = true ]; then
         colored lpurple "$name already built"
-        return 0
+        return 1
     fi
 
     local start_tm=$(mstime)
@@ -181,6 +181,7 @@ build_executable() {
     printf '%s\n%s\n' "source=\"$(pwd)/$build_source\"" "command=\"$cmd\"" > "$cmd_path"
 
     colored lgreen "done! $(measure $start_tm)s"
+    return 0
 }
 
 codegen_step() {
@@ -196,28 +197,18 @@ codegen_step() {
         return
     fi
 
-    local already_built=false
-    local depinfo=
-    [ -f "$(pwd)/$builddir/hpp_depinfo" ] && \
-        depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
-            $(make_includes "$includes") \
-            --hash -C "$(pwd)/$builddir/.ezbld/codegen-$generator_name-depinfo" \
-            "$(pwd)/$generator_cpp") && \
-        already_built=true
-
     local cmd="$CXX_COMPILER -E -fdiagnostics-color=always \
         $(make_includes "$includes") \
         '$input_header' 2> '$(pwd)/$builddir/.ezbld/_temp_stderr' | '$builddir/$generator_name' \
         > '$output_header'"
     cmd="$(echo "$cmd" | sed 's/  */ /g' | tr '\n' ' ')"
 
-    local cmd_path="$builddir/.ezbld/codegen-$generator_name-command"
-    ! is_commands_equal "$cmd" "$cmd_path" && already_built=false
-
-    if [ $already_built = true ]; then
-        colored lpurple "$generator_name already generated"
-        return 0
-    fi
+    [ -f "$(pwd)/$builddir/hpp_depinfo" ] && \
+        depinfo=$("$(pwd)/$builddir/hpp_depinfo" \
+            $(make_includes "$includes") \
+            --hash -C "$(pwd)/$builddir/.ezbld/codegen-$generator_name-depinfo" \
+            "$(pwd)/$input_header") && \
+        already_gen=true
 
     build_executable \
         "$generator_name" \
@@ -227,7 +218,16 @@ codegen_step() {
         "" \
         "" \
         "" \
-        "$includes"
+        "$includes" && \
+            already_gen=false
+
+    local cmd_path="$builddir/.ezbld/codegen-$generator_name-command"
+    ! is_commands_equal "$cmd" "$cmd_path" && already_gen=false
+
+    if [ "$already_gen" = true ]; then
+        colored lpurple "$generator_name already generated"
+        return 0
+    fi
 
     local start_tm=$(mstime)
     colored yellow "Generating $output_header ... " n
@@ -679,6 +679,19 @@ $([ "$asan" == true ] && asan_flags)
             "system:$(pwd)/$builddir/3rd/include" \
             "$(pwd)/src" \
         )"
+
+#    build_executable \
+#        net_test \
+#        tests/net_test.cpp \
+#        "$builddir" \
+#        "$CXX_COMPILER" \
+#        "$debug" \
+#        "$hardening_flags" \
+#        "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2" \
+#        "$(include_list \
+#            "system:$(pwd)/$builddir/3rd/include" \
+#            "$(pwd)/src" \
+#        )"
 
 #    build_executable \
 #        gui-test \
