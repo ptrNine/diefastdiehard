@@ -4,329 +4,325 @@
 
 #pragma once
 
-#include <stdexcept>
 #include "net_actions.hpp"
-#include "print.hpp"
-#include "hash_functions.hpp"
+#include "base/print.hpp"
+#include "base/hash_functions.hpp"
 
 namespace dfdh {
 
-class unknown_net_action : public std::invalid_argument {
-public:
-    unknown_net_action(u32 act): std::invalid_argument("Unknown action with id " + std::to_string(act)) {}
-};
+enum class net_action_dispatch_rc { ok = 0, unhandled, unknown };
 
-inline bool net_action_dispatch(const address_t& address, const packet_t& packet, auto&& overloaded) {
+inline net_action_dispatch_rc net_action_dispatch(const address_t& address, const packet_t& packet, auto&& overloaded) {
     auto act = packet.cast_to<u32>();
     switch (act) {
     case a_cli_i_wanna_play::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_cli_i_wanna_play>) {
             overloaded(packet.cast_to<a_cli_i_wanna_play>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_cli_i_wanna_play>) {
             overloaded(address, packet.cast_to<a_cli_i_wanna_play>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_cli_player_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_cli_player_sync>) {
             overloaded(packet.cast_to<a_cli_player_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_cli_player_sync>) {
             overloaded(address, packet.cast_to<a_cli_player_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_level_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_level_sync>) {
             overloaded(packet.cast_to<a_level_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_level_sync>) {
             overloaded(address, packet.cast_to<a_level_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_ping::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_ping>) {
             overloaded(packet.cast_to<a_ping>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_ping>) {
             overloaded(address, packet.cast_to<a_ping>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_conf::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_conf>) {
             overloaded(packet.cast_to<a_player_conf>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_conf>) {
             overloaded(address, packet.cast_to<a_player_conf>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_game_params::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_game_params>) {
             overloaded(packet.cast_to<a_player_game_params>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_game_params>) {
             overloaded(address, packet.cast_to<a_player_game_params>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_move_states::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_move_states>) {
             overloaded(packet.cast_to<a_player_move_states>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_move_states>) {
             overloaded(address, packet.cast_to<a_player_move_states>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_skin_params::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_skin_params>) {
             overloaded(packet.cast_to<a_player_skin_params>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_skin_params>) {
             overloaded(address, packet.cast_to<a_player_skin_params>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_spawn_bullet::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_spawn_bullet>) {
             overloaded(packet.cast_to<a_spawn_bullet>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_spawn_bullet>) {
             overloaded(address, packet.cast_to<a_spawn_bullet>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_srv_player_game_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_srv_player_game_sync>) {
             overloaded(packet.cast_to<a_srv_player_game_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_srv_player_game_sync>) {
             overloaded(address, packet.cast_to<a_srv_player_game_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_srv_player_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_srv_player_sync>) {
             overloaded(packet.cast_to<a_srv_player_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_srv_player_sync>) {
             overloaded(address, packet.cast_to<a_srv_player_sync>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_transcontrol_corrupted::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_transcontrol_corrupted>) {
             overloaded(packet.cast_to<a_transcontrol_corrupted>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_transcontrol_corrupted>) {
             overloaded(address, packet.cast_to<a_transcontrol_corrupted>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_transcontrol_ok::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_transcontrol_ok>) {
             overloaded(packet.cast_to<a_transcontrol_ok>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_transcontrol_ok>) {
             overloaded(address, packet.cast_to<a_transcontrol_ok>());
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     default:
-        throw unknown_net_action(act);
+        return net_action_dispatch_rc::unknown;
     }
-    return false;
+    return net_action_dispatch_rc::unhandled;
 }
 
 
-inline bool net_action_downcast(const net_spec& action_base, auto&& overloaded) {
+inline net_action_dispatch_rc net_action_downcast(const net_spec& action_base, auto&& overloaded) {
     switch (action_base.action) {
     case a_cli_i_wanna_play::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_cli_i_wanna_play>) {
             overloaded(static_cast<const a_cli_i_wanna_play&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_cli_player_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_cli_player_sync>) {
             overloaded(static_cast<const a_cli_player_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_level_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_level_sync>) {
             overloaded(static_cast<const a_level_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_ping::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_ping>) {
             overloaded(static_cast<const a_ping&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_conf::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_conf>) {
             overloaded(static_cast<const a_player_conf&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_game_params::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_game_params>) {
             overloaded(static_cast<const a_player_game_params&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_move_states::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_move_states>) {
             overloaded(static_cast<const a_player_move_states&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_skin_params::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_player_skin_params>) {
             overloaded(static_cast<const a_player_skin_params&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_spawn_bullet::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_spawn_bullet>) {
             overloaded(static_cast<const a_spawn_bullet&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_srv_player_game_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_srv_player_game_sync>) {
             overloaded(static_cast<const a_srv_player_game_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_srv_player_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_srv_player_sync>) {
             overloaded(static_cast<const a_srv_player_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_transcontrol_corrupted::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_transcontrol_corrupted>) {
             overloaded(static_cast<const a_transcontrol_corrupted&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_transcontrol_ok::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), a_transcontrol_ok>) {
             overloaded(static_cast<const a_transcontrol_ok&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     default:
-        throw unknown_net_action(action_base.action);
+        return net_action_dispatch_rc::unknown;
     }
-    return false;
+    return net_action_dispatch_rc::unhandled;
 }
 
 
-inline bool net_action_downcast(const address_t& address, const net_spec& action_base, auto&& overloaded) {
+inline net_action_dispatch_rc net_action_downcast(const address_t& address, const net_spec& action_base, auto&& overloaded) {
     switch (action_base.action) {
     case a_cli_i_wanna_play::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_cli_i_wanna_play>) {
             overloaded(address, static_cast<const a_cli_i_wanna_play&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_cli_player_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_cli_player_sync>) {
             overloaded(address, static_cast<const a_cli_player_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_level_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_level_sync>) {
             overloaded(address, static_cast<const a_level_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_ping::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_ping>) {
             overloaded(address, static_cast<const a_ping&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_conf::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_conf>) {
             overloaded(address, static_cast<const a_player_conf&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_game_params::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_game_params>) {
             overloaded(address, static_cast<const a_player_game_params&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_move_states::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_move_states>) {
             overloaded(address, static_cast<const a_player_move_states&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_player_skin_params::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_player_skin_params>) {
             overloaded(address, static_cast<const a_player_skin_params&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_spawn_bullet::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_spawn_bullet>) {
             overloaded(address, static_cast<const a_spawn_bullet&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_srv_player_game_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_srv_player_game_sync>) {
             overloaded(address, static_cast<const a_srv_player_game_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_srv_player_sync::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_srv_player_sync>) {
             overloaded(address, static_cast<const a_srv_player_sync&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_transcontrol_corrupted::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_transcontrol_corrupted>) {
             overloaded(address, static_cast<const a_transcontrol_corrupted&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     case a_transcontrol_ok::ACTION:
         if constexpr (std::is_invocable_v<decltype(overloaded), address_t, a_transcontrol_ok>) {
             overloaded(address, static_cast<const a_transcontrol_ok&>(action_base)); // NOLINT
-            return true;
+            return net_action_dispatch_rc::ok;
         }
         break;
     default:
-        throw unknown_net_action(action_base.action);
+        return net_action_dispatch_rc::unknown;
     }
-    return false;
+    return net_action_dispatch_rc::unhandled;
 }
 
 
@@ -337,137 +333,137 @@ inline bool net_action_downcast(const address_t& address, const net_spec& action
         case a_cli_i_wanna_play::ACTION: \
             if constexpr (requires{object.member_function(a_cli_i_wanna_play());}) { \
                 object.member_function(packet.cast_to<a_cli_i_wanna_play>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_cli_i_wanna_play());}) { \
                 object.member_function(address, packet.cast_to<a_cli_i_wanna_play>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_cli_player_sync::ACTION: \
             if constexpr (requires{object.member_function(a_cli_player_sync());}) { \
                 object.member_function(packet.cast_to<a_cli_player_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_cli_player_sync());}) { \
                 object.member_function(address, packet.cast_to<a_cli_player_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_level_sync::ACTION: \
             if constexpr (requires{object.member_function(a_level_sync());}) { \
                 object.member_function(packet.cast_to<a_level_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_level_sync());}) { \
                 object.member_function(address, packet.cast_to<a_level_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_ping::ACTION: \
             if constexpr (requires{object.member_function(a_ping());}) { \
                 object.member_function(packet.cast_to<a_ping>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_ping());}) { \
                 object.member_function(address, packet.cast_to<a_ping>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_player_conf::ACTION: \
             if constexpr (requires{object.member_function(a_player_conf());}) { \
                 object.member_function(packet.cast_to<a_player_conf>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_player_conf());}) { \
                 object.member_function(address, packet.cast_to<a_player_conf>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_player_game_params::ACTION: \
             if constexpr (requires{object.member_function(a_player_game_params());}) { \
                 object.member_function(packet.cast_to<a_player_game_params>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_player_game_params());}) { \
                 object.member_function(address, packet.cast_to<a_player_game_params>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_player_move_states::ACTION: \
             if constexpr (requires{object.member_function(a_player_move_states());}) { \
                 object.member_function(packet.cast_to<a_player_move_states>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_player_move_states());}) { \
                 object.member_function(address, packet.cast_to<a_player_move_states>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_player_skin_params::ACTION: \
             if constexpr (requires{object.member_function(a_player_skin_params());}) { \
                 object.member_function(packet.cast_to<a_player_skin_params>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_player_skin_params());}) { \
                 object.member_function(address, packet.cast_to<a_player_skin_params>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_spawn_bullet::ACTION: \
             if constexpr (requires{object.member_function(a_spawn_bullet());}) { \
                 object.member_function(packet.cast_to<a_spawn_bullet>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_spawn_bullet());}) { \
                 object.member_function(address, packet.cast_to<a_spawn_bullet>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_srv_player_game_sync::ACTION: \
             if constexpr (requires{object.member_function(a_srv_player_game_sync());}) { \
                 object.member_function(packet.cast_to<a_srv_player_game_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_srv_player_game_sync());}) { \
                 object.member_function(address, packet.cast_to<a_srv_player_game_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_srv_player_sync::ACTION: \
             if constexpr (requires{object.member_function(a_srv_player_sync());}) { \
                 object.member_function(packet.cast_to<a_srv_player_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_srv_player_sync());}) { \
                 object.member_function(address, packet.cast_to<a_srv_player_sync>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_transcontrol_corrupted::ACTION: \
             if constexpr (requires{object.member_function(a_transcontrol_corrupted());}) { \
                 object.member_function(packet.cast_to<a_transcontrol_corrupted>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_transcontrol_corrupted());}) { \
                 object.member_function(address, packet.cast_to<a_transcontrol_corrupted>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         case a_transcontrol_ok::ACTION: \
             if constexpr (requires{object.member_function(a_transcontrol_ok());}) { \
                 object.member_function(packet.cast_to<a_transcontrol_ok>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             else if constexpr (requires{object.member_function(address_t(), a_transcontrol_ok());}) { \
                 object.member_function(address, packet.cast_to<a_transcontrol_ok>()); \
-                return true; \
+                return net_action_dispatch_rc::ok; \
             } \
             break; \
         default: \
-            throw unknown_net_action(act); \
+            return net_action_dispatch_rc::unknown; \
         } \
-        return false; \
+        return net_action_dispatch_rc::unhandled; \
     }(OBJECT, ADDRESS, PACKET)
 
 

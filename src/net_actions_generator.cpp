@@ -113,19 +113,15 @@ int main() {
         "\n"
         "#pragma once\n"
         "\n"
-        "#include <stdexcept>\n"
         "#include \"net_actions.hpp\"\n"
-        "#include \"print.hpp\"\n"
-        "#include \"hash_functions.hpp\"\n"
+        "#include \"base/print.hpp\"\n"
+        "#include \"base/hash_functions.hpp\"\n"
         "\n"
         "namespace dfdh {\n"
         "\n"
-        "class unknown_net_action : public std::invalid_argument {\n"
-        "public:\n"
-        "    unknown_net_action(u32 act): std::invalid_argument(\"Unknown action with id \" + std::to_string(act)) {}\n"
-        "};\n"
+        "enum class net_action_dispatch_rc { ok = 0, unhandled, unknown };\n"
         "\n"
-        "inline bool net_action_dispatch(const address_t& address, const packet_t& packet, auto&& overloaded) {\n"
+        "inline net_action_dispatch_rc net_action_dispatch(const address_t& address, const packet_t& packet, auto&& overloaded) {\n"
         "    auto act = packet.cast_to<u32>();\n"
         "    switch (act) {\n";
 
@@ -135,23 +131,23 @@ int main() {
                 "    case " << struct_name << "::ACTION:\n"
                 "        if constexpr (std::is_invocable_v<decltype(overloaded), " << struct_name << ">) {\n"
                 "            overloaded(packet.cast_to<" << struct_name << ">());\n"
-                "            return true;\n"
+                "            return net_action_dispatch_rc::ok;\n"
                 "        }\n"
                 "        else if constexpr (std::is_invocable_v<decltype(overloaded), address_t, " << struct_name << ">) {\n"
                 "            overloaded(address, packet.cast_to<" << struct_name << ">());\n"
-                "            return true;\n"
+                "            return net_action_dispatch_rc::ok;\n"
                 "        }\n"
                 "        break;\n";
     }
     std::cout <<
         "    default:\n"
-        "        throw unknown_net_action(act);\n"
+        "        return net_action_dispatch_rc::unknown;\n"
         "    }\n"
-        "    return false;\n"
+        "    return net_action_dispatch_rc::unhandled;\n"
         "}\n"
         "\n"
         "\n"
-        "inline bool net_action_downcast(const net_spec& action_base, auto&& overloaded) {\n"
+        "inline net_action_dispatch_rc net_action_downcast(const net_spec& action_base, auto&& overloaded) {\n"
         "    switch (action_base.action) {\n";
     for (auto& [struct_name, _] : structs)
         if (struct_name.starts_with("a_"))
@@ -159,18 +155,18 @@ int main() {
                 "    case " << struct_name << "::ACTION:\n"
                 "        if constexpr (std::is_invocable_v<decltype(overloaded), " << struct_name << ">) {\n"
                 "            overloaded(static_cast<const " << struct_name << "&>(action_base)); // NOLINT\n"
-                "            return true;\n"
+                "            return net_action_dispatch_rc::ok;\n"
                 "        }\n"
                 "        break;\n";
     std::cout <<
         "    default:\n"
-        "        throw unknown_net_action(action_base.action);\n"
+        "        return net_action_dispatch_rc::unknown;\n"
         "    }\n"
-        "    return false;\n"
+        "    return net_action_dispatch_rc::unhandled;\n"
         "}\n"
         "\n"
         "\n"
-        "inline bool net_action_downcast(const address_t& address, const net_spec& action_base, auto&& overloaded) {\n"
+        "inline net_action_dispatch_rc net_action_downcast(const address_t& address, const net_spec& action_base, auto&& overloaded) {\n"
         "    switch (action_base.action) {\n";
     for (auto& [struct_name, _] : structs)
         if (struct_name.starts_with("a_"))
@@ -178,14 +174,14 @@ int main() {
                 "    case " << struct_name << "::ACTION:\n"
                 "        if constexpr (std::is_invocable_v<decltype(overloaded), address_t, " << struct_name << ">) {\n"
                 "            overloaded(address, static_cast<const " << struct_name << "&>(action_base)); // NOLINT\n"
-                "            return true;\n"
+                "            return net_action_dispatch_rc::ok;\n"
                 "        }\n"
                 "        break;\n";
     std::cout <<
         "    default:\n"
-        "        throw unknown_net_action(action_base.action);\n"
+        "        return net_action_dispatch_rc::unknown;\n"
         "    }\n"
-        "    return false;\n"
+        "    return net_action_dispatch_rc::unhandled;\n"
         "}\n"
         "\n"
         "\n"
@@ -199,19 +195,19 @@ int main() {
                 "        case " << struct_name << "::ACTION: \\\n"
                 "            if constexpr (requires{object.member_function(" << struct_name << "());}) { \\\n"
                 "                object.member_function(packet.cast_to<" << struct_name << ">()); \\\n"
-                "                return true; \\\n"
+                "                return net_action_dispatch_rc::ok; \\\n"
                 "            } \\\n"
                 "            else if constexpr (requires{object.member_function(address_t(), " << struct_name << "());}) { \\\n"
                 "                object.member_function(address, packet.cast_to<" << struct_name << ">()); \\\n"
-                "                return true; \\\n"
+                "                return net_action_dispatch_rc::ok; \\\n"
                 "            } \\\n"
                 "            break; \\\n";
     }
     std::cout <<
         "        default: \\\n"
-        "            throw unknown_net_action(act); \\\n"
+        "            return net_action_dispatch_rc::unknown; \\\n"
         "        } \\\n"
-        "        return false; \\\n"
+        "        return net_action_dispatch_rc::unhandled; \\\n"
         "    }(OBJECT, ADDRESS, PACKET)\n"
         "\n"
         "\n"
