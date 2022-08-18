@@ -4,6 +4,5 @@ compile_commands.json
 src/stdafx.hpp.gch*
 src/key_generated.hpp
 src/event_type_generated.hpp
-data/scripts/assist*
 data/settings/*
 .luarc.json
