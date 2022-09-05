@@ -52,7 +52,7 @@ make_includes() {
     for include in ${1//;/$'\n'}; do
         local arg="-I"
         [ "${include%:*}" = "system" ] && arg="-isystem"
-        printf '%s ' "$arg '${include##*:}'"
+        printf '%s ' "$arg \"${include##*:}\""
     done
 }
 
@@ -150,6 +150,10 @@ build_executable() {
             --hash -C "$(pwd)/$builddir/.ezbld/$name-depinfo" \
             "$(pwd)/$build_source") && \
         already_built=true
+
+    # echo "$(pwd)/$builddir/hpp_depinfo" $(make_includes "$includes") "$(pwd)/$build_source"
+    # "$(pwd)/$builddir/hpp_depinfo" $(make_includes "$includes") "$(pwd)/$build_source"
+    # echo "HASH: $depinfo"
 
     local cmd="$(command -v "$CXX_COMPILER") -std=c++20 \
         $([ "$debug" == true ] && echo "-O0 -g" || echo "-O2 -march=native") \
@@ -692,6 +696,33 @@ $([ "$asan" == true ] && asan_flags)
 #            "system:$(pwd)/$builddir/3rd/include" \
 #            "$(pwd)/src" \
 #        )"
+
+#    build_executable \
+#        fiber_test \
+#        tests/fiber_test.cpp \
+#        "$builddir" \
+#        "$CXX_COMPILER" \
+#        "$debug" \
+#        "$hardening_flags" \
+#        "-lpthread" \
+#        "$(include_list \
+#            "system:$(pwd)/$builddir/3rd/include" \
+#            "$(pwd)/src" \
+#        )"
+
+    build_executable \
+        tasks_test \
+        tests/tasks.cpp \
+        "$builddir" \
+        "$CXX_COMPILER" \
+        "$debug" \
+        "$hardening_flags" \
+        "-lpthread -lCatch2Main -lCatch2" \
+        "$(include_list \
+            "system:$(pwd)/$builddir/3rd/include" \
+            "$(pwd)/src" \
+        )"
+
 
 #    build_executable \
 #        gui-test \
