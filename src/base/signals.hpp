@@ -8,10 +8,16 @@
 #include <thread>
 #include <iomanip>
 #include <mutex>
+#include <optional>
 
 using namespace std::chrono_literals;
 
 enum class internal_slot_mode : uint8_t {};
+
+class slot_owner_destroyed_error : public std::runtime_error {
+public:
+    slot_owner_destroyed_error(): std::runtime_error("slot owner was destroyed") {}
+};
 
 class slot_alive_checker {
 public:
@@ -99,6 +105,74 @@ struct immediate_return_t<void> {
     slot_holder*       holder;
 };
 
+enum class signal_mode {
+    deferred  = 0,
+    immediate = 1
+};
+
+
+template <typename Derived, typename Base>
+concept BaseOf = std::is_base_of_v<Base, Derived>;
+
+template <typename T, typename M>
+struct signal_connector;
+
+template <BaseOf<slot_holder> T, typename MemberF>
+struct signal_connector<T, MemberF> {
+    T*                         slot_owner;
+    MemberF                    function;
+    std::optional<signal_mode> mode = {};
+};
+
+template <std::same_as<std::string> T, typename FuncT>
+struct signal_connector<T, FuncT> {
+    T                          connection_name;
+    FuncT                      function;
+    std::optional<signal_mode> mode = {};
+};
+
+template <typename FuncT>
+struct signal_connector<void, FuncT> {
+    FuncT                      function;
+    std::optional<signal_mode> mode = {};
+};
+
+
+template <typename T, typename MemberF>
+signal_connector(T*, MemberF) -> signal_connector<T, MemberF>;
+
+template <typename T, typename MemberF>
+signal_connector(T*, MemberF, signal_mode) -> signal_connector<T, MemberF>;
+
+template <typename FuncT>
+signal_connector(std::string, FuncT) -> signal_connector<std::string, FuncT>;
+
+template <typename FuncT>
+signal_connector(std::string, FuncT, signal_mode) -> signal_connector<std::string, FuncT>;
+
+template <typename FuncT>
+signal_connector(const char*, FuncT) -> signal_connector<std::string, FuncT>;
+
+template <typename FuncT>
+signal_connector(const char*, FuncT, signal_mode) -> signal_connector<std::string, FuncT>;
+
+template <typename FuncT>
+signal_connector(FuncT) -> signal_connector<void, FuncT>;
+
+template <typename FuncT>
+signal_connector(FuncT, signal_mode) -> signal_connector<void, FuncT>;
+
+
+template <typename>
+struct is_signal_connector : std::false_type {};
+
+template <typename... Ts>
+struct is_signal_connector<signal_connector<Ts...>> : std::true_type {};
+
+template <typename T>
+concept SignalConnector = is_signal_connector<T>::value;
+
+
 template <typename ReturnT, typename... ArgsT>
 class signal<ReturnT(ArgsT...)> {
 public:
@@ -129,7 +203,7 @@ public:
         std::function<void(ArgsT...)>                        deferred;
     };
 
-    template <typename T, typename F = ReturnT (T::*)(ArgsT...)> // requires std::is_base_of<slot_holder, T>
+    template <typename T, typename F = ReturnT (T::*)(ArgsT...)> requires std::is_base_of_v<slot_holder, T>
     void connect_to(T& slot_owner, F slot) {
         _consumers.insert_or_assign(
             make_uniq_id(&slot_owner, slot),
@@ -137,34 +211,63 @@ public:
                           ArgsT... args) -> immediate_return_t<ReturnT> {
                           auto lock = checker.lock_alive();
                           if (!lock)
-                              throw std::runtime_error("Slot owner was destroyed!");
-                          return {checker, owner, (owner->*slot)(args...)};
+                              throw slot_owner_destroyed_error();;
+                          if constexpr (std::is_same_v<ReturnT, void>) {
+                              (owner->*slot)(args...);
+                              return {checker, owner};
+                          } else {
+                              return {checker, owner, (owner->*slot)(args...)};
+                          }
                       },
                       [checker = slot_owner.get_checker(), owner = &slot_owner, slot](ArgsT... args) {
                           signal_slot_event_updater::instance().push_task([checker, owner, slot, args...]() {
                               auto lock = checker.lock_alive();
                               if (!lock)
-                                  throw std::runtime_error("Slot owner was destroyed!");
+                                  throw slot_owner_destroyed_error();
                               (owner->*slot)(args...);
                           });
                       }});
     }
 
     template <typename F>
-    void attach_function(std::string_view name, F function) {
+    void attach_function(std::string_view name, F&& function) {
         _consumers.insert_or_assign(
             make_uniq_id(name),
-            func_pair{[alive_h = slot_alive_holder(), function](ArgsT... args) -> immediate_return_t<ReturnT> {
+            func_pair{[alive_h = slot_alive_holder(), f = function](ArgsT... args) -> immediate_return_t<ReturnT> {
                           if constexpr (std::is_same_v<ReturnT, void>) {
-                              function(args...);
+                              f(args...);
                               return {alive_h.checker(), nullptr};
                           }
                           else
-                              return {alive_h.checker(), nullptr, function(args...)};
+                              return {alive_h.checker(), nullptr, f(args...)};
                       },
-                      [function](ArgsT... args) {
-                          function(args...);
-                      }});
+                      std::forward<F>(function)});
+    }
+
+    template <typename F>
+    void attach_function(F&& function) {
+        attach_function("", std::forward<F>(function));
+    }
+
+    template <typename F>
+    void connect(signal_connector<std::string, F> connector) {
+        attach_function(connector.connection_name, connector.function);
+        if (connector.mode)
+            mode(*connector.mode);
+    }
+
+    template <typename F>
+    void connect(signal_connector<void, F> connector) {
+        attach_function("", connector.function);
+        if (connector.mode)
+            mode(*connector.mode);
+    }
+
+    template <BaseOf<slot_holder> T, typename F>
+    void connect(signal_connector<T, F> connector) {
+        connect_to(*connector.slot_owner, connector.function);
+        if (connector.mode)
+            mode(*connector.mode);
     }
 
     void detach_function(std::string_view name) {
@@ -184,7 +287,7 @@ public:
             try {
                 ret.emplace_back(fp.immediate(args...));
             }
-            catch (...) {
+            catch (const slot_owner_destroyed_error&) {
                 to_erase.push_back(id);
             }
         }
@@ -197,6 +300,35 @@ public:
         for (auto& [_, fp] : _consumers) fp.deferred(args...);
     }
 
+    void operator()(ArgsT... args) {
+        if (_mode == signal_mode::deferred) {
+            emit_deferred(args...);
+        }
+        else {
+            std::vector<uniq_id> to_erase;
+
+            for (auto& [id, fp] : _consumers) {
+                try {
+                    fp.immediate(args...);
+                }
+                catch (...) {
+                    to_erase.push_back(id);
+                }
+            }
+            for (auto& id : to_erase) _consumers.erase(id);
+        }
+    }
+
+    void mode(signal_mode value) {
+        _mode = value;
+    }
+
+    [[nodiscard]]
+    signal_mode mode() const {
+        return _mode;
+    }
+
 private:
     std::map<uniq_id, func_pair> _consumers;
+    signal_mode                  _mode = signal_mode::deferred;
 };
