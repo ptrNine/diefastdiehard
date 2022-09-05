@@ -422,8 +422,8 @@ EOF
 take_greater_version() {
     for path in $(ls "$1"*); do
         local postfix="${path#$1}"
-        [[ "$postfix" =~ ^[0-9.]+$ ]] && echo "$path"
-    done | sort -k2 -n -r | head -n1
+        [[ "$postfix" =~ ^[0-9.]+$ ]] && echo "$path $postfix"
+    done | sort -t2 -k2 -n -r | head -n1 | cut -d " " -f1
 }
 
 _build() {
