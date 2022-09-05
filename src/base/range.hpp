@@ -23,7 +23,7 @@ concept InputIter = requires(T v) {
 
 template <typename T>
 concept InputRange = Range<T> && requires(T&& v) {
-    InputIter<decltype(std::begin(v))>;
+    requires InputIter<decltype(std::begin(v))>;
 };
 
 template <typename T>
@@ -34,7 +34,7 @@ concept BidirectIter = InputIter<T> && requires(T v) {
 
 template <typename T>
 concept BiderectRange = InputRange<T> && requires(T&& v) {
-    BidirectIter<decltype(std::begin(v))>;
+    requires BidirectIter<decltype(std::begin(v))>;
 };
 
 template <typename T>
