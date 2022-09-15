@@ -1,5 +1,6 @@
 #pragma once
 
+#include "base/finalizers.hpp"
 #include "net_action_socket.hpp"
 #include "net_transcontrol.hpp"
 
@@ -64,7 +65,7 @@ public:
     }
 
     auto try_receive() {
-        auto scope_exit = scope_guard([&] {
+        auto scope_exit = finalizer([&] {
             ts.update_resend([&](ip_address ip, port_t port, const packet_t& packet) {
                 sock.raw_socket().send_somehow(ip, port, packet);
             });
@@ -73,12 +74,14 @@ public:
 
         auto res = sock.try_receive();
         if (res.rc == receive_rc::invalid_hash) {
-            auto spec        = res.data.cast_to<net_spec>();
-            auto act         = a_transcontrol_corrupted();
-            act.transcontrol = 1;
-            act.target_id    = spec.id;
-            act.target_hash  = spec.hash;
-            sock.send_somehow(res.address, act);
+            auto spec = res.data.cast_to<net_spec>();
+            if (spec.transcontrol) {
+                auto act         = a_transcontrol_corrupted();
+                act.transcontrol = 1;
+                act.target_id    = spec.id;
+                act.target_hash  = spec.hash;
+                sock.send_somehow(res.address, act);
+            }
             return res;
         }
 
@@ -115,19 +118,30 @@ public:
     auto try_receive_dispatch(F&& func) {
         auto res = try_receive();
         if (res.rc == receive_rc::ok) {
+            net_action_dispatch_rc rc;
             if (debug) {
-                net_action_dispatch(res.address, res.data, [&](const address_t& address, const auto& act) {
-                    glog().info("Easysocket receive: {}", act);
+                auto spec = res.data.cast_to<net_spec>();
+                glog().info("Easysocket: try to receive: {}", spec);
+                rc = net_action_dispatch(res.address, res.data, [&](const address_t& address, const auto& act) {
+                    glog().info("Easysocket: receive: {}", act);
                     if constexpr (std::is_invocable_v<F, address_t, decltype(act)>)
                         func(address, act);
                     else if constexpr (std::is_invocable_v<F, decltype(act)>)
                         func(act);
                 });
             } else {
-                net_action_dispatch(res.address, res.data, std::forward<F>(func));
+                rc = net_action_dispatch(res.address, res.data, std::forward<F>(func));
             }
+
+            if (rc == net_action_dispatch_rc::unknown)
+                res.rc = receive_rc::unknown_action;
         }
         return res;
+    }
+
+    [[nodiscard]]
+    int native_handle() const {
+        return sock.native_handle();
     }
 
     void debug_output(bool value = true) {

@@ -684,18 +684,18 @@ $([ "$asan" == true ] && asan_flags)
             "$(pwd)/src" \
         )"
 
-#    build_executable \
-#        net_test \
-#        tests/net_test.cpp \
-#        "$builddir" \
-#        "$CXX_COMPILER" \
-#        "$debug" \
-#        "$hardening_flags" \
-#        "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2" \
-#        "$(include_list \
-#            "system:$(pwd)/$builddir/3rd/include" \
-#            "$(pwd)/src" \
-#        )"
+    build_executable \
+        net_tests \
+        tests/net_tests.cpp \
+        "$builddir" \
+        "$CXX_COMPILER" \
+        "$debug" \
+        "$hardening_flags" \
+        "-lboost_context -lboost_fiber -lpthread -lCatch2Main -lCatch2" \
+        "$(include_list \
+            "system:$(pwd)/$builddir/3rd/include" \
+            "$(pwd)/src" \
+        )"
 
 #    build_executable \
 #        fiber_test \

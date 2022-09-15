@@ -9,8 +9,6 @@
 #include <optional>
 #include <variant>
 
-#include <iostream>
-
 //#define msg(...) do { std::cout << (__VA_ARGS__) << std::endl; } while (0)
 #define msg(...) (void)0
 
@@ -293,6 +291,11 @@ public:
         std::coroutine_handle<>  awaiter;
         bool (*data_test_callback)(const EventData&);
     };
+
+    template <AutolifetimeTaskFunc... Ts>
+    task_worker(Ts&&... tasks) {
+        (submit(std::forward<Ts>(tasks)), ...);
+    }
 
     ~task_worker() {
         auto handles = active_handles;

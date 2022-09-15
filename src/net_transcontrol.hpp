@@ -2,10 +2,11 @@
 
 #include <chrono>
 #include <map>
+#include <functional>
 
 #include "net_basic.hpp"
 #include "net_actions.hpp"
-#include "log.hpp"
+#include "base/log.hpp"
 
 namespace dfdh {
 using namespace std::chrono_literals;

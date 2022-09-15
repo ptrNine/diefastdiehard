@@ -51,6 +51,14 @@ struct overloaded : Ts... {
 template<typename... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
 
+template <typename... Ts>
+struct overloaded_typecheck {};
+
+template <typename T, typename... Ts>
+struct overloaded_typecheck<T, Ts...> : overloaded_typecheck<Ts...> {
+    constexpr void operator()(const T&) const {}
+};
+
 template <typename T>
 struct is_std_array : std::false_type {};
 
