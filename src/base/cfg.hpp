@@ -1009,7 +1009,8 @@ public:
 
     [[nodiscard]]
     std::string_view section_name() const {
-        return std::string_view(start->tk.value).substr(1, start->tk.value.size() - 2);
+        return start->tk.value.empty() ? std::string_view()
+                                       : std::string_view(start->tk.value).substr(1, start->tk.value.size() - 2);
     }
 
     [[nodiscard]]
