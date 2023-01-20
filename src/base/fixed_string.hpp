@@ -16,7 +16,7 @@ inline constexpr size_t aligned_size(size_t size) {
 template <typename C, size_t S>
 class fixed_str_t {
 public:
-    DFDH_SERIALIZE(_data)
+    SS_SERIALIZE(_data)
 
     static constexpr size_t max_size_w_nt = aligned_size(S + 1);
 

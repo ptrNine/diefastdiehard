@@ -229,7 +229,7 @@ struct task {
         return handle;
     }
 
-    ResultT await_resume() const noexcept {
+    ResultT await_resume() const {
         msg("[task]: await_resume()");
         auto scope_guard = finalizer{[&] {
             if constexpr (is_autolifetime_v<ResultT>)
