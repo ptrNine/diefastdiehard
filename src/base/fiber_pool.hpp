@@ -2,6 +2,7 @@
 
 #include <boost/fiber/algo/work_stealing.hpp>
 #include <boost/fiber/buffered_channel.hpp>
+#include <boost/fiber/unbuffered_channel.hpp>
 #include <boost/fiber/fiber.hpp>
 #include <boost/fiber/future/packaged_task.hpp>
 #include <boost/fiber/operations.hpp>
@@ -10,7 +11,6 @@
 
 namespace dfdh
 {
-namespace fibers        = boost::fibers;
 namespace this_job      = boost::this_fiber;
 using job_launch_policy = boost::fibers::launch;
 
@@ -19,6 +19,24 @@ using job_future = boost::fibers::future<T>;
 using job_future_status = boost::fibers::future_status;
 using job_future_error  = boost::fibers::future_error;
 using job_future_errc   = boost::fibers::future_errc;
+using boost::fibers::fiber;
+
+namespace fibers
+{
+    using namespace boost::fibers;
+
+    template <typename T, size_t size = 0>
+    class channel : public fibers::buffered_channel<T> {
+    public:
+        channel(): fibers::buffered_channel<T>(size) {}
+    };
+
+    template <typename T>
+    class channel<T, 0> : public fibers::unbuffered_channel<T> {
+    public:
+        using fibers::unbuffered_channel<T>::unbuffered_channel;
+    };
+} // namespace fibers
 
 class fiber_pool {
 private:
