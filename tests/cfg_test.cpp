@@ -43,6 +43,9 @@ R"(global key = global value
 
 auto reinit_cfg() {
     using namespace dfdh;
+
+    fs::create_directories("test_data/configs/");
+
     {
         auto ofs = std::ofstream("test_data/configs/test.cfg");
         ofs << "#include test2.cfg\n" << section1 << section2 << section3_part0 << "#include test3.cfg";
