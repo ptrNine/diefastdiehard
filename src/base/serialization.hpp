@@ -1,509 +1,873 @@
 #pragma once
 
-#include <stdexcept>
-#include <span>
-#include <optional>
 #include <bit>
 #include <tuple>
+#include <span>
+#include <cstring>
+#include <cstdint>
+#include <vector>
+#include <stdexcept>
 
-#include "types.hpp"
+//#define VERBOSE_DEBUG
 
-#define DFDH_SERIALIZE(...)                                                                        \
-    void serialize(auto& _s) const {                                                               \
-        dfdh::serialize_all(_s, __VA_ARGS__);                                                      \
-    }                                                                                              \
-    void deserialize(std::span<const std::byte>& _d) {                                             \
-        dfdh::deserialize_all(_d, __VA_ARGS__);                                                    \
+#ifdef VERBOSE_DEBUG
+#include "io.hpp"
+#endif
+
+#define SS_SERIALIZE(...) \
+    void serialize(auto& s) const { \
+        s.write(__VA_ARGS__); \
+    } \
+    void deserialize(auto& d) { \
+        d.read(__VA_ARGS__); \
     }
 
-#define DFDH_SERIALIZE_OVERRIDE(...)                                                               \
-    void serialize(auto& _s) const override {                                                      \
-        dfdh::serialize_all(_s, __VA_ARGS__);                                                      \
-    }                                                                                              \
-    void deserialize(std::span<const std::byte>& _d) override {                                    \
-        dfdh::deserialize_all(_d, __VA_ARGS__);                                                    \
+namespace ss {
+
+#ifdef VERBOSE_DEBUG
+    static inline auto stdo = dfdh::outfd<char, 4096 * 16>::stdout();
+    static inline constexpr auto verbose = true;
+    static size_t nestcounter = 0;
+
+    template <typename... Ts>
+    void verbose_print(Ts&&... args) {
+        for (size_t i = 0; i < nestcounter * 4; ++i)
+            stdo.write(' ');
+        ([]<typename T>(T&& v) {
+            if constexpr (requires (T&& v) { stdo.write(v); })
+                stdo.write(v);
+            else
+                stdo.write("<unknown>");
+        }(std::forward<Ts>(args)), ...);
+        stdo.write('\n');
     }
 
-#define DFDH_SERIALIZE_SUPER(SUPER_CLASS, ...)                                                     \
-    void serialize(auto& _s) const {                                                               \
-        SUPER_CLASS::serialize(_s);                                                                \
-        dfdh::serialize_all(_s, __VA_ARGS__);                                                      \
-    }                                                                                              \
-    void deserialize(std::span<const std::byte>& _d) {                                             \
-        SUPER_CLASS::deserialize(_d);                                                              \
-        dfdh::deserialize_all(_d, __VA_ARGS__);                                                    \
+    void print_bytes(const void* b, size_t sz) {
+        for (size_t i = 0; i < nestcounter * 4; ++i)
+            stdo.write(' ');
+        auto bs = reinterpret_cast<const char*>(b); // NOLINT
+        static constexpr auto hexdigits = "0123456789abcdef";
+        for (size_t i = 0; i < sz; ++i)
+            stdo.write(hexdigits[uint8_t(bs[i]) >> 4], hexdigits[uint8_t(bs[i]) & 0xf], ' ');
+        stdo.write('\n');
     }
 
-namespace dfdh
-{
+    #define VERBOSE(...) verbose_print(__VA_ARGS__)
+    #define VERBOSE_IN() ++nestcounter
+    #define VERBOSE_OUT() --nestcounter
+    #define VERBOSE_BYTES(...) print_bytes(__VA_ARGS__)
+#else
+    static inline constexpr auto verbose = false;
+    #define VERBOSE(...) do {} while(0)
+    #define VERBOSE_IN() do {} while(0)
+    #define VERBOSE_OUT() do {} while(0)
+    #define VERBOSE_BYTES(...) do {} while(0)
+#endif
 
-class serializable_base {
-public:
-    virtual ~serializable_base()                             = default;
-    virtual void serialize(std::vector<std::byte>& _s) const = 0;
-    virtual void deserialize(std::span<const std::byte>& _d) = 0;
+
+template <auto N>
+struct nttp {
+    constexpr auto operator+() const noexcept { return N; }
+    constexpr operator auto() const noexcept { return N; }
 };
 
-using std::back_inserter;
-using std::begin;
-using std::end;
+template <typename T>
+struct type_c {
+    using type = T;
+    T operator+() const;
+};
+
+namespace policy {
+    namespace endian {
+        inline constexpr auto big    = nttp<std::endian::big>{};
+        inline constexpr auto little = nttp<std::endian::little>{};
+        inline constexpr auto native = nttp<std::endian::native>{};
+
+        using big_t    = decltype(big);
+        using little_t = decltype(little);
+        using native_t = decltype(native);
+    } // namespace endian
+
+    namespace flatcopy {
+        enum class flatcopy { off = 0, on };
+        inline constexpr auto off = nttp<flatcopy::off>{};
+        inline constexpr auto on = nttp<flatcopy::on>{};
+
+        using off_t = decltype(off);
+        using on_t  = decltype(on);
+    } // namespace flatcopy
+
+    template <typename T>
+    using size_type_t = type_c<T>;
+
+    template <typename T>
+    inline constexpr auto size_type = size_type_t<T>{};
+}
+
+template <auto Endian   = policy::endian::little,
+          auto Flatcopy = policy::flatcopy::off,
+          auto SizeType = policy::size_type<uint64_t>>
+struct serialize_policy {
+    template <typename... Ts>
+    serialize_policy(Ts...) {}
+
+    static inline constexpr auto endian    = Endian;
+    static inline constexpr auto flatcopy  = Flatcopy;
+    static inline constexpr auto size_type = SizeType;
+};
+
+namespace details {
+    template <typename F, typename Default, typename T>
+    struct last_type_get_helper {
+        using type = T;
+    };
+
+    template <typename F, typename Default, typename T1, typename T2>
+    auto operator+(last_type_get_helper<F, Default, T1>, last_type_get_helper<F, Default, T2>) {
+        if constexpr (F{}(T2{}))
+            return last_type_get_helper<F, Default, T2>{};
+        else if constexpr (F{}(T1{}))
+            return last_type_get_helper<F, Default, T1>{};
+        else
+            return last_type_get_helper<F, Default, Default>{};
+    }
+}
+
+template <typename F, typename Default, typename... Ts>
+using match_last_type =
+    typename decltype((details::last_type_get_helper<F, Default, Default>{} + ... +
+                       details::last_type_get_helper<F, Default, Ts>{}))::type;
+
+template <typename... Ts>
+constexpr auto get_endian() {
+    constexpr auto f = [](auto v) {
+        return std::is_same_v<decltype(+v), std::endian>;
+    };
+    return match_last_type<decltype(f), decltype(serialize_policy<>::endian), Ts...>{};
+}
+
+template <typename... Ts>
+constexpr auto get_flatcopy() {
+    constexpr auto f = [](auto v) {
+        return std::is_same_v<decltype(+v), policy::flatcopy::flatcopy>;
+    };
+    return match_last_type<decltype(f), decltype(serialize_policy<>::flatcopy), Ts...>{};
+}
+
+template <typename... Ts>
+constexpr auto get_size_type() {
+    constexpr auto f = [](auto v) {
+        return std::unsigned_integral<decltype(+v)>;
+    };
+    return match_last_type<decltype(f), decltype(serialize_policy<>::size_type), Ts...>{};
+}
+
+template <typename T, typename... Ts>
+concept contained_in = (std::same_as<T, Ts> || ... || false);
 
 template <typename T>
-struct dfdh_serialize;
+concept PolicyArg = requires (T p) {
+    {+p} -> contained_in<std::endian, policy::flatcopy::flatcopy, uint8_t, uint16_t, uint32_t, uint64_t>;
+};
+
+template <typename... Ts>
+serialize_policy(Ts...) -> serialize_policy<get_endian<Ts...>(),
+                                            get_flatcopy<Ts...>(),
+                                            get_size_type<Ts...>()>;
+
+template <typename P>
+struct ptr_autocast {
+    template <typename T> requires (sizeof(T) == 1)
+    operator T*() {
+        return reinterpret_cast<T*>(ptr); // NOLINT
+    }
+    P* ptr;
+};
 
 template <typename T>
-struct dfdh_deserialize;
-
-using byte_vector = std::vector<std::byte>;
+concept SerializeBackendFd = requires (T& b) {
+    b.write(ptr_autocast<void>{nullptr}, size_t(0));
+};
 
 template <typename T>
-concept SerializerVec = requires (T v) {
-    {v.data()} -> std::same_as<std::byte*>;
+concept SerializeBackendBuffer = requires (T& b) {
+    b.resize(b.size());
+    std::memcpy(b.data(), nullptr, size_t(0));
+};
+
+template <typename T>
+concept SerializeBackendV = SerializeBackendFd<T> || SerializeBackendBuffer<T>;
+
+template <typename T>
+concept SerializeBackend = SerializeBackendV<T> || SerializeBackendV<std::remove_pointer_t<T>>;
+
+template <typename T>
+concept pointer = std::is_pointer_v<T>;
+
+template <SerializeBackendBuffer B, typename T>
+void backend_write(B&& backend, T* data, size_t count) {
+    auto backend_sz = backend.size();
+    auto sz = count * sizeof(T);
+
+    backend.resize(backend_sz + sz);
+    std::memcpy(backend.data() + backend_sz, data, sz);
+
+    VERBOSE("backend_write: ", std::to_string(sz), " bytes, ", std::to_string(backend.size()), " total");
+    VERBOSE_BYTES(data, sz);
+}
+
+template <SerializeBackendFd B, typename T>
+void backend_write(B&& backend, T* data, size_t count) {
+    auto sz = count * sizeof(T);
+    backend.write(ptr_autocast<T>{data}, sz);
+    VERBOSE("backend_write: ", std::to_string(sz), " bytes");
+    VERBOSE_BYTES(data, sz);
+}
+
+template <SerializeBackendV B, typename T>
+void backend_write(B* backend, T* data, size_t count) {
+    backend_write(*backend, data, count);
+}
+
+template <typename T>
+concept DeserializeBackendBuffer = requires (const T& d) {
+    {d.size()} -> std::convertible_to<size_t>;
+    {d.data()} -> pointer;
+};
+
+template <typename T>
+concept DeserializeBackendFdV = requires (T&& d) {
+    {d.read(ptr_autocast<void>{nullptr}, size_t(0))};
+};
+
+template <typename T>
+concept DeserializeBackendFdPtr = DeserializeBackendFdV<std::remove_pointer_t<T>> && !DeserializeBackendFdV<T>;
+
+template <typename T>
+concept DeserializeBackendFd = DeserializeBackendFdV<T> || DeserializeBackendFdPtr<T>;
+
+template <typename T>
+concept DeserializeBackend = DeserializeBackendFd<T> || DeserializeBackendBuffer<T>;
+
+template <DeserializeBackendBuffer B, typename T>
+void backend_read(B&& backend, T* data, size_t count) {
+    auto backend_sz = backend.size() * sizeof(*backend.data());
+    auto data_sz    = count * sizeof(T);
+    if (backend_sz < data_sz)
+        throw std::out_of_range("deserialize: out of input data range");
+
+    std::memcpy(data, backend.data(), data_sz);
+
+    VERBOSE("backend_read: ", std::to_string(data_sz), " bytes, ", std::to_string(backend.size()), " left");
+    VERBOSE_BYTES(backend.data(), data_sz);
+}
+
+template <DeserializeBackendFdV B, typename T>
+void backend_read(B&& backend, T* data, size_t count) {
+    auto sz   = count * sizeof(T);
+    auto read = backend.read(ptr_autocast<T>{data}, sz);
+
+    VERBOSE("backend_read: ", std::to_string(sz), " bytes");
+    VERBOSE_BYTES(data, sz);
+    /* XXX: check read == count * sizeof(T) */
+}
+
+template <DeserializeBackendFdPtr B, typename T>
+void backend_read(B backend, T* data, size_t count) {
+    backend_read(*backend, data, count);
+}
+
+template <typename T, typename De_Serializer>
+concept HasSerializeMember = requires(const T& v, De_Serializer& s) {
+    v.serialize(s);
+} || requires(T& v, De_Serializer& d) {
+    v.deserialize(d);
+};
+
+template <typename T, typename De_Serializer>
+concept FlatCopyable =
+    +De_Serializer::policy::flatcopy == policy::flatcopy::flatcopy::on &&
+    +De_Serializer::policy::endian == std::endian::native&& std::is_trivial_v<std::decay_t<T>> &&
+    !pointer<std::decay_t<T>> && !HasSerializeMember<T, De_Serializer>;
+
+template <typename T, typename De_Serializer>
+concept Integral = std::integral<T> && !FlatCopyable<T, De_Serializer>;
+
+template <typename T, typename De_Serializer>
+concept UnsignedIntegral = Integral<T, De_Serializer> && std::is_unsigned_v<T>;
+
+template <typename T, typename De_Serializer>
+concept FloatingPoint = std::floating_point<T> && !FlatCopyable<T, De_Serializer>;
+
+template <typename T, typename De_Serializer>
+concept Enum = std::is_enum_v<T> && (!Integral<T, De_Serializer>) && !FlatCopyable<T, De_Serializer>;
+
+template <typename T>
+concept Incrementible = requires (T& v) {
+    ++v;
+};
+
+template <typename T, typename De_Serializer>
+concept SizedRange = requires (const T& v) {
     {v.size()} -> std::convertible_to<size_t>;
-    {v.resize(std::declval<size_t>())};
-    {v.clear()};
+    {v.begin()} -> Incrementible;
+    {v.end()} -> Incrementible;
+} && !FlatCopyable<T, De_Serializer>;
+
+template <typename T, typename De_Serializer>
+concept Tuple = requires { std::tuple_size<std::decay_t<T>>::value; } &&
+                !FlatCopyable<T, De_Serializer> &&
+                !HasSerializeMember<T, De_Serializer>;
+
+template <typename T, typename De_Serializer>
+concept FlatRange = SizedRange<T, De_Serializer> && requires (const T& v) {
+    {v.data()} -> pointer;
+} && !HasSerializeMember<T, De_Serializer>;
+
+
+template <typename T, typename De_Serializer>
+concept TrivialFlatRange = FlatRange<T, De_Serializer> && requires (T&& v) {
+    {*v.data()} -> FlatCopyable<De_Serializer>;
 };
 
-template <typename T>
-concept SerializableExternalF = requires(T& v, byte_vector& b, std::span<const std::byte>& s) {
-    {dfdh_serialize<T>()(v, b)};
-    {dfdh_deserialize<T>()(v, s)};
-};
+namespace ds {
+    template <typename T, typename De_Serializer>
+    concept ResizableFlatRange = FlatRange<T, De_Serializer> && requires (T& v) {
+        v.resize(1);
+    };
 
-template <typename T>
-concept SerializableMemberF = requires(T v, byte_vector& b, std::span<const std::byte>& s) {
-    {v.serialize(b)};
-    {v.deserialize(s)};
-}
-&&!SerializableExternalF<T>;
+    template <typename T, typename De_Serializer>
+    concept ResizableTrivialFlatRange = TrivialFlatRange<T, De_Serializer> && ResizableFlatRange<T, De_Serializer>;
 
-// Array with size < 32 only (prevent std::array<T, 10000000> compile-time jokes)
-template <typename T>
-concept SerializableTupleLike =
-    !SerializableExternalF<T> && !SerializableMemberF<T> &&
-    std::tuple_size<std::remove_const_t<std::remove_reference_t<T>>>::value < 32 &&
-    !std::is_bounded_array_v<T>;
+    template <typename T, typename De_Serializer>
+    concept EmplacibleSizedRange = SizedRange<T, De_Serializer> && requires (T& v) {
+        v.emplace();
+    };
 
-template <typename T>
-concept SerializableIterable =
-    !SerializableExternalF<T> && !SerializableMemberF<T> && !SerializableTupleLike<T> &&
-    !std::is_bounded_array_v<T> && requires(T & t) {
-    begin(t);
-    end(t);
-    back_inserter(t) = *begin(t);
-    end(t) - begin(t);
-};
-
-template <typename T>
-concept SerializableArray =
-    !SerializableExternalF<T> && !SerializableMemberF<T> && !SerializableTupleLike<T> &&
-    !std::is_bounded_array_v<T> && is_std_array<T>::value;
-
-template <typename T>
-concept SerializableMap =
-    !SerializableExternalF<T> && !SerializableMemberF<T> && !SerializableTupleLike<T> &&
-    !SerializableIterable<T> && !SerializableArray<T> && requires(T & t) {
-    begin(t);
-    end(t);
-    t.size();
-    { *begin(t) } -> SerializableTupleLike;
-    t.emplace(get<0>(*begin(t)), get<1>(*begin(t)));
-};
-
-template <size_t size>
-using byte_array = std::array<std::byte, size>;
-
-template <typename... Ts>
-auto make_byte_vector(Ts... bytes) {
-    return std::vector{static_cast<std::byte>(bytes)...};
+    template <typename T, typename De_Serializer>
+    concept PushBackableSizedRange = SizedRange<T, De_Serializer> && requires (T& v) {
+        v.push_back({});
+        v.back();
+    } && !EmplacibleSizedRange<T, De_Serializer> && !ResizableFlatRange<T, De_Serializer>;
 }
 
-template <typename T>
-struct FloatSizeEqualTypeHelper;
+template <typename T, typename De_Serializer>
+concept Optional = requires (T&& v) {
+    static_cast<bool>(v);
+    {*v};
+} && !FlatCopyable<T, De_Serializer> && !HasSerializeMember<T, De_Serializer>;
 
-template <>
-struct FloatSizeEqualTypeHelper<float> {
-    using type = uint32_t;
+template <typename T, typename Serializer>
+concept Serializable = requires (Serializer& s, T&& v) {
+    s.write(v);
 };
 
-template <>
-struct FloatSizeEqualTypeHelper<double> {
-    using type = uint64_t;
+template <typename T, typename Deserializer>
+concept Deserializable = requires (Deserializer& d, T& v) {
+    d.read(v);
 };
 
-template <typename T>
-requires Integral<T> && Unsigned<T>
-inline void serialize(T val, SerializerVec auto& s);
+template <SerializeBackend backend_t, typename Policy = serialize_policy<>>
+struct serializer_base {
+    using policy  = Policy;
+    using size_type = decltype(+Policy::size_type);
 
-template <typename T> requires Integral<T> &&(!Unsigned<T>)
-inline void serialize(T signed_val, SerializerVec auto& s);
+    serializer_base() = default;
 
-template <typename T> requires FloatingPoint<T>
-inline void serialize(T float_val, SerializerVec auto& out);
+    template <typename T>
+    serializer_base(T&& storage): data_holder(std::forward<T>(storage)) {}
 
-template <typename T> requires Enum<T> &&(!Integral<T>)
-inline void serialize(T enum_val, SerializerVec auto& out);
+    template <UnsignedIntegral<serializer_base> T>
+    void write_impl(T v) {
+        VERBOSE("[unsigned integral]: ", std::to_string(v));
 
-template <typename T>
-inline void serialize(const std::optional<T>& o, SerializerVec auto& out);
-
-template <SerializableTupleLike T>
-inline void serialize(const T& p, SerializerVec auto& out);
-
-template <SerializableArray T>
-inline void serialize(const T& vec, SerializerVec auto& out);
-
-template <SerializableIterable T>
-inline void serialize(const T& vec, SerializerVec auto& out);
-
-template <SerializableMap T>
-inline void serialize(const T& map, SerializerVec auto& out);
-
-template <typename T, size_t S>
-inline void serialize(const T (&)[S], SerializerVec auto& out); // NOLINT
-
-template <SerializableMemberF T>
-inline void serialize(const T& v, SerializerVec auto& out) {
-    v.serialize(out);
-}
-
-template <SerializableExternalF T>
-inline void serialize(const T& v, SerializerVec auto& out) {
-    dfdh_serialize<T>()(v, out);
-}
-
-template <typename... Ts>
-static inline void serialize_all(SerializerVec auto& out, const Ts&... args) {
-    ((serialize(args, out)), ...);
-}
-
-
-class serializer_size_reached : public std::out_of_range {
-public:
-    serializer_size_reached(): std::out_of_range("size of buffer reached") {}
-};
-
-template <typename Storage>
-class serializer_tmpl {
-public:
-    serializer_tmpl() = default;
-
-    template <typename... Ts>
-    serializer_tmpl(Ts&&... args): _data(std::forward<Ts>(args)...) {}
-
-    template <typename... Ts>
-    void write(const Ts&... values) {
-        (serialize(values, _data), ...);
+        if constexpr (+policy::endian != std::endian::native)
+            v = bswap(v);
+        backend_write(data_holder, &v, 1);
     }
 
-    [[nodiscard]] Storage& data() {
-        return _data;
+    template <Integral<serializer_base> T>
+    void write_impl(T v) {
+        VERBOSE("[integral]: ", std::to_string(v));
+
+        VERBOSE_IN();
+        write_impl(static_cast<std::make_unsigned_t<T>>(v));
+        VERBOSE_OUT();
     }
 
-    [[nodiscard]] const Storage& data() const {
-        return _data;
+    template <FloatingPoint<serializer_base> T>
+    void write_impl(T v) {
+        VERBOSE("[floating_point]: ", std::to_string(v));
+        using int_t = std::conditional_t<sizeof(T) == 4, uint32_t, uint64_t>;
+        int_t n;
+        memcpy(&n, &v, sizeof(v));
+
+        VERBOSE_IN();
+        write_impl(n);
+        VERBOSE_OUT();
+    }
+
+    template <Optional<serializer_base> T>
+    void write_impl(T v) {
+        VERBOSE("[optional]: ", v);
+
+        auto test = static_cast<bool>(v);
+
+        VERBOSE_IN();
+
+        write_impl(test);
+        if (v)
+            write_impl(*v);
+
+        VERBOSE_OUT();
+    }
+
+    template <Enum<serializer_base> T>
+    void write_impl(T v) {
+        VERBOSE("[enum]: ", v);
+        VERBOSE_IN();
+        write_impl(static_cast<std::underlying_type<T>>(v));
+        VERBOSE_OUT();
+    }
+
+    template <FlatCopyable<serializer_base> T>
+    void write_impl(T&& v) {
+        VERBOSE("[flat_copyable]");
+        VERBOSE_IN();
+        backend_write(data_holder, &v, 1);
+        VERBOSE_OUT();
+    }
+
+    template <TrivialFlatRange<serializer_base> T>
+    void write_impl(T&& v) {
+        VERBOSE("[trivial_flat_range]: size: ", std::to_string(v.size()));
+
+        VERBOSE_IN();
+        write_impl(size_type(v.size()));
+        backend_write(data_holder, v.data(), v.size());
+        VERBOSE_OUT();
+    }
+
+    template <FlatRange<serializer_base> T>
+    void write_impl(T&& v) {
+        VERBOSE("[flat_range]: size: ", std::to_string(v.size()));
+
+        VERBOSE_IN();
+        write_impl(size_type(v.size()));
+        for (auto b = v.data(), e = v.data() + v.size(); b < e; ++b)
+            write_impl(*b);
+        VERBOSE_OUT();
+    }
+
+    template <SizedRange<serializer_base> T>
+    void write_impl(T&& v) {
+        VERBOSE("[sized_range]: size: ", std::to_string(v.size()));
+
+        VERBOSE_IN();
+        write_impl(size_type(v.size()));
+        for (auto&& e : v)
+            write_impl(e);
+        VERBOSE_OUT();
+    }
+
+    template <Tuple<serializer_base> T>
+    void write_impl(T&& v) {
+        VERBOSE("[tuple]: size: ", std::to_string(std::tuple_size_v<std::decay_t<T>>));
+
+        VERBOSE_IN();
+        [this]<size_t... Idxs>(T&& v, std::index_sequence<Idxs...>) {
+            (write_impl(std::get<Idxs>(v)), ...);
+        }(v, std::make_index_sequence<std::tuple_size_v<std::decay_t<T>>>{});
+        VERBOSE_OUT();
+    }
+
+    template <HasSerializeMember<serializer_base> T>
+    void write_impl(T&& v) {
+        VERBOSE("[member serialize]");
+        VERBOSE_IN();
+        v.serialize(*this);
+        VERBOSE_OUT();
+    }
+
+    template <typename T, size_t S>
+    void write_impl(const T(&v)[S]) {
+        VERBOSE("[c_array]: size: ", std::to_string(S));
+
+        VERBOSE_IN();
+        if constexpr (FlatCopyable<T, serializer_base>) {
+            backend_write(data_holder, v, S);
+        }
+        else {
+            for (auto b = v, e = v + S; b < e; ++b)
+                write_impl(*b);
+        }
+        VERBOSE_OUT();
+    }
+
+    template <typename... Ts>
+    void write(Ts&&... args) {
+        (write_impl(std::forward<Ts>(args)), ...);
+    }
+
+    backend_t data_holder;
+};
+
+template <typename T>
+static constexpr bool ready_to_move =
+    std::is_rvalue_reference_v<T> && !std::is_const_v<std::remove_reference_t<T>>;
+
+
+template <typename T>
+constexpr decltype(auto) move_or_ptr(T&& v) {
+    if constexpr (ready_to_move<T&&>)
+        return std::forward<T>(v);
+    else
+        return &v;
+}
+
+template <typename T>
+using serializer_holder_type = std::remove_reference_t<decltype(move_or_ptr(std::declval<T>()))>;
+
+template <typename... Ts>
+auto serialize_policy_f() {
+    return serialize_policy(Ts{}...);
+}
+
+template <typename... Ts>
+using s_policy_t = decltype(serialize_policy_f<Ts...>());
+
+template <SerializeBackend backend_t, PolicyArg... PolicyTs>
+struct serializer
+    : public serializer_base<serializer_holder_type<backend_t>, s_policy_t<PolicyTs...>> {
+    using super = serializer_base<serializer_holder_type<backend_t>, s_policy_t<PolicyTs...>>;
+    template <SerializeBackend T>
+    serializer(T&& data_holder, PolicyTs...): super(move_or_ptr(std::forward<T>(data_holder))) {}
+    serializer() = default;
+};
+
+template <SerializeBackend T, PolicyArg... PolicyTs>
+serializer(T&&, PolicyTs...) -> serializer<T&&, PolicyTs...>;
+
+template <template <typename... Ts> class T, typename... Ts>
+auto tuple_elements_reset_const(T<Ts...>) {
+    return T<std::remove_const_t<Ts>...>{};
+}
+
+template <DeserializeBackend backend_t, typename Policy = serialize_policy<>>
+struct deserializer_base {
+    using policy  = Policy;
+    using size_type = decltype(+Policy::size_type);
+
+    deserializer_base() = default;
+
+    template <typename... Ts>
+    deserializer_base(Ts&&... ibackend): data_remains(std::forward<Ts>(ibackend)...) {}
+
+    template <UnsignedIntegral<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[unsigned_integral]: ", std::to_string(v));
+        VERBOSE_IN();
+
+        read_backend_impl(&v, 1);
+        if constexpr (+policy::endian != std::endian::native)
+            v = bswap(v);
+
+        VERBOSE_OUT();
+    }
+
+    template <Integral<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[integral]: ", std::to_string(v));
+        VERBOSE_IN();
+
+        std::make_unsigned_t<T> result;
+        read_impl(result);
+        v = static_cast<T>(result);
+
+        VERBOSE_OUT();
+    }
+
+    template <FloatingPoint<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[floating_point]: ", std::to_string(v));
+        VERBOSE_IN();
+
+        using int_t = std::conditional_t<sizeof(T) == 4, uint32_t, uint64_t>;
+        int_t n;
+        read_impl(n);
+        memcpy(&v, &n, sizeof(v));
+
+        VERBOSE_OUT();
+    }
+
+    template <Optional<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[optional]");
+        VERBOSE_IN();
+
+        bool contains;
+        read_impl(contains);
+
+        if (contains) {
+            v = std::decay_t<decltype(*v)>{};
+            read_impl(*v);
+        }
+        else
+            v = {};
+
+        VERBOSE_OUT();
+    }
+
+    template <Enum<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[enum]");
+        VERBOSE_IN();
+
+        std::underlying_type<T> res;
+        read_impl(res);
+        v = static_cast<T>(res);
+
+        VERBOSE_OUT();
+    }
+
+    template <FlatCopyable<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[flat_copyable]");
+        VERBOSE_IN();
+
+        read_backend_impl(&v, 1);
+
+        VERBOSE_OUT();
+    }
+
+    template <ds::ResizableTrivialFlatRange<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[resizable_trivial_flat_range]");
+        VERBOSE_IN();
+
+        size_type sz;
+        read_impl(sz);
+
+        size_t old_sz = v.size();
+        auto new_sz = old_sz + sz;
+
+        v.resize(new_sz);
+        read_backend_impl(v.data() + old_sz, sz);
+
+        VERBOSE_OUT();
+    }
+
+    template <TrivialFlatRange<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[trivial_flat_range]");
+        VERBOSE_IN();
+
+        size_type sz;
+        read_impl(sz);
+
+        /* XXX: assert that sz == v.size() */
+
+        read_backend_impl(v.data(), sz);
+
+        VERBOSE_OUT();
+    }
+
+    template <ds::ResizableFlatRange<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[resizable_flat_range]");
+        VERBOSE_IN();
+
+        size_type sz;
+        read_impl(sz);
+
+        size_t old_sz = v.size();
+        auto new_sz = old_sz + sz;
+
+        //try {
+        v.resize(new_sz);
+        //} catch (...) {
+            //print_bytes(data_remains);
+        //    std::abort();
+        //}
+
+        auto p = v.data() + old_sz;
+        for (auto e = p + sz; p < e; ++p)
+            read_impl(*p);
+
+        VERBOSE_OUT();
+    }
+
+    template <FlatRange<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[flat_range]");
+        VERBOSE_IN();
+
+        size_type sz;
+        read_impl(sz);
+
+        /* XXX: assert that sz == v.size() */
+        for (auto p = v.data(), e = v.data() + sz; p < e; ++p)
+            read_impl(*p);
+
+        VERBOSE_OUT();
+    }
+
+    template <ds::EmplacibleSizedRange<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[emplacible_sized_range]");
+        VERBOSE_IN();
+
+        size_type sz;
+        read_impl(sz);
+
+        for (size_type i = 0; i < sz; ++i) {
+            /* *map.begin() returns pair whith const key element
+             * try fix this
+             */
+            decltype(tuple_elements_reset_const(*v.begin())) bucket;
+            read_impl(bucket);
+            v.emplace(std::move(bucket));
+        }
+
+        VERBOSE_OUT();
+    }
+
+    template <ds::PushBackableSizedRange<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[push_backable_sized_range]");
+        VERBOSE_IN();
+
+        size_type sz;
+        read_impl(sz);
+
+        for (size_type i = 0; i < sz; ++i) {
+            v.push_back({});
+            read_impl(v.back());
+        }
+
+        VERBOSE_OUT();
+    }
+
+    template <Tuple<deserializer_base> T>
+    void read_impl(T& v) {
+        VERBOSE("[tuple]: size: ", std::to_string(std::tuple_size_v<std::decay_t<T>>));
+        VERBOSE_IN();
+
+        [this]<size_t... Idxs>(T& v, std::index_sequence<Idxs...>) {
+            (read_impl(std::get<Idxs>(v)), ...);
+        }(v, std::make_index_sequence<std::tuple_size_v<std::decay_t<T>>>{});
+
+        VERBOSE_OUT();
+    }
+
+    template <HasSerializeMember<deserializer_base> T>
+    void read_impl(T&& v) {
+        VERBOSE("[member serialize]");
+        VERBOSE_IN();
+
+        v.deserialize(*this);
+
+        VERBOSE_OUT();
+    }
+
+    template <typename T, size_t S>
+    void read_impl(T(&v)[S]) {
+        VERBOSE("[c_array]: size: ", std::to_string(S));
+        VERBOSE_IN();
+
+        if constexpr (FlatCopyable<T, deserializer_base>) {
+            read_backend_impl(v, S);
+        }
+        else {
+            for (auto b = v, e = v + S; b < e; ++b)
+                read_impl(*b);
+        }
+
+        VERBOSE_OUT();
+    }
+
+    template <typename... Ts>
+    void read(Ts&&... args) {
+        (read_impl(std::forward<Ts>(args)), ...);
+    }
+
+    template <typename T, typename B = backend_t>
+    void read_backend_impl(T* data, size_t count) {
+        backend_read(data_remains, data, count);
+        if constexpr (DeserializeBackendBuffer<B>) {
+            /* Shift remains */
+            auto sz = count * sizeof(T);
+            data_remains = decltype(data_remains){
+                data_remains.data() + sz, data_remains.size() - sz};
+        }
     }
 
     [[nodiscard]]
-    auto detach_data() {
-        auto result = move(_data);
-        _data       = {};
-        return result;
+    size_t available() const {
+        return data_remains.size();
     }
 
-    void reset() {
-        _data.clear();
-    }
-
-private:
-    Storage _data;
+    backend_t data_remains;
 };
 
-using serializer = serializer_tmpl<byte_vector>;
-
 template <typename T>
-requires Integral<T> && Unsigned<T>
-inline void deserialize(T& val, std::span<const std::byte>& in);
-
-template <typename T> requires Integral<T> &&(!Unsigned<T>)
-inline void deserialize(T& out, std::span<const std::byte>& in);
-
-template <typename T> requires FloatingPoint<T>
-inline void deserialize(T& out, std::span<const std::byte>& in);
-
-template <typename T> requires Enum<T> &&(!Integral<T>)
-inline void deserialize(T& out, std::span<const std::byte>& in);
-
+auto deserializer_span(T&& b) {
+    return std::span{b.data(), 1};
+}
 template <typename T>
-inline void deserialize(std::optional<T>& out, std::span<const std::byte>& in);
-
-template <SerializableTupleLike T>
-inline void deserialize(T& p, std::span<const std::byte>& in);
-
-template <SerializableArray T>
-inline void deserialize(T& vec, std::span<const std::byte>& in);
-
-template <SerializableIterable T>
-inline void deserialize(T& vec, std::span<const std::byte>& in);
-
-template <SerializableMap T>
-inline void deserialize(T& map, std::span<const std::byte>& in);
-
-template <typename T, size_t S>
-inline void deserialize(T (&)[S], std::span<const std::byte>& in); // NOLINT
-
-template <SerializableMemberF T>
-inline void deserialize(T& v, std::span<const std::byte>& in) {
-    v.deserialize(in);
-}
-
-template <SerializableExternalF T>
-inline void deserialize(T& v, std::span<const std::byte>& in) {
-    dfdh_deserialize<T>()(v, in);
-}
+using ds_span_t = decltype(deserializer_span(std::declval<T>()));
 
 template <typename... Ts>
-static inline void deserialize_all(std::span<const std::byte>& in, Ts&... args) {
-    ((deserialize(args, in)), ...);
-}
+struct deserializer;
 
-class deserializer_view {
-public:
-    deserializer_view(std::span<const std::byte> range): _range(range) {}
-
-    template <typename... Ts>
-    void read(Ts&... values) {
-        (deserialize(values, _range), ...);
-    }
-
-    template <typename T>
-    T read_get() {
-        T v;
-        read(v);
-        return v;
-    }
-
-private:
-    std::span<const std::byte> _range;
+/**
+ * @brief Buffer-based view deserializer
+ */
+template <DeserializeBackendBuffer backend_t, PolicyArg... PolicyTs>
+struct deserializer<backend_t, PolicyTs...>
+    : public deserializer_base<ds_span_t<backend_t>, s_policy_t<PolicyTs...>> {
+    using super = deserializer_base<ds_span_t<backend_t>, s_policy_t<PolicyTs...>>;
+    deserializer(const backend_t& storage, PolicyTs...): super(storage.data(), storage.size()) {}
 };
 
-//==================== Unsigned Integral
+/**
+ * @brief Buffer-based owning deserializer
+ */
+template <DeserializeBackendBuffer backend_t, PolicyArg... PolicyTs>
+struct deserializer<backend_t&&, PolicyTs...>
+    : public deserializer_base<ds_span_t<backend_t>, s_policy_t<PolicyTs...>> {
+    using super = deserializer_base<ds_span_t<backend_t>, s_policy_t<PolicyTs...>>;
+    deserializer(backend_t&& storage, PolicyTs...):
+        super(storage.data(), storage.size()), data_storage(std::move(storage)) {}
 
-template <typename T> requires Integral<T> && Unsigned<T>
-inline void serialize(T val, SerializerVec auto& out) {
-    if constexpr (std::endian::native == std::endian::big)
-        val = bswap(val);
-
-    out.resize(out.size() + sizeof(T));
-    memcpy(out.data() + out.size() - sizeof(T), &val, sizeof(T));
-}
-
-template <typename T> requires Integral<T> && Unsigned<T>
-inline void deserialize(T& val, std::span<const std::byte>& in) {
-    Expects(sizeof(T) <= static_cast<size_t>(in.size()));
-
-    T value;
-    memcpy(&value, in.data(), sizeof(T));
-    in = in.subspan(sizeof(T));
-
-    if constexpr (std::endian::native == std::endian::big)
-        value = bswap(value);
-
-    val = value;
-}
-
-//===================== Signed Integral
-
-template <typename T> requires Integral<T> &&(!Unsigned<T>)
-inline void serialize(T signed_val, SerializerVec auto& out) {
-    std::make_unsigned_t<T> val;
-    memcpy(&val, &signed_val, sizeof(T));
-
-    serialize(val, out);
-}
-
-template <typename T> requires Integral<T> &&(!Unsigned<T>)
-inline void deserialize(T& out, std::span<const std::byte>& in) {
-    std::make_unsigned_t<T> val;
-
-    deserialize(val, in);
-
-    T value;
-    memcpy(&value, &val, sizeof(T));
-
-    out = value;
-}
-
-//===================== FloatingPoint
-
-template <typename T> requires FloatingPoint<T>
-inline void serialize(T float_val, SerializerVec auto& out) {
-    static_assert(AnyOfType<T, float, double>, "Unsupported floating point type");
-    static_assert(std::numeric_limits<T>::is_iec559, "IEEE 754 required");
-
-    typename FloatSizeEqualTypeHelper<T>::type val;
-    memcpy(&val, &float_val, sizeof(T));
-    serialize(val, out);
-}
-
-template <typename T> requires FloatingPoint<T>
-inline void deserialize(T& out, std::span<const std::byte>& in) {
-    static_assert(AnyOfType<T, float, double>, "Unsupported floating point type");
-    static_assert(std::numeric_limits<T>::is_iec559, "IEEE 754 required");
-
-    typename FloatSizeEqualTypeHelper<T>::type size_eq_int;
-    deserialize(size_eq_int, in);
-
-    T value;
-    memcpy(&value, &size_eq_int, sizeof(T));
-    out = value;
-}
-
-//===================== Enum
-
-template <typename T> requires Enum<T> &&(!Integral<T>)
-inline void serialize(T enum_val, SerializerVec auto& out) {
-    serialize(static_cast<std::underlying_type_t<T>>(enum_val), out);
-}
-
-template <typename T> requires Enum<T> &&(!Integral<T>)
-inline void deserialize(T& out, std::span<const std::byte>& in) {
-    using underlying_t = std::underlying_type_t<T>;
-    underlying_t res;
-    deserialize(res, in);
-    out = static_cast<T>(res);
-}
-
-//===================== Optional
-
-template <typename T>
-inline void serialize(const std::optional<T>& o, SerializerVec auto& out) {
-    serialize(o.has_value(), out);
-    if (o)
-        serialize(*o, out);
-}
-
-template <typename T>
-inline void deserialize(std::optional<T>& out, std::span<const std::byte>& in) {
-    bool has_value;
-    deserialize(has_value, in);
-
-    if (has_value) {
-        T val;
-        deserialize(val, in);
-        out = optional<T>(move(val));
+    void reset_position() {
+        this->data_remains = decltype(this->data_remains){data_storage.data(), data_storage.size()};
     }
-}
 
-//====================== Tuple like
+    backend_t data_storage;
+};
 
-template <SerializableTupleLike T, size_t... idxs>
-inline void serialize_helper(const T& p, SerializerVec auto& out, std::index_sequence<idxs...>&&) {
-    using std::get;
-    (serialize(get<idxs>(p), out), ...);
-}
+/**
+ * @brief Stream-based owning deserializer
+ */
+template <DeserializeBackendFdV backend_t, PolicyArg... PolicyTs>
+struct deserializer<backend_t&&, PolicyTs...>
+    :  public deserializer_base<backend_t, s_policy_t<PolicyTs...>> {
+    using super = deserializer_base<backend_t, s_policy_t<PolicyTs...>>;
+    deserializer(backend_t&& storage, PolicyTs...): super(std::move(storage)) {}
+};
 
-template <SerializableTupleLike T>
-inline void serialize(const T& p, SerializerVec auto& out) {
-    serialize_helper(
-        p, out, std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<T>>>());
-}
+/**
+ * @brief Stream-based not owning deserializer
+ */
+template <DeserializeBackendFdV backend_t, PolicyArg... PolicyTs>
+struct deserializer<backend_t, PolicyTs...>
+    : public deserializer_base<std::add_pointer_t<backend_t>, s_policy_t<PolicyTs...>> {
+    using super = deserializer_base<std::add_pointer_t<backend_t>, s_policy_t<PolicyTs...>>;
+    deserializer(const backend_t& storage, PolicyTs...): super(&storage) {}
+};
 
-template <SerializableTupleLike T, size_t... idxs>
-inline void deserialize_helper(T& p, std::span<const std::byte>& in, std::index_sequence<idxs...>&&) {
-    using std::get;
-    (deserialize(get<idxs>(p), in), ...);
-}
+template <DeserializeBackend backend_t, PolicyArg... PolicyTs>
+deserializer(backend_t&&, PolicyTs...) -> deserializer<std::conditional_t<ready_to_move<backend_t&&>, backend_t&&, backend_t>, PolicyTs...>;
 
-template <SerializableTupleLike T>
-inline void deserialize(T& p, std::span<const std::byte>& in) {
-    deserialize_helper(
-        p, in, std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<T>>>());
-}
-
-//===================== Iterable
-
-// Special for array
-template <SerializableArray T>
-inline void serialize(const T& vec, SerializerVec auto& out) {
-    for (auto p = begin(vec); p != end(vec); ++p) serialize(*p, out);
-}
-
-template <SerializableArray T>
-inline void deserialize(T& vec, std::span<const std::byte>& in) {
-    for (auto& e : vec) deserialize(e, in);
-}
-
-template <SerializableIterable T>
-inline void serialize(const T& vec, SerializerVec auto& out) {
-    serialize(static_cast<u64>(end(vec) - begin(vec)), out);
-
-    for (auto p = begin(vec); p != end(vec); ++p) serialize(*p, out);
-}
-
-template <SerializableIterable T>
-inline void deserialize(T& vec, std::span<const std::byte>& in) {
-    auto inserter = std::back_inserter(vec);
-
-    u64 size;
-    deserialize(size, in);
-
-    for (decltype(size) i = 0; i < size; ++i) {
-        std::decay_t<decltype(*begin(vec))> v;
-        deserialize(v, in);
-        inserter = std::move(v);
-    }
-}
-
-//==================== Map
-template <SerializableMap T>
-void serialize(const T& map, SerializerVec auto& out) {
-    serialize(static_cast<u64>(map.size()), out);
-
-    for (auto p = begin(map); p != end(map); ++p) serialize(*p, out);
-}
-
-template <SerializableMap T>
-void deserialize(T& map, std::span<const std::byte>& in) {
-    u64 size;
-    deserialize(size, in);
-
-    for (decltype(size) i = 0; i < size; ++i) {
-        std::decay_t<decltype(*begin(map))> v;
-        deserialize(v, in);
-        map.emplace(move(v));
-    }
-}
-
-//==================== C-array
-template <typename T, size_t S>
-void serialize(const T (&arr)[S], SerializerVec auto& out) { // NOLINT
-    for (auto& v : arr) serialize(v, out);
-}
-
-template <typename T, size_t S>
-void deserialize(T (&arr)[S], std::span<const std::byte>& in) { // NOLINT
-    for (auto& v : arr) deserialize(v, in);
-}
-
-//===================== Span
-template <typename T>
-void serialize(std::span<const T> data, const T* storage_ptr, SerializerVec auto& out) {
-    if (data.empty()) {
-        serialize(static_cast<u64>(0), out);
-        serialize(static_cast<u64>(0), out);
-    }
-    else {
-        serialize(static_cast<u64>(&(*data.begin()) - storage_ptr), out);
-        serialize(static_cast<u64>(data.size()), out);
-    }
-}
-
-template <typename T>
-void deserialize(std::span<T>& data, T* storage_ptr, std::span<const std::byte>& in) {
-    u64 start, size;
-    deserialize(start, in);
-    deserialize(size, in);
-    data = std::span<T>(storage_ptr + static_cast<ptrdiff_t>(start), static_cast<ptrdiff_t>(size));
-}
-} // namespace core
+} // namespace ss
